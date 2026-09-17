@@ -1,0 +1,6 @@
+{
+  "name": "Gestión Pecuaria - Documentación y Mockups",
+  "description": "Documentación técnica integral, mockups interactivos de UI y flujos de usuario detallados para la app de gestión pecuaria bovina, porcina y avícola.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
