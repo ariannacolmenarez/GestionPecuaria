@@ -6,8 +6,11 @@ import firebaseConfig from '../firebase-applet-config.json';
 // Initialize Firebase App singleton
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Initialize Firestore with configured databaseId (CRITICAL requirement from Firebase skill)
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
+// Initialize Firestore with configured databaseId if present, otherwise use default
+const customDbId = (firebaseConfig as any).firestoreDatabaseId;
+export const db = customDbId && customDbId !== '(default)'
+  ? getFirestore(app, customDbId)
+  : getFirestore(app);
 
 // Initialize Authentication
 export const auth = getAuth(app);

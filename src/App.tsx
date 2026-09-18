@@ -18,6 +18,7 @@ import {
 } from './data/pecuarioData';
 import { FarmMember, SanitaryTask, FinancialMovement, WarehouseItem, PorcinoAnimal, FarmSummary } from './types';
 import { X, Settings, Info } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import { testConnection } from './firebase';
 import { dbService, FARM_ID } from './services/dbService';
 
@@ -162,6 +163,167 @@ Stack: React Native (Expo) / Flutter + Firebase Authentication + Cloud Firestore
     setInfoToast(msg);
     setTimeout(() => setInfoToast(null), 3000);
   };
+
+  const isNative = Capacitor.isNativePlatform();
+
+  if (isNative) {
+    return (
+      <div id="app-root-container" className="flex flex-col h-screen w-screen bg-slate-900 text-slate-100 overflow-hidden font-sans select-none">
+        {/* Header */}
+        <GranjaHeader
+          title={mockupScreen === 'home' ? 'Granja Arianna' : 'Menú Porcino'}
+          members={summary.members}
+          onOpenMembers={() => setShowMembersModal(true)}
+          onOpenSettings={() => setShowSettingsModal(true)}
+          showBack={mockupScreen !== 'home'}
+          onBack={() => setMockupScreen('home')}
+        />
+
+        {/* Info Toast Notification */}
+        {infoToast && (
+          <div className="fixed top-16 right-4 left-4 z-60 bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-top-4">
+            <Info className="w-4 h-4" /> {infoToast}
+          </div>
+        )}
+
+        {/* Notificación de actividades estimadas para hoy */}
+        {showPushBanner && todayPendingTasks.length > 0 && (
+          <PhoneNotificationBanner
+            todayTasks={todayPendingTasks}
+            todayPendingTasks={todayPendingTasks}
+            onOpenAlerts={() => setShowAlertsModal(true)}
+            onDismiss={() => setShowPushBanner(false)}
+          />
+        )}
+
+        {/* Dynamic Screen View */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-white text-slate-900">
+          {mockupScreen === 'home' ? (
+            <HomeDashboard
+              summary={summary}
+              onNavigateToPorcino={() => setMockupScreen('porcino')}
+              onNavigateToBovino={() =>
+                triggerToast('Módulo Bovino: Padrotes (3), Becerros (28) y Vacas (54) registrados.')
+              }
+              onNavigateToAvicola={() =>
+                triggerToast('Módulo Avícola: 1,250 Pollos de engorde en Galpón 2.')
+              }
+              onOpenFinancials={() => setMockupScreen('porcino')}
+              onOpenAlerts={() => setShowAlertsModal(true)}
+              tasksCountToday={todayPendingTasks.length}
+            />
+          ) : (
+            <MenuPorcino
+              summary={summary}
+              animals={animals}
+              tasks={tasks}
+              movements={movements}
+              warehouseItems={warehouseItems}
+              onBackToHome={() => setMockupScreen('home')}
+              onUpdateTasks={handleUpdateTasks}
+              onUpdateMovements={handleUpdateMovements}
+              onUpdateWarehouse={handleUpdateWarehouse}
+              onUpdateAnimals={handleUpdateAnimals}
+              onUpdateSummary={handleUpdateSummary}
+            />
+          )}
+        </div>
+
+        {/* Bottom Navigation */}
+        <BottomNav
+          activeScreen={mockupScreen}
+          onNavigate={(screen) => {
+            if (screen === 'home') setMockupScreen('home');
+            if (screen === 'porcino') setMockupScreen('porcino');
+            if (screen === 'sanitario' || screen === 'balance') setMockupScreen('porcino');
+            if (screen === 'almacen') setShowAlertsModal(true);
+          }}
+          notificationCount={totalNotifications}
+        />
+
+        {/* Alerts Center Modal */}
+        {showAlertsModal && (
+          <AlertsCenterModal
+            tasks={tasks}
+            warehouseItems={warehouseItems}
+            onClose={() => setShowAlertsModal(false)}
+            onNavigateToCalendar={() => {
+              setShowAlertsModal(false);
+              setMockupScreen('porcino');
+            }}
+            onToggleTaskStatus={(taskId) => {
+              const updated = tasks.map((t) =>
+                t.id === taskId
+                  ? { ...t, status: t.status === 'completada' ? ('pendiente' as const) : ('completada' as const) }
+                  : t
+              );
+              handleUpdateTasks(updated);
+            }}
+            onCompleteTask={(taskId) => {
+              const updated = tasks.map((t) =>
+                t.id === taskId ? { ...t, status: 'completada' as const } : t
+              );
+              handleUpdateTasks(updated);
+            }}
+            onSimulateNotification={() => {
+              setShowPushBanner(true);
+              triggerToast('🔔 Notificación push emitida al teléfono: Tareas Sanitarias de Hoy.');
+            }}
+          />
+        )}
+
+        {/* Members Modal */}
+        {showMembersModal && (
+          <MembersModal
+            members={summary.members}
+            onClose={() => setShowMembersModal(false)}
+            onInviteMember={handleInviteMember}
+          />
+        )}
+
+        {/* Settings Modal */}
+        {showSettingsModal && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white text-slate-900 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3 text-xs">
+              <div className="flex justify-between items-center">
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                  <Settings className="w-4 h-4 text-slate-700" /> Configuración de la Granja
+                </h4>
+                <button
+                  onClick={() => setShowSettingsModal(false)}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-[10px] text-slate-400 block font-bold">NOMBRE DE LA EXPLOTACIÓN</span>
+                  <span className="font-bold text-slate-800 text-sm">Granja Arianna</span>
+                </div>
+                <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-[10px] text-slate-400 block font-bold">RUBROS HABILITADOS</span>
+                  <span className="font-semibold text-slate-700">Porcino (Principal), Bovino y Avícola</span>
+                </div>
+                <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-[10px] text-slate-400 block font-bold">BASE DE DATOS & SINCRONIZACIÓN</span>
+                  <span className="font-semibold text-emerald-700">Conectado a Firebase Cloud Firestore</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowSettingsModal(false)}
+                className="w-full py-2 bg-slate-900 text-white rounded-xl font-bold mt-2 cursor-pointer hover:bg-slate-800 transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div id="app-root-container" className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
