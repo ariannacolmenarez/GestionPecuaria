@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "Farm": {
+      "title": "Farm",
+      "description": "Granja pecuaria con indicadores de rebaño y balance general",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "location": { "type": "string", "maxLength": 150 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "totalAnimals": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "ownerId"]
+    },
+    "PorcinoAnimal": {
+      "title": "PorcinoAnimal",
+      "description": "Ficha zootécnica y sanitaria de animal o lote porcino",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 50 },
+        "name": { "type": "string", "maxLength": 100 },
+        "category": {
+          "type": "string",
+          "enum": ["engorde", "maternidad", "verracos", "lechones"]
+        },
+        "birthDate": { "type": "string", "maxLength": 30 },
+        "currentWeightKg": { "type": "number" },
+        "healthStatus": {
+          "type": "string",
+          "enum": ["Optimo", "Tratamiento", "En Observación", "Gestante", "Lactante", "Matadero", "Descarte"]
+        },
+        "stage": { "type": "string", "maxLength": 100 },
+        "accumulatedCostUsd": { "type": "number" },
+        "breed": { "type": "string", "maxLength": 50 },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "batchAnimalCount": { "type": "number" },
+        "isSoldToSlaughter": { "type": "boolean" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "code", "category", "healthStatus", "ownerId"]
+    },
+    "AnimalTraceEvent": {
+      "title": "AnimalTraceEvent",
+      "description": "Evento de trazabilidad individual o por lote",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "animalId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 30 },
+        "type": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "responsible": { "type": "string", "maxLength": 100 },
+        "costUsd": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "animalId", "type", "title", "ownerId"]
+    },
+    "UnifiedSale": {
+      "title": "UnifiedSale",
+      "description": "Liquidación de venta comercial o salida a matadero",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "animalCode": { "type": "string", "maxLength": 50 },
+        "buyer": { "type": "string", "maxLength": 100 },
+        "saleMode": { "type": "string", "enum": ["pie", "canal"] },
+        "date": { "type": "string", "maxLength": 30 },
+        "animalsCount": { "type": "number" },
+        "totalWeightKg": { "type": "number" },
+        "pricePerKg": { "type": "number" },
+        "grossRevenueUsd": { "type": "number" },
+        "totalExpensesUsd": { "type": "number" },
+        "netProfitUsd": { "type": "number" },
+        "ownerId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "buyer", "saleMode", "grossRevenueUsd", "ownerId"]
+    }
+  },
+  "firestore": {
+    "/farms/{farmId}": {
+      "schema": "Farm",
+      "description": "Datos maestros de la granja pecuaria"
+    },
+    "/farms/{farmId}/animals/{animalId}": {
+      "schema": "PorcinoAnimal",
+      "description": "Animales y lotes de engorde/maternidad/verracos del rebaño"
+    },
+    "/farms/{farmId}/animals/{animalId}/events/{eventId}": {
+      "schema": "AnimalTraceEvent",
+      "description": "Historial de trazabilidad y sanidad del animal o lote"
+    },
+    "/farms/{farmId}/sales/{saleId}": {
+      "schema": "UnifiedSale",
+      "description": "Liquidaciones de ventas y salidas a matadero registradas"
+    }
+  }
+}
