@@ -1,0 +1,6 @@
+{
+  "name": "Gestión Pecuaria",
+  "description": "Sistema de gestión pecuaria para el control y seguimiento de ganado bovino, porcino y avícola.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

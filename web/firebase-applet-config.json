@@ -1,0 +1,9 @@
+{
+  "apiKey": "AIzaSyDemoKeyForOfflineLocalModeOnly",
+  "authDomain": "gestion-pecuaria-granja.firebaseapp.com",
+  "projectId": "gestion-pecuaria-granja",
+  "storageBucket": "gestion-pecuaria-granja.appspot.com",
+  "messagingSenderId": "109876543210",
+  "appId": "1:109876543210:web:9876543210abcdef",
+  "firestoreDatabaseId": "(default)"
+}
