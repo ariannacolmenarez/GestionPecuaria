@@ -1,16 +1,82 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Permisos para la gestión pecuaria de la granja (online y offline)
+
+    // Reglas maestras para la Granja Pecuaria
     match /farms/{farmId} {
       allow read, write: if true;
-      
+
+      // Subcolección de animales y lotes porcinos
+      match /animals/{animalId} {
+        allow read, write: if true;
+        
+        match /events/{eventId} {
+          allow read, write: if true;
+        }
+      }
+
+      // Subcolección de camadas lactantes y destetes
+      match /litters/{litterId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de hato bovino
+      match /bovino/{bovinoId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de lotes avícolas
+      match /avicola/{lotId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de tareas del plan sanitario
+      match /tasks/{taskId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de movimientos contables y flujo de caja
+      match /movements/{movementId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de inventario de almacén e insumos
+      match /warehouse/{itemId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de liquidaciones de ventas y faena
+      match /sales/{saleId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de planes de alimentación
+      match /feeding_plans/{planId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de configuraciones de protocolos
+      match /batch_configs/{configId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de lotes de producción
+      match /production_batches/{batchId} {
+        allow read, write: if true;
+      }
+
+      // Subcolección de resumen y métricas de granja
+      match /summary/{summaryId} {
+        allow read, write: if true;
+      }
+
+      // Catch-all para cualquier otra subcolección operativa
       match /{allChildren=**} {
         allow read, write: if true;
       }
     }
 
-    // Documento de verificación de conexión
+    // Documento de verificación de conectividad
     match /test/{testId} {
       allow read, write: if true;
     }

@@ -2,17 +2,17 @@
   "entities": {
     "Farm": {
       "title": "Farm",
-      "description": "Granja pecuaria con indicadores de rebaño y balance general",
+      "description": "Granja pecuaria con indicadores consolidados de rebaño y balance financiero",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "name": { "type": "string", "maxLength": 100 },
         "location": { "type": "string", "maxLength": 150 },
-        "ownerId": { "type": "string", "maxLength": 128 },
+        "totalMembers": { "type": "number" },
         "totalAnimals": { "type": "number" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "name", "ownerId"]
+      "required": ["id", "name"]
     },
     "PorcinoAnimal": {
       "title": "PorcinoAnimal",
@@ -35,34 +35,132 @@
         "stage": { "type": "string", "maxLength": 100 },
         "accumulatedCostUsd": { "type": "number" },
         "breed": { "type": "string", "maxLength": 50 },
+        "origin": { "type": "string", "maxLength": 50 },
+        "penLocation": { "type": "string", "maxLength": 100 },
         "photoUrl": { "type": "string", "maxLength": 500 },
         "batchAnimalCount": { "type": "number" },
         "isSoldToSlaughter": { "type": "boolean" },
-        "ownerId": { "type": "string", "maxLength": 128 },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "code", "category", "healthStatus", "ownerId"]
+      "required": ["id", "code", "category", "healthStatus"]
     },
-    "AnimalTraceEvent": {
-      "title": "AnimalTraceEvent",
-      "description": "Evento de trazabilidad individual o por lote",
+    "LactatingLitter": {
+      "title": "LactatingLitter",
+      "description": "Camada de lechones en lactancia vinculada a cerda madre con control de prorrateo",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
-        "animalId": { "type": "string", "maxLength": 128 },
-        "date": { "type": "string", "maxLength": 30 },
-        "type": { "type": "string", "maxLength": 50 },
-        "title": { "type": "string", "maxLength": 100 },
-        "description": { "type": "string", "maxLength": 500 },
-        "responsible": { "type": "string", "maxLength": 100 },
-        "costUsd": { "type": "number" },
-        "ownerId": { "type": "string", "maxLength": 128 }
+        "batchCode": { "type": "string", "maxLength": 50 },
+        "sowCode": { "type": "string", "maxLength": 50 },
+        "birthDate": { "type": "string", "maxLength": 30 },
+        "currentCount": { "type": "number" },
+        "initialCount": { "type": "number" },
+        "malesCount": { "type": "number" },
+        "femalesCount": { "type": "number" },
+        "mortalityCount": { "type": "number" },
+        "bornAlive": { "type": "number" },
+        "ageDays": { "type": "number" },
+        "currentWeightKg": { "type": "number" },
+        "weaningStatus": { "type": "string", "enum": ["en_lactancia", "destetado"] }
       },
-      "required": ["id", "animalId", "type", "title", "ownerId"]
+      "required": ["id", "batchCode", "sowCode", "currentCount", "initialCount"]
+    },
+    "BovinoAnimal": {
+      "title": "BovinoAnimal",
+      "description": "Ficha zootécnica de ejemplar vacuno (vaca lechera, padrote o becerro)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "tag": { "type": "string", "maxLength": 50 },
+        "name": { "type": "string", "maxLength": 100 },
+        "type": { "type": "string", "enum": ["padrote", "vaca_lactante", "vaca_seca", "becerro"] },
+        "breed": { "type": "string", "maxLength": 80 },
+        "weight": { "type": "number" },
+        "dailyLiters": { "type": "number" },
+        "status": { "type": "string", "maxLength": 50 },
+        "paddock": { "type": "string", "maxLength": 100 },
+        "lastMilkingDate": { "type": "string", "maxLength": 30 }
+      },
+      "required": ["id", "tag", "type", "weight"]
+    },
+    "AvicolaLot": {
+      "title": "AvicolaLot",
+      "description": "Lote avícola de pollos de engorde con métricas zootécnicas de FCR y biomasa",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 50 },
+        "shed": { "type": "string", "maxLength": 100 },
+        "breed": { "type": "string", "maxLength": 50 },
+        "initial": { "type": "number" },
+        "current": { "type": "number" },
+        "age": { "type": "number" },
+        "avgWeightGrams": { "type": "number" },
+        "feedTotalKg": { "type": "number" },
+        "fcr": { "type": "number" },
+        "status": { "type": "string", "maxLength": 50 },
+        "startDate": { "type": "string", "maxLength": 30 }
+      },
+      "required": ["id", "code", "initial", "current"]
+    },
+    "SanitaryTask": {
+      "title": "SanitaryTask",
+      "description": "Actividad o tarea del cronograma veterinario preventivo y curativo",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 120 },
+        "date": { "type": "string", "maxLength": 30 },
+        "targetRubro": { "type": "string", "enum": ["porcino", "bovino", "avicola"] },
+        "targetGroup": { "type": "string", "maxLength": 120 },
+        "targetAnimal": { "type": "string", "maxLength": 100 },
+        "batchCode": { "type": "string", "maxLength": 50 },
+        "procedure": { "type": "string", "maxLength": 500 },
+        "medicamentUsed": { "type": "string", "maxLength": 120 },
+        "dosage": { "type": "string", "maxLength": 80 },
+        "responsible": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["completada", "pendiente", "retrasada"] }
+      },
+      "required": ["id", "title", "date", "targetRubro", "status"]
+    },
+    "FinancialMovement": {
+      "title": "FinancialMovement",
+      "description": "Transacción contable de ingreso o egreso operativo de la granja",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["ingreso", "egreso"] },
+        "concept": { "type": "string", "maxLength": 200 },
+        "rubro": { "type": "string", "enum": ["porcino", "bovino", "avicola", "general"] },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "maxLength": 30 },
+        "category": { "type": "string", "maxLength": 80 },
+        "details": { "type": "string", "maxLength": 300 }
+      },
+      "required": ["id", "type", "concept", "rubro", "amount", "date"]
+    },
+    "WarehouseItem": {
+      "title": "WarehouseItem",
+      "description": "Insumo físico en almacén con control de stock y meses de cobertura proyectada",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "category": { "type": "string", "enum": ["alimentos", "medicinas", "otros"] },
+        "subCategory": { "type": "string", "maxLength": 100 },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string", "maxLength": 50 },
+        "unitCostUsd": { "type": "number" },
+        "minAlertThreshold": { "type": "number" },
+        "monthlyConsumptionRate": { "type": "number" },
+        "expirationDate": { "type": "string", "maxLength": 30 },
+        "supplier": { "type": "string", "maxLength": 120 }
+      },
+      "required": ["id", "name", "category", "quantity", "unit", "monthlyConsumptionRate"]
     },
     "UnifiedSale": {
       "title": "UnifiedSale",
-      "description": "Liquidación de venta comercial o salida a matadero",
+      "description": "Liquidación de venta comercial o salida a matadero en pie o canal",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
@@ -72,31 +170,91 @@
         "date": { "type": "string", "maxLength": 30 },
         "animalsCount": { "type": "number" },
         "totalWeightKg": { "type": "number" },
+        "averageLiveWeightKg": { "type": "number" },
+        "carcassYieldPercent": { "type": "number" },
+        "carcassWeightKg": { "type": "number" },
         "pricePerKg": { "type": "number" },
         "grossRevenueUsd": { "type": "number" },
         "totalExpensesUsd": { "type": "number" },
         "netProfitUsd": { "type": "number" },
-        "ownerId": { "type": "string", "maxLength": 128 }
+        "profitMarginPercent": { "type": "number" },
+        "paymentMethod": { "type": "string", "maxLength": 50 }
       },
-      "required": ["id", "buyer", "saleMode", "grossRevenueUsd", "ownerId"]
+      "required": ["id", "buyer", "saleMode", "grossRevenueUsd"]
+    },
+    "FeedingPlan": {
+      "title": "FeedingPlan",
+      "description": "Plan nutricional por etapas zootécnicas y consumo diario",
+      "type": "object",
+      "properties": {
+        "productionType": { "type": "string", "maxLength": 50 },
+        "typeName": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 300 },
+        "phases": { "type": "array" }
+      },
+      "required": ["productionType", "typeName"]
+    },
+    "ProductionBatch": {
+      "title": "ProductionBatch",
+      "description": "Lote de producción activo con protocolo sanitario y cronograma asignado",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 50 },
+        "productionType": { "type": "string", "maxLength": 50 },
+        "animalCount": { "type": "number" },
+        "location": { "type": "string", "maxLength": 100 },
+        "startDate": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["activo", "finalizado"] },
+        "protocolId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "code", "productionType", "animalCount", "startDate"]
     }
   },
   "firestore": {
     "/farms/{farmId}": {
       "schema": "Farm",
-      "description": "Datos maestros de la granja pecuaria"
+      "description": "Datos maestros de la granja pecuaria y resumen financiero consolidado"
     },
     "/farms/{farmId}/animals/{animalId}": {
       "schema": "PorcinoAnimal",
       "description": "Animales y lotes de engorde/maternidad/verracos del rebaño"
     },
-    "/farms/{farmId}/animals/{animalId}/events/{eventId}": {
-      "schema": "AnimalTraceEvent",
-      "description": "Historial de trazabilidad y sanidad del animal o lote"
+    "/farms/{farmId}/litters/{litterId}": {
+      "schema": "LactatingLitter",
+      "description": "Camadas lactantes, mortalidad predestete y prorrateo de costos"
+    },
+    "/farms/{farmId}/bovino/{bovinoId}": {
+      "schema": "BovinoAnimal",
+      "description": "Hato bovino (vacas lecheras, padrotes y becerros)"
+    },
+    "/farms/{farmId}/avicola/{lotId}": {
+      "schema": "AvicolaLot",
+      "description": "Lotes avícolas de pollo de engorde, biomasa y conversión FCR"
+    },
+    "/farms/{farmId}/tasks/{taskId}": {
+      "schema": "SanitaryTask",
+      "description": "Tareas del plan sanitario preventivo y curativo"
+    },
+    "/farms/{farmId}/movements/{movementId}": {
+      "schema": "FinancialMovement",
+      "description": "Libro de ingresos y egresos contables por rubro pecuario"
+    },
+    "/farms/{farmId}/warehouse/{itemId}": {
+      "schema": "WarehouseItem",
+      "description": "Inventario de insumos (alimentos, medicinas) con proyección de cobertura"
     },
     "/farms/{farmId}/sales/{saleId}": {
       "schema": "UnifiedSale",
       "description": "Liquidaciones de ventas y salidas a matadero registradas"
+    },
+    "/farms/{farmId}/feeding_plans/{planId}": {
+      "schema": "FeedingPlan",
+      "description": "Planes y fases técnicas de alimentación"
+    },
+    "/farms/{farmId}/production_batches/{batchId}": {
+      "schema": "ProductionBatch",
+      "description": "Lotes de producción activos con cronograma asociado"
     }
   }
 }

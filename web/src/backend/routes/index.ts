@@ -9,9 +9,11 @@ import bovinoRoutes from './bovinoRoutes';
 import avicolaRoutes from './avicolaRoutes';
 import alertRoutes from './alertRoutes';
 import porcinoRoutes from './porcinoRoutes';
+import databaseRoutes from './databaseRoutes';
 
 const apiRouter = Router();
 
+apiRouter.use('/database', databaseRoutes);
 apiRouter.use('/porcino', porcinoRoutes);
 apiRouter.use('/animals', animalRoutes);
 apiRouter.use('/reproduction', reproductionRoutes);

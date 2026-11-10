@@ -1,0 +1,9 @@
+node_modules
+.git
+.github
+.gradle
+.idea
+android
+build
+.build-outputs
+*.log

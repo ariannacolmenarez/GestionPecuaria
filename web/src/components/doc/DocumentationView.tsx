@@ -13,11 +13,18 @@ import {
   ChevronUp,
   Download,
   Share2,
+  Smartphone,
+  ExternalLink,
+  Sliders,
+  Database,
+  ArrowRight,
 } from 'lucide-react';
 import { userStoriesDoc, techStackRecommendations, userFlowSteps } from '../../data/documentationData';
+import { screensMockupsCatalog } from '../../data/screensMockupsData';
 
 export const DocumentationView: React.FC = () => {
-  const [activeDocTab, setActiveDocTab] = useState<'historias' | 'flujos' | 'stack' | 'schemas' | 'formulas'>('historias');
+  const [activeDocTab, setActiveDocTab] = useState<'mockups' | 'historias' | 'flujos' | 'stack' | 'schemas' | 'formulas'>('mockups');
+  const [selectedMockupId, setSelectedMockupId] = useState<string>('home_dashboard');
   const [expandedHU, setExpandedHU] = useState<string | null>('HU-01');
   const [copied, setCopied] = useState(false);
 
