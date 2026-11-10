@@ -83,6 +83,8 @@ export default function App() {
     handleUpdateFeedingPlans,
     handleUpdateBatchConfigs,
     handleStartNewBatch,
+    handleClearAllTestData,
+    handleRestoreSampleData,
   } = useFarmController();
 
   const isNative = Capacitor.isNativePlatform();
@@ -199,7 +201,11 @@ export default function App() {
         )}
 
         {showSettingsModal && (
-          <SettingsModalView onClose={() => setShowSettingsModal(false)} />
+          <SettingsModalView
+            onClose={() => setShowSettingsModal(false)}
+            onClearTestData={handleClearAllTestData}
+            onRestoreSampleData={handleRestoreSampleData}
+          />
         )}
 
         {showBovinoModal && (
@@ -389,7 +395,11 @@ export default function App() {
       )}
 
       {showSettingsModal && (
-        <SettingsModalView onClose={() => setShowSettingsModal(false)} />
+        <SettingsModalView
+          onClose={() => setShowSettingsModal(false)}
+          onClearTestData={handleClearAllTestData}
+          onRestoreSampleData={handleRestoreSampleData}
+        />
       )}
 
       {showBovinoModal && (

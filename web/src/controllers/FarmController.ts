@@ -51,6 +51,7 @@ import {
   FARM_ID,
   initialBovinoHerdSample,
   initialAvicolaLotsSample,
+  isBlankMode,
 } from '../services/dbService';
 
 export type MainAppView = 'mockup' | 'documentation' | 'mvc';
@@ -64,14 +65,40 @@ export function useFarmController() {
   const [copiedSpec, setCopiedSpec] = useState<boolean>(false);
 
   // Domain Model States (Porcino, Bovino, Avicola, Finanzas, Almacén)
-  const [summary, setSummary] = useState<FarmSummary>(granjaSummaryData);
-  const [animals, setAnimals] = useState<PorcinoAnimal[]>(porcinoAnimalsSample);
-  const [litters, setLitters] = useState<LactatingLitter[]>(initialLactatingLitters);
-  const [tasks, setTasks] = useState<SanitaryTask[]>(sanitaryTasksAugust2026);
-  const [movements, setMovements] = useState<FinancialMovement[]>(financialMovementsPorcino);
-  const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>(warehouseItemsData);
-  const [bovinoHerd, setBovinoHerd] = useState<BovinoAnimal[]>(initialBovinoHerdSample);
-  const [avicolaLots, setAvicolaLots] = useState<AvicolaLot[]>(initialAvicolaLotsSample);
+  const isBlank = isBlankMode();
+  const [summary, setSummary] = useState<FarmSummary>(() =>
+    isBlank
+      ? {
+          name: 'Granja Arianna',
+          location: 'Sector Pecuario Central',
+          totalMembers: 1,
+          members: granjaSummaryData.members.slice(0, 1),
+          finances: {
+            period: 'Agosto 2026',
+            totalExpenses: 0,
+            totalIncome: 0,
+            netUtility: 0,
+            byRubro: [
+              { rubro: 'Bovina', expenses: 0, income: 0, utility: 0, color: '#3b82f6' },
+              { rubro: 'Porcina', expenses: 0, income: 0, utility: 0, color: '#e11d48' },
+              { rubro: 'Avícola', expenses: 0, income: 0, utility: 0, color: '#eab308' },
+            ],
+          },
+          counts: {
+            avicola: { pollosEngorde: 0 },
+            porcino: { productoras: 0, lechones: 0, verracos: 0, engorde: 0 },
+            bovino: { padrotes: 0, becerros: 0, vacas: 0 },
+          },
+        }
+      : granjaSummaryData
+  );
+  const [animals, setAnimals] = useState<PorcinoAnimal[]>(() => (isBlank ? [] : porcinoAnimalsSample));
+  const [litters, setLitters] = useState<LactatingLitter[]>(() => (isBlank ? [] : initialLactatingLitters));
+  const [tasks, setTasks] = useState<SanitaryTask[]>(() => (isBlank ? [] : sanitaryTasksAugust2026));
+  const [movements, setMovements] = useState<FinancialMovement[]>(() => (isBlank ? [] : financialMovementsPorcino));
+  const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>(() => (isBlank ? [] : warehouseItemsData));
+  const [bovinoHerd, setBovinoHerd] = useState<BovinoAnimal[]>(() => (isBlank ? [] : initialBovinoHerdSample));
+  const [avicolaLots, setAvicolaLots] = useState<AvicolaLot[]>(() => (isBlank ? [] : initialAvicolaLotsSample));
 
   // Feeding & Batch Production States
   const [feedingPlans, setFeedingPlans] = useState<ProductionFeedingPlan[]>(productionFeedingPlansDefault);
@@ -91,34 +118,34 @@ export function useFarmController() {
   useEffect(() => {
     dbService.initializeDatabase(FARM_ID).then(() => {
       dbService.getAnimals(FARM_ID).then((a) => {
-        if (a && a.length > 0) setAnimals(a);
+        if (a) setAnimals(a);
       });
       dbService.getLitters(FARM_ID).then((l) => {
-        if (l && l.length > 0) setLitters(l);
+        if (l) setLitters(l);
       });
       dbService.getTasks(FARM_ID).then((t) => {
-        if (t && t.length > 0) setTasks(t);
+        if (t) setTasks(t);
       });
       dbService.getMovements(FARM_ID).then((m) => {
-        if (m && m.length > 0) setMovements(m);
+        if (m) setMovements(m);
       });
       dbService.getWarehouseItems(FARM_ID).then((w) => {
-        if (w && w.length > 0) setWarehouseItems(w);
+        if (w) setWarehouseItems(w);
       });
       dbService.getBovinoHerd(FARM_ID).then((b) => {
-        if (b && b.length > 0) setBovinoHerd(b);
+        if (b) setBovinoHerd(b);
       });
       dbService.getAvicolaLots(FARM_ID).then((av) => {
-        if (av && av.length > 0) setAvicolaLots(av);
+        if (av) setAvicolaLots(av);
       });
       dbService.getFeedingPlans(FARM_ID).then((fp) => {
-        if (fp && fp.length > 0) setFeedingPlans(fp);
+        if (fp) setFeedingPlans(fp);
       });
       dbService.getBatchConfigs(FARM_ID).then((bc) => {
-        if (bc && bc.length > 0) setBatchConfigs(bc);
+        if (bc) setBatchConfigs(bc);
       });
       dbService.getProductionBatches(FARM_ID).then((pb) => {
-        if (pb && pb.length > 0) setProductionBatches(pb);
+        if (pb) setProductionBatches(pb);
       });
       dbService.getFarmSummary(FARM_ID).then((s) => {
         if (s) setSummary(s);
@@ -126,40 +153,40 @@ export function useFarmController() {
     });
 
     const unsubAnimals = dbService.subscribeAnimals(FARM_ID, (liveAnimals) => {
-      if (liveAnimals && liveAnimals.length > 0) {
+      if (liveAnimals) {
         setAnimals(liveAnimals);
         setSummary((prev) => reconcileAllFarmCounts(prev, liveAnimals, litters, bovinoHerd, avicolaLots));
       }
     });
     const unsubLitters = dbService.subscribeLitters(FARM_ID, (liveLitters) => {
-      if (liveLitters && liveLitters.length > 0) {
+      if (liveLitters) {
         setLitters(liveLitters);
         setSummary((prev) => reconcileAllFarmCounts(prev, animals, liveLitters, bovinoHerd, avicolaLots));
       }
     });
     const unsubTasks = dbService.subscribeTasks(FARM_ID, (liveTasks) => {
-      if (liveTasks && liveTasks.length > 0) setTasks(liveTasks);
+      if (liveTasks) setTasks(liveTasks);
     });
     const unsubMovements = dbService.subscribeMovements(FARM_ID, (liveMovements) => {
-      if (liveMovements && liveMovements.length > 0) setMovements(liveMovements);
+      if (liveMovements) setMovements(liveMovements);
     });
     const unsubWarehouse = dbService.subscribeWarehouse(FARM_ID, (liveItems) => {
-      if (liveItems && liveItems.length > 0) setWarehouseItems(liveItems);
+      if (liveItems) setWarehouseItems(liveItems);
     });
     const unsubBovino = dbService.subscribeBovinoHerd(FARM_ID, (liveHerd) => {
-      if (liveHerd && liveHerd.length > 0) {
+      if (liveHerd) {
         setBovinoHerd(liveHerd);
         setSummary((prev) => reconcileAllFarmCounts(prev, animals, litters, liveHerd, avicolaLots));
       }
     });
     const unsubAvicola = dbService.subscribeAvicolaLots(FARM_ID, (liveLots) => {
-      if (liveLots && liveLots.length > 0) {
+      if (liveLots) {
         setAvicolaLots(liveLots);
         setSummary((prev) => reconcileAllFarmCounts(prev, animals, litters, bovinoHerd, liveLots));
       }
     });
     const unsubFeeding = dbService.subscribeFeedingPlans(FARM_ID, (livePlans) => {
-      if (livePlans && livePlans.length > 0) setFeedingPlans(livePlans);
+      if (livePlans) setFeedingPlans(livePlans);
     });
 
     return () => {
@@ -486,6 +513,57 @@ Persistencia: Firebase Cloud Firestore + Soporte Offline transparente y reactivo
     [todayPendingTasks, criticalWarehouseCount]
   );
 
+  const handleClearAllTestData = useCallback(async () => {
+    try {
+      await dbService.clearAllData(FARM_ID);
+      const emptySummary = await dbService.getFarmSummary(FARM_ID);
+      setAnimals([]);
+      setLitters([]);
+      setTasks([]);
+      setMovements([]);
+      setWarehouseItems([]);
+      setBovinoHerd([]);
+      setAvicolaLots([]);
+      setFeedingPlans([]);
+      setBatchConfigs([]);
+      setProductionBatches([]);
+      setSummary(emptySummary);
+      setShowSettingsModal(false);
+      triggerToast('🧹 Datos de prueba eliminados. Granja lista en blanco para registros reales.');
+    } catch (err) {
+      console.error('Error clearing test data:', err);
+      triggerToast('⚠️ Error al limpiar datos de prueba.');
+    }
+  }, [triggerToast]);
+
+  const handleRestoreSampleData = useCallback(async () => {
+    try {
+      await dbService.restoreSampleData(FARM_ID);
+      const restoredSummary = await dbService.getFarmSummary(FARM_ID);
+      const restoredAnimals = await dbService.getAnimals(FARM_ID);
+      const restoredLitters = await dbService.getLitters(FARM_ID);
+      const restoredTasks = await dbService.getTasks(FARM_ID);
+      const restoredMovements = await dbService.getMovements(FARM_ID);
+      const restoredWarehouse = await dbService.getWarehouseItems(FARM_ID);
+      const restoredBovino = await dbService.getBovinoHerd(FARM_ID);
+      const restoredAvicola = await dbService.getAvicolaLots(FARM_ID);
+
+      setAnimals(restoredAnimals);
+      setLitters(restoredLitters);
+      setTasks(restoredTasks);
+      setMovements(restoredMovements);
+      setWarehouseItems(restoredWarehouse);
+      setBovinoHerd(restoredBovino);
+      setAvicolaLots(restoredAvicola);
+      setSummary(restoredSummary);
+      setShowSettingsModal(false);
+      triggerToast('🔄 Datos de demostración restaurados exitosamente.');
+    } catch (err) {
+      console.error('Error restoring sample data:', err);
+      triggerToast('⚠️ Error al restaurar datos de demostración.');
+    }
+  }, [triggerToast]);
+
   return {
     // State
     currentView,
@@ -529,6 +607,8 @@ Persistencia: Firebase Cloud Firestore + Soporte Offline transparente y reactivo
 
     // Actions
     triggerToast,
+    handleClearAllTestData,
+    handleRestoreSampleData,
     handleUpdateAnimals,
     handleUpdateLitters,
     handleAddTraceEvent,
