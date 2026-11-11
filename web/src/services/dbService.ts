@@ -47,133 +47,25 @@ const STORAGE_KEYS = {
   FEEDING_PLANS: 'pecuario_local_feeding_plans_v1',
 };
 
-export const initialBovinoHerdSample: any[] = [
-  {
-    id: 'bov-001',
-    tag: 'BOV-001',
-    name: 'Sansón (Toro Reproductor)',
-    type: 'padrote',
-    breed: 'Brahman Blanco Americano',
-    weight: 890,
-    status: 'Optimo',
-    paddock: 'Potrero Los Samanes 1',
-  },
-  {
-    id: 'bov-002',
-    tag: 'BOV-002',
-    name: 'Goliat (Padrote Senepol)',
-    type: 'padrote',
-    breed: 'Senepol Puro',
-    weight: 780,
-    status: 'Optimo',
-    paddock: 'Potrero Los Samanes 2',
-  },
-  {
-    id: 'bov-003',
-    tag: 'BOV-003',
-    name: 'Relámpago',
-    type: 'padrote',
-    breed: 'Girolando 5/8',
-    weight: 740,
-    status: 'Optimo',
-    paddock: 'Potrero El Caobo',
-  },
-  {
-    id: 'bov-101',
-    tag: 'BOV-101',
-    name: 'Mariposa',
-    type: 'vaca_lactante',
-    breed: 'Girolando F1',
-    weight: 520,
-    dailyLiters: 18.5,
-    status: 'Optimo',
-    paddock: 'Potrero Ordeño A',
-    lastMilkingDate: '2026-08-19',
-  },
-  {
-    id: 'bov-102',
-    tag: 'BOV-102',
-    name: 'Paloma',
-    type: 'vaca_lactante',
-    breed: 'Holstein x Brahman',
-    weight: 495,
-    dailyLiters: 16.0,
-    status: 'Optimo',
-    paddock: 'Potrero Ordeño A',
-    lastMilkingDate: '2026-08-19',
-  },
-  {
-    id: 'bov-103',
-    tag: 'BOV-103',
-    name: 'Esmeralda',
-    type: 'vaca_seca',
-    breed: 'Girolando',
-    weight: 550,
-    dailyLiters: 0,
-    status: 'Optimo',
-    paddock: 'Potrero Maternidad Bovina',
-  },
-  {
-    id: 'bov-201',
-    tag: 'BOV-201',
-    name: 'Becerro 201',
-    type: 'becerro',
-    breed: 'Girolando 3/4',
-    weight: 92,
-    status: 'Optimo',
-    paddock: 'Corral de Becerros 1',
-  },
-  {
-    id: 'bov-202',
-    tag: 'BOV-202',
-    name: 'Becerro 202',
-    type: 'becerro',
-    breed: 'Girolando 3/4',
-    weight: 108,
-    status: 'Optimo',
-    paddock: 'Corral de Becerros 1',
-  },
-];
-
-export const initialAvicolaLotsSample: any[] = [
-  {
-    id: 'av-lot-04',
-    code: 'LOTE-ENG-04',
-    shed: 'Galpón 2 (Sección Norte)',
-    breed: 'Cobb 500',
-    initial: 650,
-    current: 632,
-    age: 40,
-    avgWeightGrams: 2350,
-    feedTotalKg: 2850,
-    fcr: 1.92,
-    status: 'Listo para Faena',
-    startDate: '2026-07-10',
-  },
-  {
-    id: 'av-lot-05',
-    code: 'LOTE-ENG-05',
-    shed: 'Galpón 2 (Sección Sur)',
-    breed: 'Ross 308 Plus',
-    initial: 650,
-    current: 618,
-    age: 25,
-    avgWeightGrams: 1280,
-    feedTotalKg: 1350,
-    fcr: 1.71,
-    status: 'Crecimiento',
-    startDate: '2026-07-25',
-  },
-];
+export const initialBovinoHerdSample: any[] = [];
+export const initialAvicolaLotsSample: any[] = [];
 
 export const BLANK_MODE_KEY = 'pecuario_blank_mode_v1';
+const FRESH_CLEAN_KEY = 'pecuario_clean_slate_v3_ready';
+
+// Limpieza automática inmediata de registros de prueba previos en el dispositivo
+try {
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(FRESH_CLEAN_KEY) !== 'true') {
+    Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
+    localStorage.setItem(FRESH_CLEAN_KEY, 'true');
+    localStorage.setItem(BLANK_MODE_KEY, 'true');
+  }
+} catch {
+  // Ignorar errores de entorno sin localStorage
+}
 
 export function isBlankMode(): boolean {
-  try {
-    return localStorage.getItem(BLANK_MODE_KEY) === 'true';
-  } catch {
-    return false;
-  }
+  return true;
 }
 
 function readLocal<T>(key: string, fallback: T): T {
@@ -200,52 +92,20 @@ export const dbService = {
    * Si la base de datos está vacía y no está en modo en blanco, siembra automáticamente los datos iniciales de la granja.
    */
   async initializeDatabase(farmId: string = FARM_ID): Promise<void> {
-    if (isBlankMode()) {
-      return;
-    }
     try {
       const farmRef = doc(db, 'farms', farmId);
       const farmSnap = await getDoc(farmRef);
 
       if (!farmSnap.exists()) {
-        // Inicializar documento maestro de la granja en Firestore
         await setDoc(farmRef, {
           ...granjaSummaryData,
           id: farmId,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
-
-        // Sembrar animales iniciales en Firestore
-        for (const animal of porcinoAnimalsSample) {
-          await setDoc(doc(db, 'farms', farmId, 'animals', animal.id), {
-            ...animal,
-            updatedAt: new Date().toISOString(),
-          });
-        }
-
-        // Sembrar tareas sanitarias en Firestore
-        for (const task of sanitaryTasksAugust2026) {
-          await setDoc(doc(db, 'farms', farmId, 'tasks', task.id), task);
-        }
-
-        // Sembrar movimientos financieros iniciales en Firestore
-        for (const mov of financialMovementsPorcino) {
-          await setDoc(doc(db, 'farms', farmId, 'movements', mov.id), mov);
-        }
-
-        // Sembrar inventario de almacén en Firestore
-        for (const item of warehouseItemsData) {
-          await setDoc(doc(db, 'farms', farmId, 'warehouse', item.id), item);
-        }
-
-        // Sembrar camadas y lechones en Firestore
-        for (const litter of initialLactatingLitters) {
-          await setDoc(doc(db, 'farms', farmId, 'litters', litter.id), litter);
-        }
       }
     } catch (err) {
-      console.warn('Firebase auto-seed notice (will operate with local storage):', err);
+      console.warn('Firebase init notice:', err);
     }
   },
 

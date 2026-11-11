@@ -201,11 +201,7 @@ export default function App() {
         )}
 
         {showSettingsModal && (
-          <SettingsModalView
-            onClose={() => setShowSettingsModal(false)}
-            onClearTestData={handleClearAllTestData}
-            onRestoreSampleData={handleRestoreSampleData}
-          />
+          <SettingsModalView onClose={() => setShowSettingsModal(false)} />
         )}
 
         {showBovinoModal && (
@@ -395,11 +391,7 @@ export default function App() {
       )}
 
       {showSettingsModal && (
-        <SettingsModalView
-          onClose={() => setShowSettingsModal(false)}
-          onClearTestData={handleClearAllTestData}
-          onRestoreSampleData={handleRestoreSampleData}
-        />
+        <SettingsModalView onClose={() => setShowSettingsModal(false)} />
       )}
 
       {showBovinoModal && (
