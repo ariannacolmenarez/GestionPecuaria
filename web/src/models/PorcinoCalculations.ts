@@ -147,10 +147,10 @@ export function calculateBovinoCounters(herd: any[] = []) {
   const becerros = herd.filter((a) => a.type === 'becerro' || a.type === 'Becerro' || a.type === 'Becerro Destete').length;
 
   return {
-    padrotes: padrotes || 3,
-    vacas: vacas || 54,
-    becerros: becerros || 28,
-    total: (padrotes || 3) + (vacas || 54) + (becerros || 28),
+    padrotes: padrotes,
+    vacas: vacas,
+    becerros: becerros,
+    total: padrotes + vacas + becerros,
   };
 }
 
@@ -161,7 +161,7 @@ export function calculateAvicolaCounters(lots: any[] = []) {
   const activeLots = lots.filter((l) => l.status !== 'Liquidado');
   const pollosEngorde = activeLots.reduce((acc, curr) => acc + (curr.current || 0), 0);
   return {
-    pollosEngorde: pollosEngorde || 1250,
+    pollosEngorde: pollosEngorde,
     lotesActivosCount: activeLots.length,
   };
 }

@@ -2,21 +2,11 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App';
 import './index.css';
-// Purga incondicional de cualquier caché local residual al arrancar
+// Asegurar que localStorage esté limpio de datos de prueba antiguos
 try {
   if (typeof localStorage !== 'undefined') {
-    localStorage.clear();
-  }
-  if (typeof indexedDB !== 'undefined' && 'databases' in indexedDB) {
-    (indexedDB as any).databases().then((dbs: any[]) => {
-      dbs?.forEach((d) => {
-        if (d.name) {
-          try {
-            indexedDB.deleteDatabase(d.name);
-          } catch {}
-        }
-      });
-    }).catch(() => {});
+    localStorage.removeItem('pecuario_local_animals_v1');
+    localStorage.removeItem('pecuario_local_litters_v1');
   }
 } catch {
   // Ignorar errores en entornos sin soporte

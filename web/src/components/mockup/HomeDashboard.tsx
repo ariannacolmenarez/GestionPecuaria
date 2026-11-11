@@ -29,7 +29,18 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenAlerts,
   tasksCountToday = 2,
 }) => {
-  const { finances, counts } = summary;
+  const finances = summary?.finances || {
+    period: 'Agosto 2026',
+    totalExpenses: 0,
+    totalIncome: 0,
+    netUtility: 0,
+    byRubro: [],
+  };
+  const counts = summary?.counts || {
+    porcino: { productoras: 0, lechones: 0, verracos: 0, engorde: 0 },
+    bovino: { padrotes: 0, becerros: 0, vacas: 0 },
+    avicola: { pollosEngorde: 0 },
+  };
 
   return (
     <div id="home-dashboard-scrollable" className="flex-1 overflow-y-auto p-4 space-y-4 pb-6">
@@ -117,8 +128,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             Utilidad Neta por Rubro Productivo
           </p>
           <div className="space-y-1.5">
-            {finances.byRubro.map((r) => {
-              const percentage = Math.round((r.utility / finances.netUtility) * 100);
+            {(finances.byRubro || []).map((r) => {
+              const percentage = finances.netUtility ? Math.round((r.utility / finances.netUtility) * 100) : 0;
               return (
                 <div key={r.rubro} className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5">

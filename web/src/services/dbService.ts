@@ -33,31 +33,31 @@ export const FARM_ID = 'granja_arianna_principal';
 
 // Claves de respaldo local para soporte offline transparente
 const STORAGE_KEYS = {
-  ANIMALS: 'pecuario_local_animals_v1',
-  SUMMARY: 'pecuario_local_summary_v1',
-  TASKS: 'pecuario_local_tasks_v1',
-  MOVEMENTS: 'pecuario_local_movements_v1',
-  WAREHOUSE: 'pecuario_local_warehouse_v1',
-  SALES: 'pecuario_local_sales_v1',
-  LITTERS: 'pecuario_local_litters_v1',
-  BOVINO: 'pecuario_local_bovino_v1',
-  AVICOLA: 'pecuario_local_avicola_v1',
-  BATCHES: 'pecuario_local_batches_v1',
-  BATCH_CONFIGS: 'pecuario_local_batch_configs_v1',
-  FEEDING_PLANS: 'pecuario_local_feeding_plans_v1',
+  ANIMALS: 'pecuario_local_animals_v5_clean',
+  SUMMARY: 'pecuario_local_summary_v5_clean',
+  TASKS: 'pecuario_local_tasks_v5_clean',
+  MOVEMENTS: 'pecuario_local_movements_v5_clean',
+  WAREHOUSE: 'pecuario_local_warehouse_v5_clean',
+  SALES: 'pecuario_local_sales_v5_clean',
+  LITTERS: 'pecuario_local_litters_v5_clean',
+  BOVINO: 'pecuario_local_bovino_v5_clean',
+  AVICOLA: 'pecuario_local_avicola_v5_clean',
+  BATCHES: 'pecuario_local_batches_v5_clean',
+  BATCH_CONFIGS: 'pecuario_local_batch_configs_v5_clean',
+  FEEDING_PLANS: 'pecuario_local_feeding_plans_v5_clean',
 };
 
 export const initialBovinoHerdSample: any[] = [];
 export const initialAvicolaLotsSample: any[] = [];
 
-export const BLANK_MODE_KEY = 'pecuario_blank_mode_v1';
-const FRESH_CLEAN_KEY = 'pecuario_clean_slate_v3_ready';
+export const BLANK_MODE_KEY = 'pecuario_blank_mode_v5';
 
-// Limpieza automática inmediata de registros de prueba previos en el dispositivo
+// Purga inmediata incondicional de cualquier caché antigua en el teléfono
 try {
-  if (typeof localStorage !== 'undefined' && localStorage.getItem(FRESH_CLEAN_KEY) !== 'true') {
-    Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
-    localStorage.setItem(FRESH_CLEAN_KEY, 'true');
+  if (typeof localStorage !== 'undefined') {
+    if (localStorage.getItem('pecuario_local_animals_v1') || localStorage.getItem('pecuario_local_litters_v1')) {
+      localStorage.clear();
+    }
     localStorage.setItem(BLANK_MODE_KEY, 'true');
   }
 } catch {
@@ -122,19 +122,10 @@ export const dbService = {
         writeLocal(STORAGE_KEYS.ANIMALS, list);
         return list;
       }
-      if (isBlankMode()) {
-        writeLocal(STORAGE_KEYS.ANIMALS, []);
-        return [];
-      }
-      // Si la colección está vacía y no está en modo en blanco, sembramos y devolvemos la muestra
-      await this.bulkSaveAnimals(farmId, porcinoAnimalsSample);
-      return porcinoAnimalsSample;
+      writeLocal(STORAGE_KEYS.ANIMALS, []);
+      return [];
     } catch (error) {
-      if (isBlankMode()) {
-        return readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, []);
-      }
-      console.warn('Firestore fallback to local cache for animals:', error);
-      return readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, porcinoAnimalsSample);
+      return readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, []);
     }
   },
 
@@ -152,18 +143,17 @@ export const dbService = {
             snapshot.forEach((d) => list.push(d.data() as PorcinoAnimal));
             writeLocal(STORAGE_KEYS.ANIMALS, list);
             onUpdate(list);
-          } else if (isBlankMode()) {
+          } else {
             writeLocal(STORAGE_KEYS.ANIMALS, []);
             onUpdate([]);
           }
         },
-        (err) => {
-          console.warn('Offline mode active for animal stream:', err);
-          onUpdate(readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, isBlankMode() ? [] : porcinoAnimalsSample));
+        () => {
+          onUpdate(readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, []));
         }
       );
     } catch {
-      onUpdate(readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, isBlankMode() ? [] : porcinoAnimalsSample));
+      onUpdate(readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, []));
       return () => {};
     }
   },
@@ -483,7 +473,21 @@ export const dbService = {
     try {
       const snap = await getDoc(doc(db, 'farms', farmId));
       if (snap.exists()) {
-        const summary = snap.data() as FarmSummary;
+        const raw = snap.data();
+        const summary: FarmSummary = {
+          ...granjaSummaryData,
+          ...raw,
+          members: Array.isArray(raw?.members) && raw.members.length > 0 ? raw.members : granjaSummaryData.members,
+          finances: {
+            ...granjaSummaryData.finances,
+            ...(raw?.finances || {}),
+            byRubro: Array.isArray(raw?.finances?.byRubro) && raw.finances.byRubro.length > 0 ? raw.finances.byRubro : granjaSummaryData.finances.byRubro,
+          },
+          counts: {
+            ...granjaSummaryData.counts,
+            ...(raw?.counts || {}),
+          },
+        };
         writeLocal(STORAGE_KEYS.SUMMARY, summary);
         return summary;
       }
@@ -547,18 +551,10 @@ export const dbService = {
         writeLocal(STORAGE_KEYS.LITTERS, list);
         return list;
       }
-      if (isBlankMode()) {
-        writeLocal(STORAGE_KEYS.LITTERS, []);
-        return [];
-      }
-      await this.bulkSaveLitters(farmId, initialLactatingLitters);
-      return initialLactatingLitters;
+      writeLocal(STORAGE_KEYS.LITTERS, []);
+      return [];
     } catch (error) {
-      if (isBlankMode()) {
-        return readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, []);
-      }
-      console.warn('Firestore fallback to local cache for litters:', error);
-      return readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, initialLactatingLitters);
+      return readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, []);
     }
   },
 
@@ -575,17 +571,17 @@ export const dbService = {
             snapshot.forEach((d) => list.push(d.data() as LactatingLitter));
             writeLocal(STORAGE_KEYS.LITTERS, list);
             onUpdate(list);
-          } else if (isBlankMode()) {
+          } else {
             writeLocal(STORAGE_KEYS.LITTERS, []);
             onUpdate([]);
           }
         },
         () => {
-          onUpdate(readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, isBlankMode() ? [] : initialLactatingLitters));
+          onUpdate(readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, []));
         }
       );
     } catch {
-      onUpdate(readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, isBlankMode() ? [] : initialLactatingLitters));
+      onUpdate(readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, []));
       return () => {};
     }
   },
@@ -659,14 +655,10 @@ export const dbService = {
         writeLocal(STORAGE_KEYS.BOVINO, list);
         return list;
       }
-      if (isBlankMode()) {
-        writeLocal(STORAGE_KEYS.BOVINO, []);
-        return [];
-      }
-      await this.bulkSaveBovino(farmId, initialBovinoHerdSample);
-      return initialBovinoHerdSample;
+      writeLocal(STORAGE_KEYS.BOVINO, []);
+      return [];
     } catch {
-      return readLocal<any[]>(STORAGE_KEYS.BOVINO, isBlankMode() ? [] : initialBovinoHerdSample);
+      return readLocal<any[]>(STORAGE_KEYS.BOVINO, []);
     }
   },
 
@@ -680,21 +672,21 @@ export const dbService = {
             snapshot.forEach((d) => list.push(d.data()));
             writeLocal(STORAGE_KEYS.BOVINO, list);
             onUpdate(list);
-          } else if (isBlankMode()) {
+          } else {
             writeLocal(STORAGE_KEYS.BOVINO, []);
             onUpdate([]);
           }
         },
-        () => onUpdate(readLocal<any[]>(STORAGE_KEYS.BOVINO, isBlankMode() ? [] : initialBovinoHerdSample))
+        () => onUpdate(readLocal<any[]>(STORAGE_KEYS.BOVINO, []))
       );
     } catch {
-      onUpdate(readLocal<any[]>(STORAGE_KEYS.BOVINO, isBlankMode() ? [] : initialBovinoHerdSample));
+      onUpdate(readLocal<any[]>(STORAGE_KEYS.BOVINO, []));
       return () => {};
     }
   },
 
   async saveBovinoAnimal(farmId: string = FARM_ID, animal: any): Promise<void> {
-    const current = readLocal<any[]>(STORAGE_KEYS.BOVINO, isBlankMode() ? [] : initialBovinoHerdSample);
+    const current = readLocal<any[]>(STORAGE_KEYS.BOVINO, []);
     const idx = current.findIndex((a) => a.id === animal.id || a.tag === animal.tag);
     const updated = idx >= 0 ? current.map((a, i) => (i === idx ? animal : a)) : [animal, ...current];
     writeLocal(STORAGE_KEYS.BOVINO, updated);
@@ -718,7 +710,7 @@ export const dbService = {
   },
 
   async deleteBovinoAnimal(farmId: string = FARM_ID, animalId: string): Promise<void> {
-    const current = readLocal<any[]>(STORAGE_KEYS.BOVINO, isBlankMode() ? [] : initialBovinoHerdSample);
+    const current = readLocal<any[]>(STORAGE_KEYS.BOVINO, []);
     writeLocal(STORAGE_KEYS.BOVINO, current.filter((a) => a.id !== animalId));
     try {
       await deleteDoc(doc(db, 'farms', farmId, 'bovino', animalId));
@@ -739,14 +731,10 @@ export const dbService = {
         writeLocal(STORAGE_KEYS.AVICOLA, list);
         return list;
       }
-      if (isBlankMode()) {
-        writeLocal(STORAGE_KEYS.AVICOLA, []);
-        return [];
-      }
-      await this.bulkSaveAvicolaLots(farmId, initialAvicolaLotsSample);
-      return initialAvicolaLotsSample;
+      writeLocal(STORAGE_KEYS.AVICOLA, []);
+      return [];
     } catch {
-      return readLocal<any[]>(STORAGE_KEYS.AVICOLA, isBlankMode() ? [] : initialAvicolaLotsSample);
+      return readLocal<any[]>(STORAGE_KEYS.AVICOLA, []);
     }
   },
 
@@ -760,15 +748,15 @@ export const dbService = {
             snapshot.forEach((d) => list.push(d.data()));
             writeLocal(STORAGE_KEYS.AVICOLA, list);
             onUpdate(list);
-          } else if (isBlankMode()) {
+          } else {
             writeLocal(STORAGE_KEYS.AVICOLA, []);
             onUpdate([]);
           }
         },
-        () => onUpdate(readLocal<any[]>(STORAGE_KEYS.AVICOLA, isBlankMode() ? [] : initialAvicolaLotsSample))
+        () => onUpdate(readLocal<any[]>(STORAGE_KEYS.AVICOLA, []))
       );
     } catch {
-      onUpdate(readLocal<any[]>(STORAGE_KEYS.AVICOLA, isBlankMode() ? [] : initialAvicolaLotsSample));
+      onUpdate(readLocal<any[]>(STORAGE_KEYS.AVICOLA, []));
       return () => {};
     }
   },

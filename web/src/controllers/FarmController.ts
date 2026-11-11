@@ -92,18 +92,18 @@ export function useFarmController() {
         }
       : granjaSummaryData
   );
-  const [animals, setAnimals] = useState<PorcinoAnimal[]>(() => (isBlank ? [] : porcinoAnimalsSample));
-  const [litters, setLitters] = useState<LactatingLitter[]>(() => (isBlank ? [] : initialLactatingLitters));
-  const [tasks, setTasks] = useState<SanitaryTask[]>(() => (isBlank ? [] : sanitaryTasksAugust2026));
-  const [movements, setMovements] = useState<FinancialMovement[]>(() => (isBlank ? [] : financialMovementsPorcino));
-  const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>(() => (isBlank ? [] : warehouseItemsData));
-  const [bovinoHerd, setBovinoHerd] = useState<BovinoAnimal[]>(() => (isBlank ? [] : initialBovinoHerdSample));
-  const [avicolaLots, setAvicolaLots] = useState<AvicolaLot[]>(() => (isBlank ? [] : initialAvicolaLotsSample));
+  const [animals, setAnimals] = useState<PorcinoAnimal[]>([]);
+  const [litters, setLitters] = useState<LactatingLitter[]>([]);
+  const [tasks, setTasks] = useState<SanitaryTask[]>([]);
+  const [movements, setMovements] = useState<FinancialMovement[]>([]);
+  const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>([]);
+  const [bovinoHerd, setBovinoHerd] = useState<BovinoAnimal[]>([]);
+  const [avicolaLots, setAvicolaLots] = useState<AvicolaLot[]>([]);
 
   // Feeding & Batch Production States
   const [feedingPlans, setFeedingPlans] = useState<ProductionFeedingPlan[]>(productionFeedingPlansDefault);
   const [batchConfigs, setBatchConfigs] = useState<BatchProductionConfig[]>(batchProductionConfigsDefault);
-  const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>(productionBatchesSample);
+  const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
 
   // Modals & UI Controls
   const [showMembersModal, setShowMembersModal] = useState<boolean>(false);

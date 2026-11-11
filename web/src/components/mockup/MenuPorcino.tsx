@@ -140,8 +140,8 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
   const [showCensusModal, setShowCensusModal] = useState(false);
 
   // Traceability & Reproductive Lifecycle States
-  const [internalLitters, setInternalLitters] = useState<LactatingLitter[]>(initialLactatingLitters);
-  const litters = externalLitters && externalLitters.length > 0 ? externalLitters : internalLitters;
+  const [internalLitters, setInternalLitters] = useState<LactatingLitter[]>([]);
+  const litters = externalLitters !== undefined ? externalLitters : internalLitters;
 
   const updateLittersState = (newLitters: LactatingLitter[] | ((prev: LactatingLitter[]) => LactatingLitter[])) => {
     const updated = typeof newLitters === 'function' ? newLitters(litters) : newLitters;
@@ -179,15 +179,15 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
 
   // Batch production configuration state (persisted)
   const [internalBatchConfigs, setInternalBatchConfigs] = useState<BatchProductionConfig[]>(batchProductionConfigsDefault);
-  const batchConfigs = propBatchConfigs && propBatchConfigs.length > 0 ? propBatchConfigs : internalBatchConfigs;
+  const batchConfigs = propBatchConfigs !== undefined ? propBatchConfigs : internalBatchConfigs;
   const setBatchConfigs = (updated: BatchProductionConfig[]) => {
     setInternalBatchConfigs(updated);
     if (onUpdateBatchConfigs) onUpdateBatchConfigs(updated);
     dbService.saveBatchConfigs('granja_arianna_principal', updated).catch(console.warn);
   };
 
-  const [internalProductionBatches, setInternalProductionBatches] = useState<ProductionBatch[]>(productionBatchesSample);
-  const productionBatches = propProductionBatches && propProductionBatches.length > 0 ? propProductionBatches : internalProductionBatches;
+  const [internalProductionBatches, setInternalProductionBatches] = useState<ProductionBatch[]>([]);
+  const productionBatches = propProductionBatches !== undefined ? propProductionBatches : internalProductionBatches;
   const setProductionBatches = (updated: ProductionBatch[] | ((prev: ProductionBatch[]) => ProductionBatch[])) => {
     const next = typeof updated === 'function' ? updated(productionBatches) : updated;
     setInternalProductionBatches(next);

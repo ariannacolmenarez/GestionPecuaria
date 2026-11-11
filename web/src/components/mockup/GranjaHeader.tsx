@@ -71,7 +71,7 @@ export const GranjaHeader: React.FC<GranjaHeaderProps> = ({
             Miembros:
           </span>
           <div className="flex items-center -space-x-1.5">
-            {members.slice(0, 3).map((member) => (
+            {(members || []).slice(0, 3).map((member) => (
               <img
                 key={member.id}
                 src={member.avatar}
@@ -80,9 +80,9 @@ export const GranjaHeader: React.FC<GranjaHeaderProps> = ({
                 className="w-6 h-6 rounded-full border-2 border-white object-cover shadow-xs"
               />
             ))}
-            {members.length > 3 && (
+            {(members || []).length > 3 && (
               <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 border-2 border-white text-[10px] font-bold flex items-center justify-center">
-                +{members.length - 3}
+                +{(members || []).length - 3}
               </span>
             )}
           </div>
