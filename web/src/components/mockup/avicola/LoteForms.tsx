@@ -86,7 +86,7 @@ const BreedPicker: React.FC<{ breed: string; other: string; onBreed: (b: string)
         maxLength={40}
         onChange={(e) => onOther(e.target.value)}
         placeholder="¿Cuál?"
-        className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 px-3 text-sm ${FOCUS}`}
+        className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 px-3 text-sm ${FOCUS}`}
       />
     )}
     <p className="text-[10px] text-slate-500">La raza ajusta la tabla de peso ideal. "Sin raza" usa una tabla de referencia general.</p>
@@ -272,7 +272,7 @@ export const NuevoLoteSheet: React.FC<{ onClose: () => void; onCreated: (loteId:
         </FieldRow>
         {futureDays > 30 && <p className="text-[11px] text-amber-800 bg-amber-50 rounded-lg p-2 mt-1">La fecha de inicio está a más de 30 días.</p>}
         <FieldRow label="Galpón (opcional)" htmlFor="nl-shed">
-          <input id="nl-shed" value={shed} maxLength={40} onChange={(e) => setShed(e.target.value)} placeholder="Ej: Galpón 1" className={`w-40 h-11 rounded-xl bg-slate-50 border border-slate-200 px-3 text-sm ${FOCUS}`} />
+          <input id="nl-shed" value={shed} maxLength={40} onChange={(e) => setShed(e.target.value)} placeholder="Ej: Galpón 1" className={`w-40 h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 px-3 text-sm ${FOCUS}`} />
         </FieldRow>
       </section>
       <section className="space-y-2">

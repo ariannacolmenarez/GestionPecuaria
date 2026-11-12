@@ -280,7 +280,7 @@ export const CompleteTaskSheet: React.FC<{ task: SanitaryTask; onClose: () => vo
             aria-label="Insumo del almacén"
             value={itemId}
             onChange={(e) => setItemId(e.target.value)}
-            className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 px-3 text-sm ${FOCUS}`}
+            className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 px-3 text-sm ${FOCUS}`}
           >
             <option value="">Sin insumo</option>
             {items.map((i) => (
@@ -299,9 +299,9 @@ export const CompleteTaskSheet: React.FC<{ task: SanitaryTask; onClose: () => vo
         </div>
       )}
       <FieldRow label="Responsable">
-        <input value={responsible} onChange={(e) => setResponsible(e.target.value)} placeholder={task.responsible} className={`w-44 h-11 rounded-xl bg-slate-50 border border-slate-200 px-3 text-sm ${FOCUS}`} />
+        <input value={responsible} onChange={(e) => setResponsible(e.target.value)} placeholder={task.responsible} className={`w-44 h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 px-3 text-sm ${FOCUS}`} />
       </FieldRow>
-      <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm ${FOCUS}`} />
+      <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 text-slate-900 p-3 text-sm ${FOCUS}`} />
     </BottomSheet>
   );
 };
@@ -533,7 +533,7 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
           <TextInput ariaLabel="Producto" value={medicament} onChange={setMedicament} placeholder="Producto (opcional)" />
           <TextInput ariaLabel="Dosis o vía" value={dosage} onChange={setDosage} placeholder="Dosis / vía" />
         </div>
-        <textarea aria-label="Indicaciones" value={procedure} onChange={(e) => setProcedure(e.target.value)} rows={2} placeholder="Indicaciones o procedimiento (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm ${FOCUS}`} />
+        <textarea aria-label="Indicaciones" value={procedure} onChange={(e) => setProcedure(e.target.value)} rows={2} placeholder="Indicaciones o procedimiento (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 text-slate-900 p-3 text-sm ${FOCUS}`} />
       </section>
       <section className="space-y-2">
         <SectionLabel index={2} label="¿Cuándo?" />
@@ -584,7 +584,7 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
       </section>
       <section className="space-y-2">
         <SectionLabel index={3} label="Insumo (opcional)" />
-        <select aria-label="Insumo del almacén" value={itemId} onChange={(e) => setItemId(e.target.value)} className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 px-3 text-sm ${FOCUS}`}>
+        <select aria-label="Insumo del almacén" value={itemId} onChange={(e) => setItemId(e.target.value)} className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 px-3 text-sm ${FOCUS}`}>
           <option value="">Sin insumo</option>
           {warehouseItems.map((i) => (
             <option key={i.id} value={i.id}>

@@ -133,7 +133,8 @@ export const Overlay: React.FC<{ children: React.ReactNode; className?: string; 
   const pos = root ? 'absolute' : 'fixed';
   const node = (
     <div
-      className={`${pos} inset-0 z-50 pointer-events-auto animate-in fade-in duration-150 ${className}`}
+      // text-slate-900: los campos heredan un color oscuro (el contenedor del teléfono es claro sobre oscuro)
+      className={`${pos} inset-0 z-50 pointer-events-auto text-slate-900 animate-in fade-in duration-150 ${className}`}
       onMouseDown={(e) => {
         if (onBackdrop && e.target === e.currentTarget) onBackdrop();
       }}
@@ -284,7 +285,7 @@ export const ConfirmDialog: React.FC<{
             <label className="text-[11px] text-slate-500" htmlFor="confirm-text">
               Escribe <strong className="text-slate-800">{requireText}</strong> para confirmar
             </label>
-            <input id="confirm-text" value={typed} onChange={(e) => setTyped(e.target.value)} className={`mt-1 w-full h-11 px-3 rounded-xl bg-slate-50 border border-slate-200 text-sm ${FOCUS}`} />
+            <input id="confirm-text" value={typed} onChange={(e) => setTyped(e.target.value)} className={`mt-1 w-full h-11 px-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-sm ${FOCUS}`} />
           </div>
         )}
         <ErrorBox error={error} />
@@ -404,7 +405,7 @@ export const Stepper: React.FC<{
         value={String(value)}
         inputMode="numeric"
         onChange={(e) => set(Number(e.target.value.replace(/[^0-9]/g, '')))}
-        className={`w-16 h-12 rounded-2xl border border-slate-200 text-center text-lg font-bold tabular-nums ${FOCUS}`}
+        className={`w-16 h-12 rounded-2xl border border-slate-200 text-slate-900 text-center text-lg font-bold tabular-nums ${FOCUS}`}
       />
       <button type="button" aria-label="Sumar" onClick={() => set(value + 1)} disabled={value >= max} className={`w-11 h-11 rounded-full ${t.soft} flex items-center justify-center disabled:opacity-40 ${FOCUS}`}>
         <Plus className="w-4 h-4" />

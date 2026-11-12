@@ -495,7 +495,7 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
             <FieldRow label="Teléfono" htmlFor="v-phone">
               <div className="relative">
                 <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input id="v-phone" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={`w-44 h-11 rounded-xl bg-slate-50 border border-slate-200 pl-9 pr-3 text-sm ${FOCUS}`} />
+                <input id="v-phone" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={`w-44 h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 pl-9 pr-3 text-sm ${FOCUS}`} />
               </div>
             </FieldRow>
             <Toggle
@@ -517,7 +517,7 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
             <FieldRow label="Fecha de la venta">
               <DatePill value={date} onChange={setDate} max={today} min={lot.startDate} />
             </FieldRow>
-            <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm ${FOCUS}`} />
+            <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 text-slate-900 p-3 text-sm ${FOCUS}`} />
           </div>
         )}
       </section>

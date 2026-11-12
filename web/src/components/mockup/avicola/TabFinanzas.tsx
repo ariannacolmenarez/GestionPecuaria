@@ -334,7 +334,7 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
           <FieldRow label="Fecha" hint={date < lot.startDate ? 'Anterior al inicio del lote' : undefined}>
             <DatePill value={date} onChange={setDate} max={today} />
           </FieldRow>
-          <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm ${FOCUS}`} />
+          <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 text-slate-900 p-3 text-sm ${FOCUS}`} />
         </section>
       </fieldset>
       {confirmDelete && expense && (

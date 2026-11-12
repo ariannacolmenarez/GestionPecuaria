@@ -610,10 +610,10 @@ const BajaSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ lot, on
         <p className="text-sm font-semibold text-slate-800">Motivo</p>
         <ChipGroup tone="rose" value={cause} onChange={setCause} options={CAUSES.map((c) => ({ key: c, label: c }))} />
         {cause === 'Otro' && (
-          <input aria-label="¿Cuál motivo?" value={other} onChange={(e) => setOther(e.target.value)} placeholder="¿Cuál?" className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 px-3 text-sm ${FOCUS}`} />
+          <input aria-label="¿Cuál motivo?" value={other} onChange={(e) => setOther(e.target.value)} placeholder="¿Cuál?" className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 px-3 text-sm ${FOCUS}`} />
         )}
       </div>
-      <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm ${FOCUS}`} />
+      <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 text-slate-900 p-3 text-sm ${FOCUS}`} />
     </BottomSheet>
   );
 };
