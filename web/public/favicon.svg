@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#065f46"/></linearGradient></defs><rect x="18" y="18" width="72" height="72" rx="16" fill="url(#g)"/><g>
+  <g>
+    <!-- suelo / pasto -->
+    <path d="M28 76 Q54 70 80 76 L80 79 L28 79 Z" fill="#a7f3d0"/>
+    <!-- techo -->
+    <path d="M30 50 L54 32 L78 50 L74 53 L54 38 L34 53 Z" fill="#f59e0b"/>
+    <!-- cuerpo del granero -->
+    <path d="M36 50 L54 37 L72 50 L72 76 L36 76 Z" fill="#ffffff"/>
+    <!-- ventana del henil -->
+    <circle cx="54" cy="49" r="4" fill="#047857"/>
+    <!-- puerta con cruz -->
+    <rect x="45" y="58" width="18" height="18" rx="1.5" fill="#f59e0b"/>
+    <path d="M45 58 L63 76 M63 58 L45 76" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+    <rect x="45" y="58" width="18" height="18" rx="1.5" fill="none" stroke="#ffffff" stroke-width="2"/>
+    <!-- hoja / brote a la izquierda -->
+    <path d="M31 76 C29 68 31 62 37 60 C38 67 36 72 31 76 Z" fill="#6ee7b7"/>
+    <!-- espiga a la derecha -->
+    <path d="M77 76 L77 61" stroke="#fde68a" stroke-width="1.6" stroke-linecap="round"/>
+    <ellipse cx="75.6" cy="64" rx="1.6" ry="2.6" fill="#fde68a" transform="rotate(-25 75.6 64)"/>
+    <ellipse cx="78.4" cy="66" rx="1.6" ry="2.6" fill="#fde68a" transform="rotate(25 78.4 66)"/>
+    <ellipse cx="75.6" cy="68.5" rx="1.6" ry="2.6" fill="#fde68a" transform="rotate(-25 75.6 68.5)"/>
+    <ellipse cx="77" cy="60.5" rx="1.4" ry="2.4" fill="#fde68a"/>
+  </g></g></svg>

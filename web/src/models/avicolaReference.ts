@@ -110,9 +110,119 @@ export function idealWeightTable(breed: string = 'Sin raza', toDay: number = REF
   return Array.from({ length: last }, (_, i) => idealWeightForDay(i + 1, breed));
 }
 
-/** Consumo de alimento g/pollo para un día de vida. */
+// ----------------------------------------------------------------------------
+// Plan de alimentación personalizable (uno por granja, lo usan todos los lotes)
+// ----------------------------------------------------------------------------
+export interface AvicolaFeedPoint {
+  /** Día de vida (1..90). */
+  day: number;
+  /** Consumo g/pollo/día ese día (entre puntos se interpola). */
+  grams: number;
+}
+
+/** Documento persistido del plan de alimentación. */
+export interface AvicolaFeedTemplateDoc {
+  id: 'default';
+  points: AvicolaFeedPoint[];
+  /** Último día de Preinicio (ref. 10). */
+  preinicioEnd: number;
+  /** Último día de Inicio (ref. 21). */
+  inicioEnd: number;
+  /** Días de Finalización antes del sacrificio (ref. 7). */
+  finalizacionDays: number;
+  /** Alimento a dar en cada etapa (texto libre: marca, % proteína…). */
+  feeds?: Partial<Record<AvicolaStage, string>>;
+  updatedAt?: string;
+}
+
+/** Plan de referencia (tabla general de consumo y etapas estándar). */
+export const AVICOLA_BASE_FEED_TEMPLATE: AvicolaFeedTemplateDoc = {
+  id: 'default',
+  points: FEED_POINTS.map(([day, grams]) => ({ day, grams })),
+  preinicioEnd: 10,
+  inicioEnd: 21,
+  finalizacionDays: 7,
+  feeds: {
+    Preinicio: 'Preiniciador (22-23% proteína)',
+    Inicio: 'Iniciador (21-22% proteína)',
+    Engorde: 'Engorde (19-20% proteína)',
+    Finalización: 'Finalizador (18-19% proteína)',
+  },
+};
+
+/** Valida y normaliza el plan de alimentación. */
+export function validateFeedTemplate(
+  t: Omit<AvicolaFeedTemplateDoc, 'id'> & { id?: string }
+): { ok: true; doc: AvicolaFeedTemplateDoc } | { ok: false; error: string } {
+  if (!t || !Array.isArray(t.points)) return { ok: false, error: 'El plan de alimentación no es válido.' };
+  const byDay = new Map<number, number>();
+  for (const p of t.points) {
+    const day = Math.round(Number(p?.day));
+    const grams = Math.round(Number(p?.grams));
+    if (!Number.isFinite(day) || day < 1 || day > AVICOLA_MAX_PRODUCTION_DAYS) {
+      return { ok: false, error: `Cada día debe estar entre 1 y ${AVICOLA_MAX_PRODUCTION_DAYS}.` };
+    }
+    if (!Number.isFinite(grams) || grams < 1 || grams > 400) return { ok: false, error: `Día ${day}: los gramos por pollo deben estar entre 1 y 400.` };
+    if (byDay.has(day)) return { ok: false, error: `El día ${day} está repetido.` };
+    byDay.set(day, grams);
+  }
+  if (byDay.size < 2) return { ok: false, error: 'Indica al menos dos días con su consumo.' };
+  const pe = Math.round(Number(t.preinicioEnd));
+  const ie = Math.round(Number(t.inicioEnd));
+  const fd = Math.round(Number(t.finalizacionDays));
+  if (!Number.isFinite(pe) || pe < 1) return { ok: false, error: 'El Preinicio debe durar al menos 1 día.' };
+  if (!Number.isFinite(ie) || ie <= pe) return { ok: false, error: 'El Inicio debe terminar después del Preinicio.' };
+  if (ie > AVICOLA_MIN_PRODUCTION_DAYS - 2) return { ok: false, error: `El Inicio debe terminar a más tardar el día ${AVICOLA_MIN_PRODUCTION_DAYS - 2}.` };
+  if (!Number.isFinite(fd) || fd < 1 || fd > 21) return { ok: false, error: 'La Finalización debe durar entre 1 y 21 días.' };
+  const feeds: Partial<Record<AvicolaStage, string>> = {};
+  AVICOLA_STAGES.forEach((s) => {
+    const v = (t.feeds?.[s] || '').trim();
+    if (v) feeds[s] = v.slice(0, 80);
+  });
+  const points = [...byDay.entries()].sort((a, b) => a[0] - b[0]).map(([day, grams]) => ({ day, grams }));
+  return { ok: true, doc: { id: 'default', points, preinicioEnd: pe, inicioEnd: ie, finalizacionDays: fd, feeds } };
+}
+
+interface ActiveFeed {
+  doc: AvicolaFeedTemplateDoc;
+  table: number[];
+}
+const buildActiveFeed = (doc: AvicolaFeedTemplateDoc): ActiveFeed => {
+  const pts = doc.points.map((p) => [p.day, p.grams] as [number, number]);
+  const last = Math.max(REFERENCE_TABLE_LAST_DAY, ...pts.map((p) => p[0]));
+  return { doc, table: buildTable(pts, last) };
+};
+let activeFeed: ActiveFeed = { doc: AVICOLA_BASE_FEED_TEMPLATE, table: FEED_TABLE };
+
+/**
+ * Activa el plan de alimentación de la granja (null = plan de referencia).
+ * Lo usan el consumo diario, el alimento restante y las etapas de todos los lotes.
+ */
+export function setActiveFeedTemplate(doc: AvicolaFeedTemplateDoc | null | undefined): void {
+  const v = doc ? validateFeedTemplate(doc) : null;
+  activeFeed = v && v.ok ? buildActiveFeed(v.doc) : { doc: AVICOLA_BASE_FEED_TEMPLATE, table: FEED_TABLE };
+}
+
+/** Plan de alimentación activo. */
+export function activeFeedTemplate(): AvicolaFeedTemplateDoc {
+  return activeFeed.doc;
+}
+
+/** Consumo diario (g/pollo) de un plan para un día, sin activarlo (vista previa del editor). */
+export function feedGramsForDayWith(doc: AvicolaFeedTemplateDoc, day: number): number {
+  const t = doc === activeFeed.doc ? activeFeed.table : buildActiveFeed(doc).table;
+  return t[Math.min(t.length - 1, Math.max(1, Math.round(day || 1)))];
+}
+
+/** Consumo de alimento g/pollo para un día de vida (según el plan activo). */
 export function feedGramsPerBirdForDay(day: number): number {
-  return FEED_TABLE[clampDay(day)];
+  const t = activeFeed.table;
+  return t[Math.min(t.length - 1, Math.max(1, Math.round(day || 1)))];
+}
+
+/** Alimento a dar en una etapa según el plan activo (vacío si no se configuró). */
+export function feedNameForStage(stage: AvicolaStage): string {
+  return activeFeed.doc.feeds?.[stage] || '';
 }
 
 // ----------------------------------------------------------------------------
@@ -125,17 +235,19 @@ export interface StageRange {
 }
 
 /**
- * Etapas ajustadas a los días de producción (ciclo base de 42 días):
- * Preinicio 1-10, Inicio 11-21, Engorde 22-(P-7), Finalización (P-6)-P.
- * Con ciclos cortos la Finalización empieza como mínimo el día 23.
+ * Etapas ajustadas a los días de producción según el plan de alimentación
+ * (referencia, ciclo de 42 días): Preinicio 1-10, Inicio 11-21, Engorde 22-(P-7), Finalización (P-6)-P.
+ * La Finalización empieza como mínimo 2 días después del fin del Inicio.
  */
-export function stageRanges(productionDays: number): StageRange[] {
+export function stageRanges(productionDays: number, plan: AvicolaFeedTemplateDoc = activeFeed.doc): StageRange[] {
   const P = Math.max(AVICOLA_MIN_PRODUCTION_DAYS, Math.round(productionDays || AVICOLA_DEFAULT_PRODUCTION_DAYS));
-  const finStart = Math.max(23, P - 6);
+  const pe = plan.preinicioEnd;
+  const ie = plan.inicioEnd;
+  const finStart = Math.max(ie + 2, P - plan.finalizacionDays + 1);
   return [
-    { stage: 'Preinicio', fromDay: 1, toDay: 10 },
-    { stage: 'Inicio', fromDay: 11, toDay: 21 },
-    { stage: 'Engorde', fromDay: 22, toDay: finStart - 1 },
+    { stage: 'Preinicio', fromDay: 1, toDay: pe },
+    { stage: 'Inicio', fromDay: pe + 1, toDay: ie },
+    { stage: 'Engorde', fromDay: ie + 1, toDay: finStart - 1 },
     { stage: 'Finalización', fromDay: finStart, toDay: P },
   ];
 }

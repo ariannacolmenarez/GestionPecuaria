@@ -7,7 +7,10 @@ export interface TabSanitarioProps {
   tasks: SanitaryTask[];
   today: string;
   onAddActivity: (dateISO: string) => void;
-  onOpenBatchConfig: () => void;
+  /** Si se omite, no se muestra el botón "Configurar Lotes". */
+  onOpenBatchConfig?: () => void;
+  /** Texto del botón de nueva actividad. */
+  addLabel?: string;
   onSelectTask: (task: SanitaryTask) => void;
   onToggleTask: (task: SanitaryTask) => void;
 }
@@ -109,6 +112,7 @@ export const TabSanitario: React.FC<TabSanitarioProps> = ({
   onOpenBatchConfig,
   onSelectTask,
   onToggleTask,
+  addLabel,
 }) => {
   const todayDate = parseISODate(today) ?? new Date();
   const [viewMode, setViewMode] = useState<'calendario' | 'listado'>('calendario');
@@ -198,21 +202,23 @@ export const TabSanitario: React.FC<TabSanitarioProps> = ({
 
   return (
     <div className="space-y-3 animate-in fade-in duration-150">
-      <div className="grid grid-cols-2 gap-2">
+      <div className={`grid gap-2 ${onOpenBatchConfig ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <button
           onClick={() => onAddActivity(selectedDate >= today ? selectedDate : today)}
           className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl flex items-center justify-center gap-1.5 font-bold text-xs shadow-xs transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4 shrink-0" />
-          <span className="truncate">Programar Actividad</span>
+          <span className="truncate">{addLabel || 'Programar Actividad'}</span>
         </button>
-        <button
-          onClick={onOpenBatchConfig}
-          className="py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl flex items-center justify-center gap-1.5 font-bold text-xs shadow-xs transition-colors cursor-pointer"
-        >
-          <Layers className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span className="truncate">Configurar Lotes</span>
-        </button>
+        {onOpenBatchConfig && (
+          <button
+            onClick={onOpenBatchConfig}
+            className="py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl flex items-center justify-center gap-1.5 font-bold text-xs shadow-xs transition-colors cursor-pointer"
+          >
+            <Layers className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="truncate">Configurar Lotes</span>
+          </button>
+        )}
       </div>
 
       <div className="bg-slate-200/80 p-1 rounded-xl flex items-center justify-between text-xs font-bold">

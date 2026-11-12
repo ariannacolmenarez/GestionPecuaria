@@ -32,6 +32,9 @@ import type { AvicolaFocusRequest } from './components/mockup/avicola/shared';
 import { RubroPanels } from './components/mockup/RubroPanels';
 import { itemMatchesRubro } from './models/warehouseRubro';
 import { countCriticalWarehouseItems } from './models/PorcinoCalculations';
+import { AuthGate, type AppSession } from './views/auth/AuthGate';
+import { initialsAvatar } from './services/authService';
+import type { FarmMember } from './models/FarmModel';
 
 // Vistas secundarias cargadas bajo demanda (chunks propios, fuera del bundle inicial)
 const BovinoModalView = lazy(() => import('./views/bovino/BovinoModalView').then((m) => ({ default: m.BovinoModalView })));
@@ -72,6 +75,7 @@ function usePhoneNavigation(ctrl: FarmController) {
   const [porcinoTab, setPorcinoTab] = useState<PorcinoTab>('porcinos');
   const [warehouse, setWarehouse] = useState<RubroPanel | null>(null);
   const [balance, setBalance] = useState<RubroPanel | null>(null);
+  const [activities, setActivities] = useState<RubroPanel | null>(null);
   const [avicolaFocus, setAvicolaFocus] = useState<AvicolaFocusRequest | null>(null);
   // Nonce de peticiones de navegación (contador, no fecha del sistema)
   const focusSeq = useRef(0);
@@ -83,6 +87,7 @@ function usePhoneNavigation(ctrl: FarmController) {
   const closePanels = useCallback(() => {
     setWarehouse(null);
     setBalance(null);
+    setActivities(null);
   }, []);
 
   /** El módulo avícola consumió la petición: se limpia para que un remontaje no la repita. */
@@ -137,6 +142,7 @@ function usePhoneNavigation(ctrl: FarmController) {
   const openWarehouse = useCallback(
     (rubro?: Rubro) => {
       setBalance(null);
+      setActivities(null);
       setWarehouse(currentRubro ? { rubro: currentRubro, locked: true } : { rubro: asRubro(rubro), locked: false });
     },
     [currentRubro]
@@ -146,6 +152,7 @@ function usePhoneNavigation(ctrl: FarmController) {
   const openBalance = useCallback(
     (rubro?: Rubro) => {
       setWarehouse(null);
+      setActivities(null);
       if (currentRubro === 'porcino') {
         setPorcinoTab('balance');
         return;
@@ -171,6 +178,13 @@ function usePhoneNavigation(ctrl: FarmController) {
             goAvicola({ openCalendar: true });
             break;
           }
+          // Desde el Home de la granja: modal de actividades con pestañas por rubro
+          if (mockupScreen === 'home') {
+            setWarehouse(null);
+            setBalance(null);
+            setActivities({ rubro: 'porcino', locked: false });
+            break;
+          }
           openPorcino(screen);
           break;
         case 'balance':
@@ -187,7 +201,9 @@ function usePhoneNavigation(ctrl: FarmController) {
     [openPorcino, openWarehouse, openBalance, goAvicola, closePanels, mockupScreen, setMockupScreen, setShowAlertsModal]
   );
 
-  const activeScreen: BottomNavScreen = warehouse
+  const activeScreen: BottomNavScreen = activities
+    ? 'sanitario'
+    : warehouse
     ? 'almacen'
     : balance
       ? 'balance'
@@ -207,6 +223,8 @@ function usePhoneNavigation(ctrl: FarmController) {
     setWarehouse,
     balance,
     setBalance,
+    activities,
+    setActivities,
     closePanels,
     currentRubro,
     onNavigate,
@@ -242,7 +260,7 @@ function useHardwareBackButton(ctrl: FarmController, nav: PhoneNav, enabled: boo
       if (c.showSettingsModal) return c.setShowSettingsModal(false);
       if (c.showBovinoModal) return c.setShowBovinoModal(false);
       // Almacén o balance abiertos: se cierran primero
-      if (n.warehouse || n.balance) return n.closePanels();
+      if (n.warehouse || n.balance || n.activities) return n.closePanels();
       if (c.mockupScreen === 'avicola') {
         if (c.selectedAvicolaLotId) c.openAvicolaLot(null);
         else c.setMockupScreen('home');
@@ -341,6 +359,8 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
               onOpenWarehouse={nav.openWarehouse}
               planTemplate={ctrl.avicolaPlanTemplate}
               onSavePlanTemplate={ctrl.saveAvicolaPlanTemplate}
+              feedTemplate={ctrl.avicolaFeedTemplate}
+              onSaveFeedTemplate={ctrl.saveAvicolaFeedTemplate}
             />
           </Suspense>
         ) : (
@@ -385,6 +405,10 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
         balance={nav.balance}
         onWarehouseChange={nav.setWarehouse}
         onBalanceChange={nav.setBalance}
+        activities={nav.activities}
+        onActivitiesChange={nav.setActivities}
+        onOpenAvicolaLot={nav.goAvicolaLotSanidad}
+        onOpenAvicolaCalendar={() => nav.goAvicola({ openCalendar: true })}
       />
 
       {/* Capa de superposición del teléfono: las hojas del módulo avícola se montan aquí (portal). */}
@@ -396,7 +420,7 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
 // ============================================================================
 // MODALES GLOBALES (compartidos)
 // ============================================================================
-const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, nav }) => {
+const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSession }> = ({ ctrl, nav, session }) => {
   const addMovement = useCallback(
     (m: FinancialMovement) => {
       ctrl.dispatchPorcino(appendMovement, m, { silent: true });
@@ -440,9 +464,12 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl,
 
       {ctrl.showMembersModal && (
         <MembersModalView
-          members={ctrl.summary.members}
+          me={session.member}
+          members={session.members}
+          farmName={ctrl.summary.name || 'Mi Granja'}
           onClose={() => ctrl.setShowMembersModal(false)}
-          onInviteMember={ctrl.handleInviteMember}
+          onSignOut={session.signOut}
+          notify={ctrl.triggerToast}
         />
       )}
 
@@ -451,8 +478,11 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl,
           farmName={ctrl.summary.name}
           location={ctrl.summary.location}
           onClose={() => ctrl.setShowSettingsModal(false)}
-          onClearAllData={ctrl.handleClearAllTestData}
           onResync={ctrl.handleRestoreSampleData}
+          userEmail={session.member.email || session.user.email || undefined}
+          userName={session.member.name}
+          userRole={session.member.role}
+          onSignOut={session.signOut}
         />
       )}
 
@@ -486,8 +516,26 @@ const Toast: React.FC<{ message: string | null; placement: 'top' | 'bottom' }> =
     </div>
   ) : null;
 
+/** La app solo se monta con una sesión válida (miembro de la granja) y los datos ya en la nube. */
 export default function App() {
-  const ctrl = useFarmController();
+  return <AuthGate>{(session) => <FarmApp session={session} />}</AuthGate>;
+}
+
+function FarmApp({ session }: { session: AppSession }) {
+  const rawCtrl = useFarmController();
+  // Los miembros vienen de Firebase (farms/{id}/members), no del resumen local
+  const farmMembers: FarmMember[] = useMemo(
+    () => session.members.map((m) => ({ id: m.uid, name: m.name, email: m.email, role: m.role, avatar: initialsAvatar(m.name) })),
+    [session.members]
+  );
+  const ctrl: FarmController = useMemo(
+    () => ({ ...rawCtrl, summary: { ...rawCtrl.summary, members: farmMembers, totalMembers: farmMembers.length } }),
+    [rawCtrl, farmMembers]
+  );
+  // Aviso de bienvenida / datos subidos a la nube (una sola vez)
+  useEffect(() => {
+    if (session.welcome) rawCtrl.triggerToast(session.welcome);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const nav = usePhoneNavigation(ctrl);
   const isNative = Capacitor.isNativePlatform();
   useHardwareBackButton(ctrl, nav, isNative);
@@ -503,7 +551,7 @@ export default function App() {
       >
         <Toast message={ctrl.infoToast} placement="top" />
         <PhoneShell ctrl={ctrl} nav={nav} />
-        <GlobalModals ctrl={ctrl} nav={nav} />
+        <GlobalModals ctrl={ctrl} nav={nav} session={session} />
       </div>
     );
   }
@@ -562,7 +610,7 @@ export default function App() {
         </Suspense>
       </div>
 
-      <GlobalModals ctrl={ctrl} nav={nav} />
+      <GlobalModals ctrl={ctrl} nav={nav} session={session} />
     </div>
   );
 }

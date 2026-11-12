@@ -38,6 +38,8 @@ export interface AvicolaModuleProps {
   onOpenWarehouse?: () => void;
   planTemplate: AvicolaPlanItem[];
   onSavePlanTemplate: AvicolaCtx['savePlanTemplate'];
+  feedTemplate: AvicolaCtx['feedTemplate'];
+  onSaveFeedTemplate: AvicolaCtx['saveFeedTemplate'];
 }
 
 export const AvicolaModule: React.FC<AvicolaModuleProps> = ({
@@ -56,6 +58,8 @@ export const AvicolaModule: React.FC<AvicolaModuleProps> = ({
   onOpenWarehouse,
   planTemplate,
   onSavePlanTemplate,
+  feedTemplate,
+  onSaveFeedTemplate,
 }) => {
   const [tab, setTab] = useState<LotTab>('ventas');
   const [controlSub, setControlSub] = useState<ControlSub>('alimentacion');
@@ -92,6 +96,8 @@ export const AvicolaModule: React.FC<AvicolaModuleProps> = ({
     if (selectedLotId && !selectedLot && !data.lots.some((l) => l.id === selectedLotId)) onOpenLot(null);
   }, [selectedLotId, selectedLot, data.lots, onOpenLot]);
 
+  const feedKey = useMemo(() => JSON.stringify(feedTemplate), [feedTemplate]);
+
   const ctx: AvicolaCtx = useMemo(
     () => ({
       data,
@@ -105,13 +111,16 @@ export const AvicolaModule: React.FC<AvicolaModuleProps> = ({
       openWarehouse: onOpenWarehouse,
       planTemplate,
       savePlanTemplate: onSavePlanTemplate,
+      feedTemplate,
+      saveFeedTemplate: onSaveFeedTemplate,
     }),
-    [data, tasks, movements, warehouseItems, today, home, actions, openLot, onOpenWarehouse, planTemplate, onSavePlanTemplate]
+    [data, tasks, movements, warehouseItems, today, home, actions, openLot, onOpenWarehouse, planTemplate, onSavePlanTemplate, feedTemplate, onSaveFeedTemplate]
   );
 
   return (
     <AvicolaContext.Provider value={ctx}>
-      <div id="avicola-module" className="flex-1 flex flex-col min-h-0 bg-slate-100">
+      {/* key: al cambiar el plan de alimentación se recalculan etapas y consumos de todas las vistas */}
+      <div id="avicola-module" key={feedKey} className="flex-1 flex flex-col min-h-0 bg-slate-100">
         {selectedLot ? (
           <LoteDetail
             key={selectedLot.id}

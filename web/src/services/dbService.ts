@@ -43,7 +43,7 @@ import { granjaSummaryData } from '../data/pecuarioData';
 import { calculatePorcinoCounters, PorcinoDetailedCounters } from '../models/PorcinoCalculations';
 import { currentPeriodLabel, nowISO } from '../utils/dates';
 import { newId } from '../utils/ids';
-import type { AvicolaPlanTemplateDoc } from '../models/avicolaReference';
+import type { AvicolaPlanTemplateDoc, AvicolaFeedTemplateDoc } from '../models/avicolaReference';
 
 export const FARM_ID = 'granja_arianna_principal';
 
@@ -67,6 +67,7 @@ const STORAGE_KEYS = {
   AVICOLA_MORTALITY: 'pecuario_local_avicola_mortality_v5_clean',
   AVICOLA_WEIGHINGS: 'pecuario_local_avicola_weighings_v5_clean',
   AVICOLA_PLAN_TEMPLATE: 'pecuario_local_avicola_plan_template_v5_clean',
+  AVICOLA_FEED_TEMPLATE: 'pecuario_local_avicola_feed_template_v5_clean',
 };
 
 /** Colecciones Firestore bajo farms/{farmId}. */
@@ -88,6 +89,7 @@ const COL = {
   avicolaMortality: 'avicola_mortality',
   avicolaWeighings: 'avicola_weighings',
   avicolaPlanTemplate: 'avicola_plan_template',
+  avicolaFeedTemplate: 'avicola_feed_template',
 } as const;
 
 /** @deprecated Sin datos de muestra: siempre vacío. */
@@ -96,6 +98,8 @@ export const initialBovinoHerdSample: any[] = [];
 export const initialAvicolaLotsSample: any[] = [];
 
 export const BLANK_MODE_KEY = 'pecuario_blank_mode_v5';
+/** Marca de "datos locales ya subidos a la nube" (por granja). */
+const CLOUD_MIGRATION_KEY = 'pecuario_cloud_migrated_v1';
 const BATCH_LIMIT = 450;
 
 // Purga de cachés antiguas (v1, con datos de prueba) que quedaran en el teléfono.
@@ -661,6 +665,16 @@ export const dbService = {
   },
 
   // ==========================================
+  // PLAN DE ALIMENTACIÓN AVÍCOLA (un documento 'default')
+  // ==========================================
+  saveAvicolaFeedTemplate(farmId: string = FARM_ID, docData: AvicolaFeedTemplateDoc): Promise<void> {
+    return bulkSave(farmId, COL.avicolaFeedTemplate, STORAGE_KEYS.AVICOLA_FEED_TEMPLATE, [stripUndefined(docData)], () => 'default');
+  },
+  subscribeAvicolaFeedTemplate(farmId: string = FARM_ID, onUpdate: (docs: AvicolaFeedTemplateDoc[]) => void): () => void {
+    return subscribeAll<AvicolaFeedTemplateDoc>(farmId, COL.avicolaFeedTemplate, STORAGE_KEYS.AVICOLA_FEED_TEMPLATE, onUpdate);
+  },
+
+  // ==========================================
   // PROTOCOLOS Y LOTES DE PRODUCCIÓN
   // ==========================================
   getBatchConfigs(farmId: string = FARM_ID): Promise<BatchProductionConfig[]> {
@@ -681,6 +695,79 @@ export const dbService = {
   },
   subscribeProductionBatches(farmId: string = FARM_ID, onUpdate: (batches: ProductionBatch[]) => void): () => void {
     return subscribeAll<ProductionBatch>(farmId, COL.batches, STORAGE_KEYS.BATCHES, onUpdate);
+  },
+
+  // ==========================================
+  // MIGRACIÓN: DATOS DEL TELÉFONO → NUBE (una vez por teléfono)
+  // ==========================================
+
+  /** ¿Ya se subieron a la nube los datos guardados solo en este teléfono? */
+  isLocalDataMigrated(farmId: string = FARM_ID): boolean {
+    try {
+      return localStorage.getItem(`${CLOUD_MIGRATION_KEY}_${farmId}`) === 'done';
+    } catch {
+      return true;
+    }
+  },
+
+  /**
+   * Sube a Firestore todo lo que la app guardó en este teléfono antes de conectarse a la nube,
+   * fusionándolo por id con lo que ya exista allá. Debe ejecutarse ANTES de abrir las
+   * suscripciones (cada snapshot reemplaza la caché local con lo que hay en la nube).
+   */
+  async migrateLocalToCloud(farmId: string = FARM_ID, timeoutMs = 90000): Promise<{ uploaded: number }> {
+    const pairs: [keyof typeof STORAGE_KEYS, string, ((x: any) => string)?][] = [
+      ['ANIMALS', COL.animals],
+      ['LITTERS', COL.litters],
+      ['TASKS', COL.tasks],
+      ['MOVEMENTS', COL.movements],
+      ['WAREHOUSE', COL.warehouse],
+      ['SALES', COL.sales],
+      ['BOVINO', COL.bovino],
+      ['AVICOLA', COL.avicola],
+      ['BATCHES', COL.batches],
+      ['BATCH_CONFIGS', COL.batchConfigs, (c: any) => c.id || c.productionType],
+      ['FEEDING_PLANS', COL.feedingPlans, (p: any) => p.productionType],
+      ['AVICOLA_SALES', COL.avicolaSales],
+      ['AVICOLA_EXPENSES', COL.avicolaExpenses],
+      ['AVICOLA_INCOMES', COL.avicolaIncomes],
+      ['AVICOLA_MORTALITY', COL.avicolaMortality],
+      ['AVICOLA_WEIGHINGS', COL.avicolaWeighings],
+      ['AVICOLA_PLAN_TEMPLATE', COL.avicolaPlanTemplate, () => 'default'],
+      ['AVICOLA_FEED_TEMPLATE', COL.avicolaFeedTemplate, () => 'default'],
+    ];
+    const ops: BatchOp[] = [];
+    for (const [key, col, idOf] of pairs) {
+      const list = readLocal<any[]>(STORAGE_KEYS[key], []);
+      if (!Array.isArray(list)) continue;
+      list.forEach((it) => {
+        const id = idOf ? idOf(it) : it?.id;
+        if (it && typeof id === 'string' && id && !id.includes('/')) ops.push({ ref: docRef(farmId, col, id), data: it });
+      });
+    }
+    const work = (async () => {
+      if (ops.length) await commitOps(ops);
+      // Nombre / ubicación personalizados en este teléfono
+      const local = readLocal<FarmSummary | null>(STORAGE_KEYS.SUMMARY, null);
+      if (local && (local.name !== granjaSummaryData.name || local.location !== granjaSummaryData.location)) {
+        await setDoc(doc(db, 'farms', farmId), stripUndefined({ name: local.name, location: local.location, updatedAt: nowISO() }), { merge: true });
+      }
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Tiempo de espera agotado al subir los datos. Revisa tu conexión.')), timeoutMs);
+    });
+    try {
+      await Promise.race([work, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    try {
+      localStorage.setItem(`${CLOUD_MIGRATION_KEY}_${farmId}`, 'done');
+    } catch {
+      // ignorar
+    }
+    return { uploaded: ops.length };
   },
 
   // ==========================================

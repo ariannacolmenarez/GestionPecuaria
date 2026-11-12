@@ -135,7 +135,15 @@ import {
 } from '../models/avicolaDomain';
 import { dbService, FARM_ID, buildEmptySummary } from '../services/dbService';
 import { todayISO, currentMonthYear, nowISO } from '../utils/dates';
-import { AVICOLA_BASE_SANITARY_PLAN, validatePlanTemplate, type AvicolaPlanItem } from '../models/avicolaReference';
+import {
+  AVICOLA_BASE_SANITARY_PLAN,
+  validatePlanTemplate,
+  validateFeedTemplate,
+  setActiveFeedTemplate,
+  activeFeedTemplate,
+  type AvicolaPlanItem,
+  type AvicolaFeedTemplateDoc,
+} from '../models/avicolaReference';
 import { newId } from '../utils/ids';
 
 export type MainAppView = 'mockup' | 'documentation' | 'mvc';
@@ -186,6 +194,8 @@ export function useFarmController() {
   const [avicolaWeighings, setAvicolaWeighings] = useState<AvicolaWeighing[]>([]);
   /** Plantilla del plan sanitario avícola de la granja (base para todos los lotes nuevos). */
   const [avicolaPlanTemplate, setAvicolaPlanTemplate] = useState<AvicolaPlanItem[]>(AVICOLA_BASE_SANITARY_PLAN);
+  /** Plan de alimentación avícola activo (consumo diario y etapas de todos los lotes). */
+  const [avicolaFeedTemplate, setAvicolaFeedTemplate] = useState<AvicolaFeedTemplateDoc>(() => activeFeedTemplate());
   /** Lote avícola abierto en el módulo (null = Home avícola "Pollos de Engorde"). */
   const [selectedAvicolaLotId, setSelectedAvicolaLotId] = useState<string | null>(null);
   // Protocolos y planes: plantillas de configuración (no son datos de animales)
@@ -317,6 +327,11 @@ export function useFarmController() {
         const items = docs.find((x) => x.id === 'default')?.items;
         setAvicolaPlanTemplate(items && items.length ? items : AVICOLA_BASE_SANITARY_PLAN);
       }),
+      dbService.subscribeAvicolaFeedTemplate(FARM_ID, (docs) => {
+        setActiveFeedTemplate(docs.find((x) => x.id === 'default') || null);
+        const next = activeFeedTemplate();
+        setAvicolaFeedTemplate((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      }),
     ];
     return () => {
       alive = false;
@@ -347,7 +362,11 @@ export function useFarmController() {
     [avicolaLots, avicolaSales, avicolaExpenses, avicolaIncomes, avicolaMortality, avicolaWeighings]
   );
   /** Home avícola: balance de todos los lotes, tarjetas de lotes activos/finalizados, alertas por lote. */
-  const avicolaHome = useMemo(() => avicolaHomeSummary({ ...avicolaData, tasks }, today), [avicolaData, tasks, today]);
+  // avicolaFeedTemplate: el plan de alimentación cambia etapas y consumo de todos los lotes
+  const avicolaHome = useMemo(
+    () => avicolaHomeSummary({ ...avicolaData, tasks }, today),
+    [avicolaData, tasks, today, avicolaFeedTemplate] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   const counts = useMemo(() => {
     const base = calculateFarmCounts(animals, litters, bovinoHerd, []);
@@ -627,6 +646,24 @@ export function useFarmController() {
     [triggerToast]
   );
 
+  /** Guarda el plan de alimentación avícola (null = restaurar el de referencia). Aplica a todos los lotes. */
+  const saveAvicolaFeedTemplate = useCallback(
+    (doc: Omit<AvicolaFeedTemplateDoc, 'id'> | null): { ok: true; message: string } | { ok: false; error: string } => {
+      const v = doc === null ? ({ ok: true, doc: null } as const) : validateFeedTemplate(doc);
+      if ('error' in v) return { ok: false, error: v.error };
+      setActiveFeedTemplate(v.doc);
+      const next = activeFeedTemplate();
+      setAvicolaFeedTemplate(next);
+      dbService
+        .saveAvicolaFeedTemplate(FARM_ID, { ...next, updatedAt: nowISO() })
+        .catch((e) => console.warn('saveAvicolaFeedTemplate failed:', e));
+      const message = doc === null ? 'Plan de alimentación restaurado al de referencia.' : 'Plan de alimentación guardado. Se aplica a todos los lotes.';
+      triggerToast(message);
+      return { ok: true, message };
+    },
+    [triggerToast]
+  );
+
   const handleUpdateBatchConfigs = useCallback(
     (newConfigs: BatchProductionConfig[]) => {
       applyPorcinoState({ batchConfigs: newConfigs });
@@ -877,6 +914,8 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     avicolaActions,
     avicolaPlanTemplate,
     saveAvicolaPlanTemplate,
+    avicolaFeedTemplate,
+    saveAvicolaFeedTemplate,
 
     // Acciones
     triggerToast,

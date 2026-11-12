@@ -4,14 +4,22 @@
  * - Desde el Home de la granja muestran un selector para cambiar de rubro.
  * Cada rubro conecta sus propias acciones: el avícola descuenta stock y carga el gasto al lote.
  */
-import React, { Suspense, lazy, useMemo } from 'react';
-import { Bird, Calculator, PiggyBank, Beef, X } from 'lucide-react';
+import React, { Suspense, lazy, useMemo, useState } from 'react';
+import { Bird, Calculator, PiggyBank, Beef, X, CalendarDays } from 'lucide-react';
 import type { FarmController } from '../../controllers/FarmController';
+import type { SanitaryTask } from '../../types';
 import { isLotActive } from '../../models/avicolaDomain';
 import { TabBalance } from './porcino/TabBalance';
+import { TabSanitario } from './porcino/TabSanitario';
 import { itemMatchesRubro, type WarehouseRubro } from '../../models/warehouseRubro';
 
 const WarehouseModal = lazy(() => import('./WarehouseModal').then((m) => ({ default: m.WarehouseModal })));
+const AddSanitaryActivityModal = lazy(() =>
+  import('./AddSanitaryActivityModal').then((m) => ({ default: m.AddSanitaryActivityModal }))
+);
+const SanitaryProcedureModal = lazy(() =>
+  import('./SanitaryProcedureModal').then((m) => ({ default: m.SanitaryProcedureModal }))
+);
 
 export type Rubro = WarehouseRubro;
 export interface RubroPanel {
@@ -50,7 +58,23 @@ export const RubroPanels: React.FC<{
   balance: RubroPanel | null;
   onWarehouseChange: (p: RubroPanel | null) => void;
   onBalanceChange: (p: RubroPanel | null) => void;
-}> = ({ ctrl, warehouse, balance, onWarehouseChange, onBalanceChange }) => {
+  /** Actividades (calendario sanitario) por rubro, abierto desde el Home de la granja. */
+  activities?: RubroPanel | null;
+  onActivitiesChange?: (p: RubroPanel | null) => void;
+  /** Avícola: abrir el lote en Control › Sanidad / el calendario del módulo. */
+  onOpenAvicolaLot?: (loteId: string) => void;
+  onOpenAvicolaCalendar?: () => void;
+}> = ({
+  ctrl,
+  warehouse,
+  balance,
+  onWarehouseChange,
+  onBalanceChange,
+  activities,
+  onActivitiesChange,
+  onOpenAvicolaLot,
+  onOpenAvicolaCalendar,
+}) => {
   const P = ctrl.porcinoActions;
   const A = ctrl.avicolaActions;
   const rubro = warehouse?.rubro;
@@ -132,7 +156,121 @@ export const RubroPanels: React.FC<{
           </div>
         </div>
       )}
+
+      {activities && onActivitiesChange && (
+        <ActivitiesPanel
+          ctrl={ctrl}
+          panel={activities}
+          onChange={onActivitiesChange}
+          onOpenAvicolaLot={onOpenAvicolaLot}
+          onOpenAvicolaCalendar={onOpenAvicolaCalendar}
+        />
+      )}
     </>
+  );
+};
+
+/** Actividades (calendario y listado sanitario) de un rubro, con pestañas por rubro. */
+const ActivitiesPanel: React.FC<{
+  ctrl: FarmController;
+  panel: RubroPanel;
+  onChange: (p: RubroPanel | null) => void;
+  onOpenAvicolaLot?: (loteId: string) => void;
+  onOpenAvicolaCalendar?: () => void;
+}> = ({ ctrl, panel, onChange, onOpenAvicolaLot, onOpenAvicolaCalendar }) => {
+  const P = ctrl.porcinoActions;
+  const rubro = panel.rubro;
+  const [addDate, setAddDate] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  const tasks = useMemo(() => ctrl.tasks.filter((t) => (t.targetRubro || 'porcino') === rubro), [ctrl.tasks, rubro]);
+  const selectedTask = useMemo(() => ctrl.tasks.find((t) => t.id === selectedTaskId) || null, [ctrl.tasks, selectedTaskId]);
+  const label = RUBROS.find((r) => r.key === rubro)?.label;
+
+  const onSelectTask = (t: SanitaryTask) => {
+    // Las tareas avícolas se gestionan en su lote (Control › Sanidad)
+    if (rubro === 'avicola') {
+      if (t.loteId && onOpenAvicolaLot) onOpenAvicolaLot(t.loteId);
+      else onOpenAvicolaCalendar?.();
+      return;
+    }
+    setSelectedTaskId(t.id);
+  };
+
+  const onAddActivity = (date: string) => {
+    // Avícola: las actividades se programan dentro de cada lote (calendario del módulo)
+    if (rubro === 'avicola') onOpenAvicolaCalendar?.();
+    else setAddDate(date);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150">
+      <div role="dialog" aria-modal="true" aria-label="Actividades" className="bg-slate-50 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[90vh] max-h-[750px] text-slate-900">
+        <div className="bg-slate-900 text-white p-4 shrink-0 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+                <CalendarDays className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base leading-tight">Actividades {label}</h3>
+                <p className="text-[11px] text-slate-400">Calendario sanitario y tareas del rubro</p>
+              </div>
+            </div>
+            <button onClick={() => onChange(null)} aria-label="Cerrar" className="w-10 h-10 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 flex items-center justify-center">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          {!panel.locked && (
+            <RubroSwitcher
+              dark
+              value={rubro}
+              onChange={(r) => {
+                setSelectedTaskId(null);
+                setAddDate(null);
+                onChange({ rubro: r, locked: false });
+              }}
+            />
+          )}
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          <TabSanitario
+            key={rubro}
+            tasks={tasks}
+            today={ctrl.today}
+            addLabel={rubro === 'avicola' ? 'Programar en un lote' : undefined}
+            onAddActivity={onAddActivity}
+            onSelectTask={onSelectTask}
+            onToggleTask={(t) => ctrl.handleToggleTaskStatus(t.id)}
+          />
+        </div>
+      </div>
+
+      <Suspense fallback={null}>
+        {addDate !== null && (
+          <AddSanitaryActivityModal
+            animals={rubro === 'porcino' ? ctrl.animals : []}
+            warehouseItems={ctrl.warehouseItems.filter((i) => itemMatchesRubro(i, rubro))}
+            onClose={() => setAddDate(null)}
+            onAddTask={(task) => {
+              const res = P.addSanitaryTask({ task: { ...task, targetRubro: rubro } });
+              if (res.ok) setAddDate(null);
+              return res;
+            }}
+            defaultDate={addDate}
+            initialDate={addDate}
+          />
+        )}
+        {selectedTask && (
+          <SanitaryProcedureModal
+            task={selectedTask}
+            warehouseItems={ctrl.warehouseItems.filter((i) => itemMatchesRubro(i, rubro))}
+            onClose={() => setSelectedTaskId(null)}
+            onComplete={(taskId, opts) => P.completeSanitaryTask({ taskId, ...(opts || {}) })}
+          />
+        )}
+      </Suspense>
+    </div>
   );
 };
 

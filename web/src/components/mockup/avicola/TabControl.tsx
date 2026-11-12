@@ -35,7 +35,7 @@ import {
   lotTasks,
   weighingComparison,
 } from '../../../models/avicolaDomain';
-import { idealWeightTable, FEED_BAG_KG } from '../../../models/avicolaReference';
+import { idealWeightTable, FEED_BAG_KG, feedNameForStage } from '../../../models/avicolaReference';
 import { useAvicola } from './context';
 import {
   BottomSheet,
@@ -355,6 +355,9 @@ const AlimentacionPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
             <p className="text-xs text-slate-600">
               Del día {st.range.fromDay} al {st.range.toDay}
             </p>
+            {feedNameForStage(st.stage) && (
+              <p className="text-xs font-semibold text-slate-800 mt-0.5">Alimento: {feedNameForStage(st.stage)}</p>
+            )}
           </div>
           <p className="text-base font-bold text-slate-700 whitespace-nowrap">
             Día {Math.max(st.day, 0) || '—'} de {st.productionDays}

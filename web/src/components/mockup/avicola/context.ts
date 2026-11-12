@@ -7,7 +7,7 @@ import type { SanitaryTask, WarehouseItem, FinancialMovement } from '../../../mo
 import type { AvicolaData, AvicolaHomeSummary } from '../../../models/avicolaDomain';
 import type { AvicolaActions } from '../../../controllers/FarmController';
 import type { ControlSub, LotTab } from './shared';
-import type { AvicolaPlanItem } from '../../../models/avicolaReference';
+import type { AvicolaPlanItem, AvicolaFeedTemplateDoc } from '../../../models/avicolaReference';
 
 export interface AvicolaCtx {
   data: AvicolaData;
@@ -25,6 +25,10 @@ export interface AvicolaCtx {
   planTemplate: AvicolaPlanItem[];
   /** Guarda la plantilla (null = restaurar la de referencia). */
   savePlanTemplate: (items: AvicolaPlanItem[] | null) => { ok: true; message: string } | { ok: false; error: string };
+  /** Plan de alimentación de la granja (consumo diario por pollo, etapas y alimento por etapa). */
+  feedTemplate: AvicolaFeedTemplateDoc;
+  /** Guarda el plan de alimentación (null = restaurar el de referencia). */
+  saveFeedTemplate: (doc: Omit<AvicolaFeedTemplateDoc, 'id'> | null) => { ok: true; message: string } | { ok: false; error: string };
 }
 
 export const AvicolaContext = createContext<AvicolaCtx | null>(null);
