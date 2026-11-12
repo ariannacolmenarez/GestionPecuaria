@@ -13,7 +13,7 @@ import {
   ChevronRight,
   ShieldCheck,
 } from 'lucide-react';
-import { SanitaryTask, WarehouseItem } from '../../types';
+import { AvicolaLot, SanitaryTask, WarehouseItem } from '../../types';
 import { evaluateWarehouseReplenishment } from '../../models/PorcinoCalculations';
 import { MONTH_NAMES_ES, MONTH_NAMES_SHORT_ES, formatShortDate, parseISODate, todayISO } from '../../utils/dates';
 
@@ -38,6 +38,19 @@ interface AlertsCenterModalProps {
   onSimulateNotification?: () => void;
   onNavigateToCalendar?: () => void;
   onNavigateToWarehouse?: () => void;
+  /** Lotes avícolas (para identificar el lote de las tareas avícolas). */
+  avicolaLots?: AvicolaLot[];
+  /** Abre el lote avícola (Control › Sanidad) de una tarea. */
+  onOpenAvicolaLot?: (loteId: string) => void;
+  /** Abre el módulo avícola (Home "Pollos de Engorde", con su calendario). */
+  onNavigateToAvicolaCalendar?: () => void;
+}
+
+const isAvicola = (t: SanitaryTask) => t.targetRubro === 'avicola';
+/** Nombre del lote avícola al que va dirigida la tarea. */
+function avicolaLotName(t: SanitaryTask, lots: AvicolaLot[]): string {
+  const lot = t.loteId ? lots.find((l) => l.id === t.loteId) : undefined;
+  return lot?.name || t.batchCode || t.targetAnimal || 'Lote';
 }
 
 export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
@@ -50,6 +63,9 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
   onSimulateNotification,
   onNavigateToCalendar,
   onNavigateToWarehouse,
+  avicolaLots = [],
+  onOpenAvicolaLot,
+  onNavigateToAvicolaCalendar,
 }) => {
   const [activeTab, setActiveTab] = useState<'today' | 'warehouse'>('today');
   const [toastNotice, setToastNotice] = useState<string | null>(null);
@@ -89,6 +105,8 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
   );
   const todayTasks = useMemo(() => [...overdueTasks, ...todayOnly], [overdueTasks, todayOnly]);
   const pendingCount = todayTasks.filter(isOpenTask).length;
+  const hasAvicola = todayTasks.some(isAvicola);
+  const hasOther = todayTasks.some((t) => !isAvicola(t));
 
   // Insumos críticos: mismo cálculo que el badge de almacén (sin divisiones por 0)
   const criticalWarehouseItems = useMemo(
@@ -224,7 +242,11 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                             >
                               {isCompleted ? '✓ Completada' : isOverdue ? '⚠ Vencida' : '⏳ Pendiente'}
                             </span>
-                            {task.batchCode && (
+                            {isAvicola(task) ? (
+                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                                🐔 Avícola · {avicolaLotName(task, avicolaLots)}
+                              </span>
+                            ) : task.batchCode && (
                               <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
                                 {task.batchCode}
                               </span>
@@ -241,8 +263,16 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                                 : 'text-slate-900'
                             }`}
                           >
-                            {task.title}
+                            {isAvicola(task) ? task.title.replace(/^\[[^\]]*\]\s*/, '') : task.title}
                           </h4>
+                          {isAvicola(task) && task.loteId && onOpenAvicolaLot && (
+                            <button
+                              onClick={() => onOpenAvicolaLot(task.loteId!)}
+                              className="mt-1 min-h-10 px-3 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-bold cursor-pointer"
+                            >
+                              Ir al lote {avicolaLotName(task, avicolaLots)} ›
+                            </button>
+                          )}
                         </div>
 
                         {/* Complete button */}
@@ -304,7 +334,17 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                 })
               )}
 
-              {onNavigateToCalendar && (
+              {hasAvicola && onNavigateToAvicolaCalendar && (
+                <button
+                  onClick={onNavigateToAvicolaCalendar}
+                  className="w-full py-2 px-3 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer border border-amber-200"
+                >
+                  <Calendar className="w-3.5 h-3.5 text-amber-600" /> Ver calendario de lotes avícolas
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {onNavigateToCalendar && (hasOther || !hasAvicola) && (
                 <button
                   onClick={onNavigateToCalendar}
                   className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"

@@ -40,7 +40,16 @@ export interface FarmSummary {
   };
   counts: {
     avicola: {
+      /** Pollos físicamente en galpón de los lotes activos. */
       pollosEngorde: number;
+      /** Lotes de engorde activos. */
+      lotesActivos?: number;
+      /** Bajas (mortalidad) acumuladas de los lotes activos. */
+      bajas?: number;
+      /** Pollos sacrificados/entregados de los lotes activos. */
+      sacrificados?: number;
+      /** Pollos iniciados en los lotes activos. */
+      iniciados?: number;
     };
     porcino: {
       productoras: number;
@@ -224,6 +233,10 @@ export interface WarehouseItem {
   supplier?: string;
   /** true si la compra se registró como egreso al dar de alta: el consumo posterior solo imputa costo (no crea otro egreso). */
   expensedOnPurchase?: boolean;
+  /** Rubro al que pertenece el insumo (sin valor = uso general / porcino histórico). */
+  rubro?: 'porcino' | 'bovino' | 'avicola' | 'general';
+  /** Lote avícola al que se asignó el insumo (bodega del lote). */
+  loteId?: string;
 }
 
 export interface SanitaryTask {
@@ -269,6 +282,12 @@ export interface SanitaryTask {
   completedAt?: string;
   /** Motivo de cancelación (ej. lote vendido). */
   cancelReason?: string;
+  /** Lote avícola destino (id de AvicolaLot). */
+  loteId?: string;
+  /** Día de vida del lote en que toca la tarea (1 = fecha de inicio). Si existe, la fecha se recalcula al cambiar el inicio. */
+  lifeDay?: number;
+  /** Tipo de actividad (vacuna, vitamina, medicamento, desinfeccion, cama, pesaje, alimentacion, otro). */
+  activityKind?: string;
 }
 
 export type ProductionType = 'engorde' | 'lechones' | 'maternidad' | 'verracos';
@@ -400,20 +419,186 @@ export interface AvicolaDailyLog {
   notes?: string;
 }
 
+// ============================================================================
+// MÓDULO AVÍCOLA - POLLOS DE ENGORDE
+// ============================================================================
+
+export type AvicolaBreed = 'Sin raza' | 'Cobb 500' | 'Ross 308' | 'Hubbard' | 'Arbor Acres' | 'Otra';
+export type AvicolaStage = 'Preinicio' | 'Inicio' | 'Engorde' | 'Finalización';
+/** Estados nuevos ('activo' | 'finalizado') + estados legados del modal antiguo. */
+export type AvicolaLotStatus =
+  | 'activo'
+  | 'finalizado'
+  | 'Iniciación'
+  | 'Crecimiento'
+  | 'Listo para Faena'
+  | 'Liquidado';
+
 export interface AvicolaLot {
   id: string;
+  /** Nombre visible del lote (ej. 'Lote 001'). */
+  name: string;
+  /** Pollos que entraron al galpón. */
+  initialChicks: number;
+  /** Fecha de inicio 'YYYY-MM-DD' (ese día es el día 1). */
+  startDate: string;
+  /** Días de producción hasta el sacrificio (ciclo). */
+  productionDays: number;
+  status: AvicolaLotStatus;
+  finalizedAt?: string;
+  /** Bajas acumuladas (derivado de los registros de mortalidad). */
+  deathsTotal: number;
+  /** Pollos comprometidos en ventas/ingresos (derivado). */
+  soldBirds?: number;
+  /** Pollos ya entregados / sacrificados (derivado). */
+  deliveredBirds?: number;
+  createdAt?: string;
+  notes?: string;
+  /** true si al crear el lote se generó el plan sanitario base. */
+  sanitaryPlanApplied?: boolean;
+
+  // ---- Campos legados (la capa de dominio los mantiene sincronizados) ----
+  /** = name */
   code: string;
+  /** Galpón (opcional). */
   shed: string;
-  breed: string;
+  /** Raza (AvicolaBreed; string por compatibilidad). */
+  breed: AvicolaBreed | string;
+  /** = initialChicks */
   initial: number;
+  /** Pollos físicamente en galpón. */
   current: number;
+  /** Día de vida al último cambio (usar lotDay() para el valor real). */
   age: number;
+  /** Peso promedio del último pesaje (g). */
   avgWeightGrams: number;
+  /** Alimento registrado como gasto (kg). */
   feedTotalKg: number;
+  /** Conversión alimenticia estimada (0 si no hay datos). */
   fcr: number;
-  status: 'Iniciación' | 'Crecimiento' | 'Listo para Faena' | 'Liquidado';
-  startDate?: string;
   dailyLogs?: AvicolaDailyLog[];
+}
+
+export type AvicolaProduct = 'pollo' | 'menudencia' | 'otros';
+export type AvicolaSaleUnit = 'lb' | 'kg' | 'g' | 'unidad';
+export type AvicolaWeightUnit = 'g' | 'lb' | 'kg';
+export type AvicolaExpenseUnit = 'kg' | 'g' | 'lb' | 'bulto40' | 'ton' | 'unidad';
+export type AvicolaExpenseCategory =
+  | 'Alimento'
+  | 'Pollos'
+  | 'Bebedero'
+  | 'Comedero'
+  | 'Vitaminas'
+  | 'Sanidad'
+  | 'Mano de obra'
+  | 'Otros';
+
+export interface AvicolaPayment {
+  id: string;
+  date: string;
+  amount: number;
+  /** Ingreso del lote generado por este abono. */
+  incomeId: string;
+  notes?: string;
+}
+
+export interface AvicolaSale {
+  id: string;
+  loteId: string;
+  date: string;
+  customerName: string;
+  phone?: string;
+  product: AvicolaProduct;
+  /** Cómo se cobra: por libra, kilo, gramo o unidad. */
+  unit: AvicolaSaleUnit;
+  /** Precio por unidad de cobro. */
+  unitPrice: number;
+  /** Pollos vendidos (descuentan disponibles). 0 para menudencia/otros. */
+  birds: number;
+  /** Peso total en la unidad de cobro (si unit != 'unidad'). */
+  weight?: number;
+  /** Cantidad cobrada por unidades (si unit == 'unidad'). */
+  units?: number;
+  /** Total a cobrar (editable). */
+  total: number;
+  /** Suma de abonos. */
+  paidAmount: number;
+  payments: AvicolaPayment[];
+  delivered: boolean;
+  deliveredAt?: string;
+  /** Es un encargo (pedido para entregar después). */
+  isOrder: boolean;
+  deliveryDate?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface AvicolaExpense {
+  id: string;
+  loteId: string;
+  date: string;
+  category: AvicolaExpenseCategory;
+  product: string;
+  /** Etapa del alimento (solo categoría Alimento). */
+  stage?: AvicolaStage;
+  unit: AvicolaExpenseUnit;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  /** Kilos de alimento equivalentes (solo categoría Alimento con unidad de peso). */
+  feedKg?: number;
+  /** Egreso financiero generado (rubro 'avicola'). */
+  movementId?: string;
+  /** Generado desde la bodega/almacén (consumo o tarea). */
+  warehouseItemId?: string;
+  /** Tarea que generó el gasto (al completar con insumo). */
+  taskId?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface AvicolaIncome {
+  id: string;
+  loteId: string;
+  date: string;
+  type: AvicolaProduct;
+  detail: string;
+  /** Pollos entregados con este ingreso (solo ingresos manuales; los de venta cuentan en la venta). */
+  birds: number;
+  unit?: AvicolaWeightUnit;
+  weight?: number;
+  unitPrice?: number;
+  total: number;
+  /** Venta y abono de origen (ingreso automático por cobro). */
+  saleId?: string;
+  paymentId?: string;
+  movementId?: string;
+  createdAt: string;
+}
+
+export interface AvicolaMortality {
+  id: string;
+  loteId: string;
+  date: string;
+  /** Día de vida del lote. */
+  day: number;
+  count: number;
+  cause: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface AvicolaWeighing {
+  id: string;
+  loteId: string;
+  date: string;
+  /** Día de vida del lote. */
+  day: number;
+  avgWeightGrams: number;
+  sampleSize?: number;
+  sex?: 'mixto' | 'machos' | 'hembras';
+  notes?: string;
+  createdAt: string;
 }
 
 export interface FlowStep {

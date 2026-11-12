@@ -29,7 +29,7 @@ export const MobileDeviceFrame: React.FC<MobileDeviceFrameProps> = ({
             <Minimize2 className="w-3.5 h-3.5" /> Volver a Marco Móvil
           </button>
         </div>
-        <div className="flex-1 flex flex-col overflow-hidden">{children}</div>
+        <div className="relative flex-1 flex flex-col overflow-hidden">{children}</div>
       </div>
     );
   }
@@ -71,7 +71,7 @@ export const MobileDeviceFrame: React.FC<MobileDeviceFrameProps> = ({
           </div>
 
           {/* Child app view */}
-          <div className="flex-1 flex flex-col overflow-hidden">{children}</div>
+          <div className="relative flex-1 flex flex-col overflow-hidden">{children}</div>
 
           {/* Home indicator bar */}
           <div className="bg-white pb-2 pt-1 flex justify-center shrink-0">

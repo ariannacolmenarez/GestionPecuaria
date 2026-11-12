@@ -156,7 +156,7 @@ export function calculateBovinoCounters(herd: Array<Partial<BovinoAnimal> | any>
 
 /** Censo total activo de aves en galpones (sin datos de ejemplo: vacío -> 0). */
 export function calculateAvicolaCounters(lots: Array<Partial<AvicolaLot> | any> = []) {
-  const activeLots = (lots || []).filter((l) => l && l.status !== 'Liquidado');
+  const activeLots = (lots || []).filter((l) => l && l.status !== 'Liquidado' && l.status !== 'finalizado');
   const pollosEngorde = activeLots.reduce((acc, l) => acc + num(l.current), 0);
   return { pollosEngorde, lotesActivosCount: activeLots.length };
 }

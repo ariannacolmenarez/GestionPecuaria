@@ -32,6 +32,12 @@ import {
   ProductionBatch,
   BatchProductionConfig,
   ProductionFeedingPlan,
+  AvicolaLot,
+  AvicolaSale,
+  AvicolaExpense,
+  AvicolaIncome,
+  AvicolaMortality,
+  AvicolaWeighing,
 } from '../types';
 import { granjaSummaryData } from '../data/pecuarioData';
 import { calculatePorcinoCounters, PorcinoDetailedCounters } from '../models/PorcinoCalculations';
@@ -54,6 +60,11 @@ const STORAGE_KEYS = {
   BATCHES: 'pecuario_local_batches_v5_clean',
   BATCH_CONFIGS: 'pecuario_local_batch_configs_v5_clean',
   FEEDING_PLANS: 'pecuario_local_feeding_plans_v5_clean',
+  AVICOLA_SALES: 'pecuario_local_avicola_sales_v5_clean',
+  AVICOLA_EXPENSES: 'pecuario_local_avicola_expenses_v5_clean',
+  AVICOLA_INCOMES: 'pecuario_local_avicola_incomes_v5_clean',
+  AVICOLA_MORTALITY: 'pecuario_local_avicola_mortality_v5_clean',
+  AVICOLA_WEIGHINGS: 'pecuario_local_avicola_weighings_v5_clean',
 };
 
 /** Colecciones Firestore bajo farms/{farmId}. */
@@ -69,6 +80,11 @@ const COL = {
   batches: 'batches',
   batchConfigs: 'batch_configs',
   feedingPlans: 'feeding_plans',
+  avicolaSales: 'avicola_sales',
+  avicolaExpenses: 'avicola_expenses',
+  avicolaIncomes: 'avicola_incomes',
+  avicolaMortality: 'avicola_mortality',
+  avicolaWeighings: 'avicola_weighings',
 } as const;
 
 /** @deprecated Sin datos de muestra: siempre vacío. */
@@ -117,7 +133,7 @@ export function buildEmptySummary(): FarmSummary {
       ],
     },
     counts: {
-      avicola: { pollosEngorde: 0 },
+      avicola: { pollosEngorde: 0, lotesActivos: 0, bajas: 0, sacrificados: 0, iniciados: 0 },
       porcino: { productoras: 0, lechones: 0, verracos: 0, engorde: 0 },
       bovino: { padrotes: 0, becerros: 0, vacas: 0 },
     },
@@ -194,6 +210,10 @@ function upsertOps<T extends { id?: string }>(farmId: string, col: string, items
   });
 }
 
+function delOps(farmId: string, col: string, ids?: string[]): BatchOp[] {
+  return (ids || []).map((id) => ({ ref: docRef(farmId, col, id), del: true }));
+}
+
 async function bulkSave<T extends { id?: string }>(
   farmId: string,
   col: string,
@@ -267,11 +287,28 @@ export interface FarmChanges {
   animals?: PorcinoAnimal[];
   litters?: LactatingLitter[];
   tasks?: SanitaryTask[];
+  /** Tareas a eliminar (p. ej. al borrar un lote avícola). */
+  deletedTasks?: string[];
   movements?: FinancialMovement[];
   warehouseItems?: WarehouseItem[];
   deletedWarehouseItems?: string[];
   productionBatches?: ProductionBatch[];
   sales?: (UnifiedSaleResult & { id: string })[];
+  /** Movimientos financieros a eliminar (p. ej. al borrar un gasto/ingreso avícola). */
+  deletedMovements?: string[];
+  // ---- Módulo avícola (pollos de engorde) ----
+  avicolaLots?: AvicolaLot[];
+  avicolaSales?: AvicolaSale[];
+  avicolaExpenses?: AvicolaExpense[];
+  avicolaIncomes?: AvicolaIncome[];
+  avicolaMortality?: AvicolaMortality[];
+  avicolaWeighings?: AvicolaWeighing[];
+  deletedAvicolaLots?: string[];
+  deletedAvicolaSales?: string[];
+  deletedAvicolaExpenses?: string[];
+  deletedAvicolaIncomes?: string[];
+  deletedAvicolaMortality?: string[];
+  deletedAvicolaWeighings?: string[];
 }
 
 // ============================================================================
@@ -305,11 +342,17 @@ export const dbService = {
     const c = changes || {};
     mergeLocal(STORAGE_KEYS.ANIMALS, c.animals || []);
     mergeLocal(STORAGE_KEYS.LITTERS, c.litters || []);
-    mergeLocal(STORAGE_KEYS.TASKS, c.tasks || []);
-    mergeLocal(STORAGE_KEYS.MOVEMENTS, c.movements || []);
+    mergeLocal(STORAGE_KEYS.TASKS, c.tasks || [], c.deletedTasks || []);
+    mergeLocal(STORAGE_KEYS.MOVEMENTS, c.movements || [], c.deletedMovements || []);
     mergeLocal(STORAGE_KEYS.WAREHOUSE, c.warehouseItems || [], c.deletedWarehouseItems || []);
     mergeLocal(STORAGE_KEYS.BATCHES, c.productionBatches || []);
     mergeLocal(STORAGE_KEYS.SALES, c.sales || []);
+    mergeLocal(STORAGE_KEYS.AVICOLA, c.avicolaLots || [], c.deletedAvicolaLots || []);
+    mergeLocal(STORAGE_KEYS.AVICOLA_SALES, c.avicolaSales || [], c.deletedAvicolaSales || []);
+    mergeLocal(STORAGE_KEYS.AVICOLA_EXPENSES, c.avicolaExpenses || [], c.deletedAvicolaExpenses || []);
+    mergeLocal(STORAGE_KEYS.AVICOLA_INCOMES, c.avicolaIncomes || [], c.deletedAvicolaIncomes || []);
+    mergeLocal(STORAGE_KEYS.AVICOLA_MORTALITY, c.avicolaMortality || [], c.deletedAvicolaMortality || []);
+    mergeLocal(STORAGE_KEYS.AVICOLA_WEIGHINGS, c.avicolaWeighings || [], c.deletedAvicolaWeighings || []);
 
     const ops: BatchOp[] = [
       ...upsertOps(farmId, COL.animals, c.animals || []),
@@ -320,6 +363,20 @@ export const dbService = {
       ...upsertOps(farmId, COL.batches, c.productionBatches || []),
       ...upsertOps(farmId, COL.sales, c.sales || []),
       ...(c.deletedWarehouseItems || []).map((id) => ({ ref: docRef(farmId, COL.warehouse, id), del: true })),
+      ...upsertOps(farmId, COL.avicola, c.avicolaLots || []),
+      ...upsertOps(farmId, COL.avicolaSales, c.avicolaSales || []),
+      ...upsertOps(farmId, COL.avicolaExpenses, c.avicolaExpenses || []),
+      ...upsertOps(farmId, COL.avicolaIncomes, c.avicolaIncomes || []),
+      ...upsertOps(farmId, COL.avicolaMortality, c.avicolaMortality || []),
+      ...upsertOps(farmId, COL.avicolaWeighings, c.avicolaWeighings || []),
+      ...delOps(farmId, COL.movements, c.deletedMovements),
+      ...delOps(farmId, COL.tasks, c.deletedTasks),
+      ...delOps(farmId, COL.avicola, c.deletedAvicolaLots),
+      ...delOps(farmId, COL.avicolaSales, c.deletedAvicolaSales),
+      ...delOps(farmId, COL.avicolaExpenses, c.deletedAvicolaExpenses),
+      ...delOps(farmId, COL.avicolaIncomes, c.deletedAvicolaIncomes),
+      ...delOps(farmId, COL.avicolaMortality, c.deletedAvicolaMortality),
+      ...delOps(farmId, COL.avicolaWeighings, c.deletedAvicolaWeighings),
     ];
     if (ops.length === 0) return;
     try {
@@ -540,6 +597,38 @@ export const dbService = {
   },
   deleteAvicolaLot(farmId: string = FARM_ID, lotId: string): Promise<void> {
     return deleteOne(farmId, COL.avicola, STORAGE_KEYS.AVICOLA, lotId);
+  },
+  /** Ventas de pollos (farms/{id}/avicola_sales). */
+  subscribeAvicolaSales(farmId: string = FARM_ID, onUpdate: (list: AvicolaSale[]) => void): () => void {
+    return subscribeAll<AvicolaSale>(farmId, COL.avicolaSales, STORAGE_KEYS.AVICOLA_SALES, onUpdate);
+  },
+  /** Gastos por lote (farms/{id}/avicola_expenses). */
+  subscribeAvicolaExpenses(farmId: string = FARM_ID, onUpdate: (list: AvicolaExpense[]) => void): () => void {
+    return subscribeAll<AvicolaExpense>(farmId, COL.avicolaExpenses, STORAGE_KEYS.AVICOLA_EXPENSES, onUpdate);
+  },
+  /** Ingresos por lote (farms/{id}/avicola_incomes). */
+  subscribeAvicolaIncomes(farmId: string = FARM_ID, onUpdate: (list: AvicolaIncome[]) => void): () => void {
+    return subscribeAll<AvicolaIncome>(farmId, COL.avicolaIncomes, STORAGE_KEYS.AVICOLA_INCOMES, onUpdate);
+  },
+  /** Mortalidad por lote (farms/{id}/avicola_mortality). */
+  subscribeAvicolaMortality(farmId: string = FARM_ID, onUpdate: (list: AvicolaMortality[]) => void): () => void {
+    return subscribeAll<AvicolaMortality>(farmId, COL.avicolaMortality, STORAGE_KEYS.AVICOLA_MORTALITY, onUpdate);
+  },
+  /** Pesajes por lote (farms/{id}/avicola_weighings). */
+  subscribeAvicolaWeighings(farmId: string = FARM_ID, onUpdate: (list: AvicolaWeighing[]) => void): () => void {
+    return subscribeAll<AvicolaWeighing>(farmId, COL.avicolaWeighings, STORAGE_KEYS.AVICOLA_WEIGHINGS, onUpdate);
+  },
+  /** Carga única de todo el módulo avícola (backend / exportes). */
+  async getAvicolaData(farmId: string = FARM_ID) {
+    const [lots, sales, expenses, incomes, mortality, weighings] = await Promise.all([
+      getAll<AvicolaLot>(farmId, COL.avicola, STORAGE_KEYS.AVICOLA),
+      getAll<AvicolaSale>(farmId, COL.avicolaSales, STORAGE_KEYS.AVICOLA_SALES),
+      getAll<AvicolaExpense>(farmId, COL.avicolaExpenses, STORAGE_KEYS.AVICOLA_EXPENSES),
+      getAll<AvicolaIncome>(farmId, COL.avicolaIncomes, STORAGE_KEYS.AVICOLA_INCOMES),
+      getAll<AvicolaMortality>(farmId, COL.avicolaMortality, STORAGE_KEYS.AVICOLA_MORTALITY),
+      getAll<AvicolaWeighing>(farmId, COL.avicolaWeighings, STORAGE_KEYS.AVICOLA_WEIGHINGS),
+    ]);
+    return { lots, sales, expenses, incomes, mortality, weighings };
   },
 
   // ==========================================

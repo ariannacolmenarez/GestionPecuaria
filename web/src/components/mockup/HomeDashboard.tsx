@@ -10,8 +10,22 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from 'lucide-react';
-import { AvicolaLot, FarmSummary, FinancialMovement, WarehouseItem } from '../../types';
+import { FarmSummary, FinancialMovement, WarehouseItem } from '../../types';
 import { calculateUtilityTrendPercent, evaluateWarehouseReplenishment } from '../../models/PorcinoCalculations';
+import type { AvicolaHomeSummary } from '../../models/avicolaDomain';
+
+const STAGE_SEG: Record<string, string> = {
+  Preinicio: 'bg-sky-500',
+  Inicio: 'bg-emerald-500',
+  Engorde: 'bg-amber-500',
+  Finalización: 'bg-rose-500',
+};
+const STAGE_CHIP: Record<string, string> = {
+  Preinicio: 'bg-sky-100 text-sky-800',
+  Inicio: 'bg-emerald-100 text-emerald-800',
+  Engorde: 'bg-amber-100 text-amber-800',
+  Finalización: 'bg-rose-100 text-rose-800',
+};
 import { formatShortDate, todayISO } from '../../utils/dates';
 
 interface HomeDashboardProps {
@@ -30,7 +44,12 @@ interface HomeDashboardProps {
   today?: string;
   movements?: FinancialMovement[];
   warehouseItems?: WarehouseItem[];
-  avicolaLots?: AvicolaLot[];
+  /** Resumen en vivo del módulo avícola (lotes, pollos, bajas, tareas). */
+  avicolaHome?: AvicolaHomeSummary;
+  /** Abre el módulo avícola directamente en "Nuevo lote". */
+  onCreateAvicolaLot?: () => void;
+  /** Abre el detalle de un lote avícola. */
+  onOpenAvicolaLot?: (loteId: string) => void;
 }
 
 const safe = (n: unknown) => {
@@ -52,7 +71,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   today = todayISO(),
   movements = [],
   warehouseItems = [],
-  avicolaLots = [],
+  avicolaHome,
+  onCreateAvicolaLot,
+  onOpenAvicolaLot,
 }) => {
   const { finances, counts } = summary;
 
@@ -67,7 +88,23 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     [warehouseItems]
   );
 
-  const activeAvicolaLots = useMemo(() => avicolaLots.filter((l) => l.status !== 'Liquidado'), [avicolaLots]);
+  // Avícola: todo se deriva de los registros del módulo (summary.counts.avicola + avicolaHome).
+  const av = counts.avicola;
+  const avActive = av.lotesActivos ?? avicolaHome?.activeCount ?? 0;
+  const avTotalLots = (avicolaHome?.activeCount ?? avActive) + (avicolaHome?.finishedCount ?? 0);
+  const avIniciados = av.iniciados ?? avicolaHome?.iniciados ?? 0;
+  const avBajas = av.bajas ?? avicolaHome?.deaths ?? 0;
+  const avSold = (avicolaHome?.activeLots ?? []).reduce((s, c) => s + c.birds.sold, 0);
+  const avReady = (avicolaHome?.activeLots ?? []).filter((c) => c.stage.readyToSell && c.birds.available > 0).length;
+  const avOverdue = avicolaHome?.overdueTasks.length ?? 0;
+  // alertsCount = hoy + vencidas: se muestran por separado para no llamar "de hoy" a las vencidas
+  const avToday = Math.max(0, (avicolaHome?.alertsCount ?? 0) - avOverdue);
+  const avMortality = avIniciados > 0 ? Math.round((avBajas / avIniciados) * 1000) / 10 : 0;
+  const avRubro = finances.byRubro.find((r) => r.rubro === 'Avícola');
+  const avPreview = useMemo(
+    () => [...(avicolaHome?.activeLots ?? [])].sort((a, b) => a.stage.daysToSlaughter - b.stage.daysToSlaughter),
+    [avicolaHome]
+  );
 
   const totalPorcino =
     counts.porcino.productoras + counts.porcino.lechones + counts.porcino.verracos + counts.porcino.engorde;
@@ -75,7 +112,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const hasFinances = safe(finances.totalIncome) > 0 || safe(finances.totalExpenses) > 0;
   const netUtility = safe(finances.netUtility);
   const utilityBase = finances.byRubro.reduce((s, r) => s + Math.abs(safe(r.utility)), 0);
-  const isNewFarm = totalPorcino === 0 && totalBovino === 0 && counts.avicola.pollosEngorde === 0 && !hasFinances;
+  const isNewFarm = totalPorcino === 0 && totalBovino === 0 && av.pollosEngorde === 0 && avTotalLots === 0 && !hasFinances;
   const pendingCount = tasksCountToday + overdueTasksCount;
 
   return (
@@ -84,8 +121,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 text-xs text-emerald-900 space-y-1">
           <p className="font-bold">¡Bienvenido a {summary.name || 'tu granja'}!</p>
           <p className="text-[11px] text-emerald-800/90">
-            Todavía no hay registros. Empieza dando de alta tus animales en Gestión Porcina; los contadores, alertas y
-            el balance se calcularán automáticamente.
+            Todavía no hay registros. Empieza dando de alta tus animales en Gestión Porcina o un lote en Gestión
+            Avícola; los contadores, alertas y el balance se calcularán automáticamente.
           </p>
         </div>
       )}
@@ -326,39 +363,114 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-slate-900 text-sm">Gestión Avícola</h3>
-              <p className="text-[11px] text-slate-500">Lotes de engorde y galpones de cría</p>
+              <p className="text-[11px] text-slate-500">Pollos de engorde por lotes</p>
             </div>
           </div>
           <button
             id="btn-ir-gestion-avicola"
             onClick={onNavigateToAvicola}
-            className="flex items-center text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-3 py-2 min-h-10 rounded-lg transition-colors cursor-pointer"
           >
-            Gestionar
+            Abrir módulo
             <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
           </button>
         </div>
-        <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-200/60 flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-semibold text-amber-900">Pollos de Engorde</span>
-            <p className="text-2xl font-black text-slate-900">{counts.avicola.pollosEngorde.toLocaleString()}</p>
-            <p className="text-[10px] text-slate-500">
-              {activeAvicolaLots.length === 0
-                ? 'Sin lotes activos'
-                : `${activeAvicolaLots.length} ${activeAvicolaLots.length === 1 ? 'lote activo' : 'lotes activos'}${
-                    activeAvicolaLots.length <= 2
-                      ? ` (${activeAvicolaLots.map((l) => `${l.code}${l.shed ? ' - ' + l.shed : ''}`).join(', ')})`
-                      : ''
-                  }`}
-            </p>
+
+        {avTotalLots === 0 ? (
+          <div className="bg-amber-50/50 border border-amber-200/60 rounded-xl p-3 space-y-2">
+            <p className="text-xs font-bold text-amber-900">Aún no hay lotes de pollos</p>
+            <p className="text-[11px] text-slate-600">Crea tu primer lote para llevar ventas, gastos, alimentación y vacunas.</p>
+            <button
+              onClick={onCreateAvicolaLot || onNavigateToAvicola}
+              className="bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold rounded-lg px-3 py-2 min-h-10 text-xs transition-colors cursor-pointer"
+            >
+              Crear lote
+            </button>
           </div>
-          <button
-            onClick={onNavigateToAvicola}
-            className="text-xs font-bold text-amber-800 bg-white shadow-xs px-3 py-1.5 rounded-lg border border-amber-200 hover:bg-amber-50 transition-colors"
-          >
-            Ver Lotes
-          </button>
-        </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={onNavigateToAvicola}
+                className="text-left bg-slate-50/90 hover:bg-amber-50/40 p-3 rounded-xl border border-slate-100 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-slate-600">En galpón</span>
+                  <span className="text-[10px] font-semibold text-amber-700 bg-amber-100/70 px-1.5 rounded">Vivos</span>
+                </div>
+                <p className="text-2xl font-black text-slate-900 mt-1">{av.pollosEngorde.toLocaleString()}</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">de {avIniciados.toLocaleString()} iniciados</p>
+              </button>
+              <button
+                type="button"
+                onClick={onNavigateToAvicola}
+                className="text-left bg-slate-50/90 hover:bg-amber-50/40 p-3 rounded-xl border border-slate-100 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              >
+                <span className="text-[11px] font-medium text-slate-600">Lotes activos</span>
+                <p className="text-2xl font-black text-slate-900 mt-1">{avActive}</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  {avReady > 0 ? `${avReady} ${avReady === 1 ? 'listo' : 'listos'} para vender` : avActive ? 'Ninguno listo aún' : 'Sin lotes activos'}
+                </p>
+              </button>
+            </div>
+
+            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center text-[11px] text-slate-500 gap-x-3 gap-y-1 flex-wrap">
+              <span>
+                Bajas: <strong className="text-slate-800 font-semibold">{avBajas.toLocaleString()}</strong>
+                {avMortality > 0 ? ` (${avMortality}%)` : ''}
+              </span>
+              <span>
+                Vendidos: <strong className="text-slate-800 font-semibold">{avSold.toLocaleString()}</strong>
+              </span>
+              <span>
+                Tareas hoy: <strong className="text-slate-800 font-semibold">{avToday}</strong>
+              </span>
+              {avOverdue > 0 && (
+                <span className="text-rose-700 font-semibold">Vencidas: {avOverdue}</span>
+              )}
+            </div>
+
+            {avPreview.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                {avPreview.slice(0, 2).map((c) => (
+                  <button
+                    key={c.lot.id}
+                    onClick={() => (onOpenAvicolaLot ? onOpenAvicolaLot(c.lot.id) : onNavigateToAvicola())}
+                    className="w-full flex items-center gap-2 text-[11px] text-left min-h-10 cursor-pointer"
+                  >
+                    <span className="font-semibold text-slate-800 truncate max-w-[35%]">{c.lot.name}</span>
+                    <span className="text-slate-500 shrink-0 tabular-nums">
+                      {c.stage.notStarted ? 'Por iniciar' : `Día ${c.stage.day}/${c.stage.productionDays}`}
+                    </span>
+                    <span className="flex-1 flex gap-0.5 h-1.5 min-w-8">
+                      {c.stage.ranges.map((r) => (
+                        <span
+                          key={r.stage}
+                          className={`rounded-full ${STAGE_SEG[r.stage]} ${c.stage.day >= r.fromDay ? '' : 'opacity-30'}`}
+                          style={{ width: `${((r.toDay - r.fromDay + 1) / c.stage.productionDays) * 100}%` }}
+                        />
+                      ))}
+                    </span>
+                    <span className={`text-[10px] font-bold px-1.5 rounded shrink-0 ${STAGE_CHIP[c.stage.stage]}`}>{c.stage.stage}</span>
+                  </button>
+                ))}
+                {avPreview.length > 2 && <p className="text-[10px] text-slate-500">y {avPreview.length - 2} lotes más…</p>}
+              </div>
+            )}
+
+            {avRubro && (avRubro.income > 0 || avRubro.expenses > 0) && (
+              <p className="mt-2 text-[11px] text-slate-500">
+                Balance avícola del mes ({finances.period}):{' '}
+                <strong className={safe(avRubro.utility) < 0 ? 'text-rose-700' : 'text-emerald-700'}>
+                  {safe(avRubro.utility) < 0 ? '-' : '+'}
+                  {usd(Math.abs(safe(avRubro.utility)))}
+                </strong>{' '}
+                (Ing {usd(avRubro.income)} · Gas {usd(avRubro.expenses)})
+              </p>
+            )}
+          </>
+        )}
       </section>
 
       {/* Alerta de almacén calculada (cobertura < 2 meses) */}

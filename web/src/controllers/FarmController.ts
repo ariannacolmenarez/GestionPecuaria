@@ -24,6 +24,11 @@ import {
   BatchProductionConfig,
   ProductionBatch,
   AnimalTraceEvent,
+  AvicolaSale,
+  AvicolaExpense,
+  AvicolaIncome,
+  AvicolaMortality,
+  AvicolaWeighing,
 } from '../models/FarmModel';
 import { productionFeedingPlansDefault, batchProductionConfigsDefault } from '../data/pecuarioData';
 import {
@@ -49,6 +54,8 @@ import {
   reopenSanitaryTask,
   consumeWarehouseItem,
   addWarehouseItem,
+  purchaseWarehouseItem,
+  PurchaseWarehouseItemInput,
   deleteWarehouseItem,
   addTraceEvent,
   updateAnimalWeight,
@@ -70,12 +77,66 @@ import {
   AddSanitaryTaskInput,
   StartProductionBatchInput,
 } from '../models/porcinoDomain';
+import {
+  AvicolaData,
+  AvicolaState,
+  AvicolaDomainFn,
+  AvicolaDomainResult,
+  collectAvicolaChangedDocs,
+  normalizeAvicolaLot,
+  avicolaHomeSummary,
+  avicolaFarmCounts,
+  isAvicolaTask,
+  createLot,
+  updateLot,
+  finalizeLot,
+  reactivateLot,
+  deleteLot,
+  registerSale as registerAvicolaSale,
+  updateSale as updateAvicolaSale,
+  deleteSale as deleteAvicolaSale,
+  registerSalePayment,
+  markSalePaid,
+  deleteSalePayment,
+  markSaleDelivered,
+  registerExpense as registerAvicolaExpense,
+  updateExpense as updateAvicolaExpense,
+  deleteExpense as deleteAvicolaExpense,
+  registerIncome as registerAvicolaIncome,
+  deleteIncome as deleteAvicolaIncome,
+  registerMortality as registerAvicolaMortality,
+  deleteMortality as deleteAvicolaMortality,
+  registerWeighing as registerAvicolaWeighing,
+  deleteWeighing as deleteAvicolaWeighing,
+  addLotTask,
+  addLotTasks,
+  updateLotTask,
+  cancelLotTask,
+  completeLotTask,
+  reopenLotTask,
+  addAvicolaWarehouseItem,
+  consumeWarehouseForLot,
+  CreateLotInput,
+  UpdateLotInput,
+  RegisterAvicolaSaleInput,
+  UpdateSaleInput as UpdateAvicolaSaleInput,
+  RegisterSalePaymentInput,
+  RegisterExpenseInput as RegisterAvicolaExpenseInput,
+  RegisterIncomeInput as RegisterAvicolaIncomeInput,
+  RegisterMortalityInput as RegisterAvicolaMortalityInput,
+  RegisterWeighingInput as RegisterAvicolaWeighingInput,
+  AddLotTaskInput,
+  UpdateLotTaskInput,
+  CompleteLotTaskInput,
+  AddAvicolaWarehouseItemInput,
+  ConsumeWarehouseForLotInput,
+} from '../models/avicolaDomain';
 import { dbService, FARM_ID, buildEmptySummary } from '../services/dbService';
 import { todayISO, currentMonthYear } from '../utils/dates';
 import { newId } from '../utils/ids';
 
 export type MainAppView = 'mockup' | 'documentation' | 'mvc';
-export type MockupScreen = 'home' | 'porcino';
+export type MockupScreen = 'home' | 'porcino' | 'avicola';
 
 /** Datos editables del resumen (los contadores y finanzas son derivados). */
 type SummaryMeta = Pick<FarmSummary, 'name' | 'location' | 'totalMembers' | 'members'>;
@@ -115,6 +176,13 @@ export function useFarmController() {
   const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>([]);
   const [bovinoHerd, setBovinoHerd] = useState<BovinoAnimal[]>([]);
   const [avicolaLots, setAvicolaLots] = useState<AvicolaLot[]>([]);
+  const [avicolaSales, setAvicolaSales] = useState<AvicolaSale[]>([]);
+  const [avicolaExpenses, setAvicolaExpenses] = useState<AvicolaExpense[]>([]);
+  const [avicolaIncomes, setAvicolaIncomes] = useState<AvicolaIncome[]>([]);
+  const [avicolaMortality, setAvicolaMortality] = useState<AvicolaMortality[]>([]);
+  const [avicolaWeighings, setAvicolaWeighings] = useState<AvicolaWeighing[]>([]);
+  /** Lote avícola abierto en el módulo (null = Home avícola "Pollos de Engorde"). */
+  const [selectedAvicolaLotId, setSelectedAvicolaLotId] = useState<string | null>(null);
   // Protocolos y planes: plantillas de configuración (no son datos de animales)
   const [feedingPlans, setFeedingPlans] = useState<ProductionFeedingPlan[]>(productionFeedingPlansDefault);
   const [batchConfigs, setBatchConfigs] = useState<BatchProductionConfig[]>(batchProductionConfigsDefault);
@@ -137,7 +205,6 @@ export function useFarmController() {
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showAlertsModal, setShowAlertsModal] = useState<boolean>(false);
   const [showBovinoModal, setShowBovinoModal] = useState<boolean>(false);
-  const [showAvicolaModal, setShowAvicolaModal] = useState<boolean>(false);
   const [showPushBanner, setShowPushBanner] = useState<boolean>(true);
   const [infoToast, setInfoToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -170,7 +237,29 @@ export function useFarmController() {
   }, []);
 
   const bovinoRef = useLatest(bovinoHerd);
-  const avicolaRef = useLatest(avicolaLots);
+
+  // ==========================================================================
+  // REF AL ESTADO AVÍCOLA MÁS RECIENTE (lotes, ventas, gastos, ingresos, mortalidad, pesajes)
+  // ==========================================================================
+  const avicolaStateRef = useRef<AvicolaData>({
+    lots: [],
+    sales: [],
+    expenses: [],
+    incomes: [],
+    mortality: [],
+    weighings: [],
+  });
+
+  const applyAvicolaState = useCallback((next: Partial<AvicolaData>) => {
+    const prev = avicolaStateRef.current;
+    avicolaStateRef.current = { ...prev, ...next };
+    if (next.lots && next.lots !== prev.lots) setAvicolaLots(next.lots);
+    if (next.sales && next.sales !== prev.sales) setAvicolaSales(next.sales);
+    if (next.expenses && next.expenses !== prev.expenses) setAvicolaExpenses(next.expenses);
+    if (next.incomes && next.incomes !== prev.incomes) setAvicolaIncomes(next.incomes);
+    if (next.mortality && next.mortality !== prev.mortality) setAvicolaMortality(next.mortality);
+    if (next.weighings && next.weighings !== prev.weighings) setAvicolaWeighings(next.weighings);
+  }, []);
 
   // ==========================================================================
   // CARGA INICIAL + SUSCRIPCIONES (sin closures obsoletos: todo pasa por setters/refs)
@@ -211,13 +300,20 @@ export function useFarmController() {
         if (l.length > 0) applyPorcinoState({ batchConfigs: l });
       }),
       dbService.subscribeBovinoHerd(FARM_ID, (l) => setBovinoHerd(l)),
-      dbService.subscribeAvicolaLots(FARM_ID, (l) => setAvicolaLots(l)),
+      dbService.subscribeAvicolaLots(FARM_ID, (l) =>
+        applyAvicolaState({ lots: (l || []).map((x) => normalizeAvicolaLot(x)) })
+      ),
+      dbService.subscribeAvicolaSales(FARM_ID, (l) => applyAvicolaState({ sales: l })),
+      dbService.subscribeAvicolaExpenses(FARM_ID, (l) => applyAvicolaState({ expenses: l })),
+      dbService.subscribeAvicolaIncomes(FARM_ID, (l) => applyAvicolaState({ incomes: l })),
+      dbService.subscribeAvicolaMortality(FARM_ID, (l) => applyAvicolaState({ mortality: l })),
+      dbService.subscribeAvicolaWeighings(FARM_ID, (l) => applyAvicolaState({ weighings: l })),
     ];
     return () => {
       alive = false;
       unsubs.forEach((u) => u());
     };
-  }, [applyPorcinoState]);
+  }, [applyPorcinoState, applyAvicolaState]);
 
   // Toast
   const triggerToast = useCallback((msg: string) => {
@@ -229,10 +325,26 @@ export function useFarmController() {
   // ==========================================================================
   // RESUMEN DERIVADO (counts + finances)
   // ==========================================================================
-  const counts = useMemo(
-    () => calculateFarmCounts(animals, litters, bovinoHerd, avicolaLots),
-    [animals, litters, bovinoHerd, avicolaLots]
+  /** Datos avícolas completos (para selectores puros de models/avicolaDomain). */
+  const avicolaData: AvicolaData = useMemo(
+    () => ({
+      lots: avicolaLots,
+      sales: avicolaSales,
+      expenses: avicolaExpenses,
+      incomes: avicolaIncomes,
+      mortality: avicolaMortality,
+      weighings: avicolaWeighings,
+    }),
+    [avicolaLots, avicolaSales, avicolaExpenses, avicolaIncomes, avicolaMortality, avicolaWeighings]
   );
+  /** Home avícola: balance de todos los lotes, tarjetas de lotes activos/finalizados, alertas por lote. */
+  const avicolaHome = useMemo(() => avicolaHomeSummary({ ...avicolaData, tasks }, today), [avicolaData, tasks, today]);
+
+  const counts = useMemo(() => {
+    const base = calculateFarmCounts(animals, litters, bovinoHerd, []);
+    // Tarjeta avícola del Home de la granja: derivada en vivo de los registros del módulo.
+    return { ...base, avicola: avicolaFarmCounts({ ...avicolaData, tasks: [] }, today) };
+  }, [animals, litters, bovinoHerd, avicolaData, today]);
   const finances = useMemo(
     () => calculateFinancesFromMovements(movements, currentMonthYear()),
     // `today` fuerza el recálculo al cambiar de mes
@@ -288,6 +400,95 @@ export function useFarmController() {
     [applyPorcinoState, triggerToast]
   );
 
+  /**
+   * Aplica una operación del dominio avícola sobre el estado más reciente (datos avícolas +
+   * tareas/movimientos/almacén compartidos) y persiste SOLO los documentos cambiados/eliminados.
+   */
+  const dispatchAvicola = useCallback(
+    <I,>(fn: AvicolaDomainFn<I>, input: I, opts: { silent?: boolean; toastErrors?: boolean } = {}): AvicolaDomainResult => {
+      const p = porcinoRef.current;
+      const st: AvicolaState = {
+        ...avicolaStateRef.current,
+        tasks: p.tasks,
+        movements: p.movements,
+        warehouseItems: p.warehouseItems,
+      };
+      let result: AvicolaDomainResult;
+      try {
+        result = fn(st, input);
+      } catch (err) {
+        console.error('Avicola domain error:', err);
+        result = { ok: false, error: 'Error inesperado al procesar la operación.' };
+      }
+      if (!result.ok) {
+        if (opts.toastErrors) triggerToast(`⚠️ ${(result as { error: string }).error}`);
+        return result;
+      }
+      const s = result.state;
+      applyAvicolaState({
+        lots: s.lots,
+        sales: s.sales,
+        expenses: s.expenses,
+        incomes: s.incomes,
+        mortality: s.mortality,
+        weighings: s.weighings,
+      });
+      applyPorcinoState({ tasks: s.tasks, movements: s.movements, warehouseItems: s.warehouseItems });
+      const docs = collectAvicolaChangedDocs(s, result.changed, result.deleted);
+      dbService.saveChanges(FARM_ID, docs).catch((e) => {
+        console.warn('saveChanges (avícola) failed:', e);
+        triggerToast('⚠️ Cambios guardados localmente; se sincronizarán al recuperar conexión.');
+      });
+      if (!opts.silent) triggerToast(result.message);
+      return result;
+    },
+    [applyAvicolaState, applyPorcinoState, triggerToast]
+  );
+
+  /** Acciones nombradas del módulo avícola (pollos de engorde). Devuelven AvicolaDomainResult. */
+  const avicolaActions = useMemo(
+    () => ({
+      // Lotes
+      createLot: (i: CreateLotInput) => dispatchAvicola(createLot, i),
+      updateLot: (i: UpdateLotInput) => dispatchAvicola(updateLot, i),
+      finalizeLot: (i: { loteId: string; date?: string }) => dispatchAvicola(finalizeLot, i),
+      reactivateLot: (i: { loteId: string }) => dispatchAvicola(reactivateLot, i),
+      deleteLot: (i: { loteId: string }) => dispatchAvicola(deleteLot, i),
+      // Ventas
+      registerSale: (i: RegisterAvicolaSaleInput) => dispatchAvicola(registerAvicolaSale, i),
+      updateSale: (i: UpdateAvicolaSaleInput) => dispatchAvicola(updateAvicolaSale, i),
+      deleteSale: (i: { saleId: string }) => dispatchAvicola(deleteAvicolaSale, i),
+      registerSalePayment: (i: RegisterSalePaymentInput) => dispatchAvicola(registerSalePayment, i),
+      markSalePaid: (i: { saleId: string; date?: string }) => dispatchAvicola(markSalePaid, i),
+      deleteSalePayment: (i: { saleId: string; paymentId: string }) => dispatchAvicola(deleteSalePayment, i),
+      markSaleDelivered: (i: { saleId: string; delivered?: boolean; date?: string }) => dispatchAvicola(markSaleDelivered, i),
+      // Gastos
+      registerExpense: (i: RegisterAvicolaExpenseInput) => dispatchAvicola(registerAvicolaExpense, i),
+      updateExpense: (i: Partial<RegisterAvicolaExpenseInput> & { expenseId: string }) => dispatchAvicola(updateAvicolaExpense, i),
+      deleteExpense: (i: { expenseId: string }) => dispatchAvicola(deleteAvicolaExpense, i),
+      // Ingresos
+      registerIncome: (i: RegisterAvicolaIncomeInput) => dispatchAvicola(registerAvicolaIncome, i),
+      deleteIncome: (i: { incomeId: string }) => dispatchAvicola(deleteAvicolaIncome, i),
+      // Control
+      registerMortality: (i: RegisterAvicolaMortalityInput) => dispatchAvicola(registerAvicolaMortality, i),
+      deleteMortality: (i: { mortalityId: string }) => dispatchAvicola(deleteAvicolaMortality, i),
+      registerWeighing: (i: RegisterAvicolaWeighingInput) => dispatchAvicola(registerAvicolaWeighing, i),
+      deleteWeighing: (i: { weighingId: string }) => dispatchAvicola(deleteAvicolaWeighing, i),
+      // Actividades y tratamientos
+      addLotTask: (i: AddLotTaskInput) => dispatchAvicola(addLotTask, i),
+      addLotTasks: (i: { loteId: string; tasks: Omit<AddLotTaskInput, 'loteId'>[] }) => dispatchAvicola(addLotTasks, i),
+      updateLotTask: (i: UpdateLotTaskInput) => dispatchAvicola(updateLotTask, i),
+      cancelLotTask: (i: { taskId: string; reason?: string }) => dispatchAvicola(cancelLotTask, i),
+      completeLotTask: (i: CompleteLotTaskInput) => dispatchAvicola(completeLotTask, i),
+      reopenLotTask: (i: { taskId: string }) => dispatchAvicola(reopenLotTask, i),
+      // Bodega
+      addWarehouseItem: (i: AddAvicolaWarehouseItemInput) => dispatchAvicola(addAvicolaWarehouseItem, i),
+      consumeWarehouseForLot: (i: ConsumeWarehouseForLotInput) => dispatchAvicola(consumeWarehouseForLot, i),
+      notify: (msg: string) => triggerToast(msg),
+    }),
+    [dispatchAvicola, triggerToast]
+  );
+
   /** Acciones nombradas (recomendado desde la UI). */
   const porcinoActions = useMemo(
     () => ({
@@ -304,6 +505,7 @@ export function useFarmController() {
       addSanitaryTask: (i: AddSanitaryTaskInput) => dispatchPorcino(addSanitaryTask, i),
       consumeWarehouseItem: (i: ConsumeWarehouseItemInput) => dispatchPorcino(consumeWarehouseItem, i),
       addWarehouseItem: (i: AddWarehouseItemInput) => dispatchPorcino(addWarehouseItem, i),
+      purchaseWarehouseItem: (i: PurchaseWarehouseItemInput) => dispatchPorcino(purchaseWarehouseItem, i),
       deleteWarehouseItem: (i: { itemId: string }) => dispatchPorcino(deleteWarehouseItem, i),
       addTraceEvent: (i: AddTraceEventInput) => dispatchPorcino(addTraceEvent, i),
       updateAnimalWeight: (i: UpdateAnimalWeightInput) => dispatchPorcino(updateAnimalWeight, i),
@@ -360,22 +562,30 @@ export function useFarmController() {
     [dispatchPorcino]
   );
 
-  /** Completa la tarea (con descuento de almacén si la tarea lo define). */
+  /** Completa la tarea (con descuento de almacén si la tarea lo define). Las avícolas imputan el gasto a su lote. */
   const handleCompleteTask = useCallback(
     (taskId: string) => {
-      dispatchPorcino(completeSanitaryTask, { taskId }, { toastErrors: true });
+      const t = porcinoRef.current.tasks.find((x) => x.id === taskId);
+      if (t && isAvicolaTask(t) && t.loteId) dispatchAvicola(completeLotTask, { taskId }, { toastErrors: true });
+      else dispatchPorcino(completeSanitaryTask, { taskId }, { toastErrors: true });
     },
-    [dispatchPorcino]
+    [dispatchPorcino, dispatchAvicola]
   );
 
   const handleToggleTaskStatus = useCallback(
     (taskId: string) => {
       const t = porcinoRef.current.tasks.find((x) => x.id === taskId);
       if (!t) return;
-      if (t.status === 'completada') dispatchPorcino(reopenSanitaryTask, { taskId }, { toastErrors: true });
-      else if (t.status !== 'cancelada') dispatchPorcino(completeSanitaryTask, { taskId }, { toastErrors: true });
+      const avicola = isAvicolaTask(t) && !!t.loteId;
+      if (t.status === 'completada') {
+        if (avicola) dispatchAvicola(reopenLotTask, { taskId }, { toastErrors: true });
+        else dispatchPorcino(reopenSanitaryTask, { taskId }, { toastErrors: true });
+      } else if (t.status !== 'cancelada') {
+        if (avicola) dispatchAvicola(completeLotTask, { taskId }, { toastErrors: true });
+        else dispatchPorcino(completeSanitaryTask, { taskId }, { toastErrors: true });
+      }
     },
-    [dispatchPorcino]
+    [dispatchPorcino, dispatchAvicola]
   );
 
   // Alimentación y protocolos (la UI debe llamar solo al pulsar "Guardar")
@@ -457,59 +667,23 @@ export function useFarmController() {
     [applyPorcinoState, triggerToast, bovinoRef]
   );
 
-  const handleUpdateAvicola = useCallback((newLots: AvicolaLot[]) => {
-    const { upserts, deleted } = diffById(avicolaRef.current as any[], newLots as any[]);
-    setAvicolaLots(newLots);
-    if (upserts.length) dbService.bulkSaveAvicolaLots(FARM_ID, upserts).catch(console.warn);
-    deleted.forEach((id) => dbService.deleteAvicolaLot(FARM_ID, id).catch(console.warn));
-  }, [avicolaRef]);
-
-  const handleAddNewAvicolaLot = useCallback((lot: any) => {
-    const newLot: AvicolaLot = { ...lot, id: lot.id || newId('av_lot'), status: lot.status || 'Iniciación' };
-    setAvicolaLots((prev) => [newLot, ...prev]);
-    dbService.saveAvicolaLot(FARM_ID, newLot).catch(console.warn);
+  // ==========================================================================
+  // NAVEGACIÓN DEL MÓDULO AVÍCOLA
+  // ==========================================================================
+  /** Abre el Home avícola "Pollos de Engorde" (pantalla completa). */
+  const openAvicola = useCallback(() => {
+    setSelectedAvicolaLotId(null);
+    setMockupScreen('avicola');
   }, []);
-
-  const handleRecordAvicolaDaily = useCallback(
-    (lotCode: string, feedKg: number, mortality: number, sampledWeightGrams: number) => {
-      const updated = avicolaRef.current.map((l) => {
-        if (l.code !== lotCode) return l;
-        const newCurrent = Math.max(0, l.current - mortality);
-        const newFeed = l.feedTotalKg + feedKg;
-        const biomassKg = (newCurrent * sampledWeightGrams) / 1000;
-        const newFcr = biomassKg > 0 ? Math.round((newFeed / biomassKg) * 100) / 100 : l.fcr;
-        return { ...l, current: newCurrent, feedTotalKg: newFeed, fcr: newFcr, avgWeightGrams: sampledWeightGrams };
-      });
-      handleUpdateAvicola(updated);
-      triggerToast(`🐔 Registro diario guardado para ${lotCode}: -${mortality} aves, +${feedKg}kg alimento.`);
-    },
-    [handleUpdateAvicola, triggerToast, avicolaRef]
-  );
-
-  const handleLiquidateAvicola = useCallback(
-    (lotCode: string, pricePerKg: number, buyerName: string) => {
-      const lot = avicolaRef.current.find((l) => l.code === lotCode);
-      if (!lot) return;
-      const totalWeightKg = (lot.current * lot.avgWeightGrams) / 1000;
-      const grossIncome = Math.round(totalWeightKg * pricePerKg * 100) / 100;
-      handleUpdateAvicola(
-        avicolaRef.current.map((l) => (l.code === lotCode ? { ...l, status: 'Liquidado' as const, current: 0 } : l))
-      );
-      const saleMovement: FinancialMovement = {
-        id: newId('fm'),
-        type: 'ingreso',
-        concept: `Liquidación Lote Avícola ${lotCode} (${lot.current} pollos) a ${buyerName}`,
-        rubro: 'avicola',
-        amount: grossIncome,
-        date: todayISO(),
-        category: 'Venta de aves',
-        details: `${lot.current} aves, peso total aprox: ${totalWeightKg.toFixed(1)}kg a $${pricePerKg}/kg.`,
-      };
-      applyPorcinoState({ movements: [saleMovement, ...porcinoRef.current.movements] });
-      dbService.saveMovement(FARM_ID, saleMovement).catch(console.warn);
-      triggerToast(`🎉 Lote ${lotCode} liquidado: +$${grossIncome.toLocaleString()} USD`);
-    },
-    [applyPorcinoState, handleUpdateAvicola, triggerToast, avicolaRef]
+  /** Abre el detalle de un lote (o vuelve al Home avícola con null). */
+  const openAvicolaLot = useCallback((loteId: string | null) => {
+    setSelectedAvicolaLotId(loteId);
+    setMockupScreen('avicola');
+  }, []);
+  /** Lote seleccionado (objeto) o null si no existe. */
+  const selectedAvicolaLot = useMemo(
+    () => (selectedAvicolaLotId ? avicolaLots.find((l) => l.id === selectedAvicolaLotId) || null : null),
+    [avicolaLots, selectedAvicolaLotId]
   );
 
   // ==========================================================================
@@ -556,6 +730,10 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     [tasks, today]
   );
   const overduePendingTasks = useMemo(() => overdueTasks(tasks, today), [tasks, today]);
+  /** Tareas avícolas de hoy / vencidas (con nombre de lote: { task, lotId, lotName, overdue }). */
+  const avicolaTodayTasks = avicolaHome.todayTasks;
+  const avicolaOverdueTasks = avicolaHome.overdueTasks;
+  const avicolaAlertsCount = avicolaHome.alertsCount;
   const criticalWarehouseCount = useMemo(() => countCriticalWarehouseItems(warehouseItems), [warehouseItems]);
   const totalNotifications = useMemo(
     () => todayPendingTasks.length + overduePendingTasks.length + criticalWarehouseCount,
@@ -577,10 +755,11 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
       batchConfigs: batchProductionConfigsDefault,
     });
     setBovinoHerd([]);
-    setAvicolaLots([]);
+    applyAvicolaState({ lots: [], sales: [], expenses: [], incomes: [], mortality: [], weighings: [] });
+    setSelectedAvicolaLotId(null);
     const e = buildEmptySummary();
     setSummaryMeta({ name: e.name, location: e.location, totalMembers: e.totalMembers, members: e.members });
-  }, [applyPorcinoState]);
+  }, [applyPorcinoState, applyAvicolaState]);
 
   const handleClearAllTestData = useCallback(async () => {
     try {
@@ -620,6 +799,18 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     warehouseItems,
     bovinoHerd,
     avicolaLots,
+    avicolaSales,
+    avicolaExpenses,
+    avicolaIncomes,
+    avicolaMortality,
+    avicolaWeighings,
+    avicolaData,
+    avicolaHome,
+    avicolaTodayTasks,
+    avicolaOverdueTasks,
+    avicolaAlertsCount,
+    selectedAvicolaLotId,
+    selectedAvicolaLot,
     feedingPlans,
     batchConfigs,
     productionBatches,
@@ -635,7 +826,6 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     showSettingsModal,
     showAlertsModal,
     showBovinoModal,
-    showAvicolaModal,
     showPushBanner,
 
     // Setters
@@ -646,12 +836,16 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     setShowSettingsModal,
     setShowAlertsModal,
     setShowBovinoModal,
-    setShowAvicolaModal,
     setShowPushBanner,
+    setSelectedAvicolaLotId,
+    openAvicola,
+    openAvicolaLot,
 
     // NUEVA API DE DOMINIO
     dispatchPorcino,
     porcinoActions,
+    dispatchAvicola,
+    avicolaActions,
 
     // Acciones
     triggerToast,
@@ -672,10 +866,6 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     handleUpdateBovino,
     handleAddNewBovino,
     handleRecordMilking,
-    handleUpdateAvicola,
-    handleAddNewAvicolaLot,
-    handleRecordAvicolaDaily,
-    handleLiquidateAvicola,
     handleUpdateFeedingPlans,
     handleUpdateBatchConfigs,
     handleStartNewBatch,
@@ -684,3 +874,4 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
 
 export type FarmController = ReturnType<typeof useFarmController>;
 export type PorcinoActions = FarmController['porcinoActions'];
+export type AvicolaActions = FarmController['avicolaActions'];

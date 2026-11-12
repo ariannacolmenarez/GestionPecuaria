@@ -72,10 +72,32 @@ export const PhoneNotificationBanner: React.FC<PhoneNotificationBannerProps> = (
             </span>
           </div>
 
+          {tasksList[0]?.targetRubro === 'avicola' && (
+            <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              🐔 Avícola · {tasksList[0].batchCode || tasksList[0].targetAnimal || 'Lote'}
+            </span>
+          )}
           <p className="text-[11px] text-slate-300 leading-snug line-clamp-2">
-            {tasksList[0]?.title || 'Actividades veterinarias estimadas para el día en curso.'}
-            {tasksList.length > 1 ? ` (+${tasksList.length - 1} actividad más)` : ''}
+            {(tasksList[0]?.targetRubro === 'avicola' ? tasksList[0].title.replace(/^\[[^\]]*\]\s*/, '') : tasksList[0]?.title) ||
+              'Actividades veterinarias estimadas para el día en curso.'}
+            {tasksList.length > 1 ? ` (+${tasksList.length - 1} ${tasksList.length - 1 === 1 ? 'actividad más' : 'actividades más'})` : ''}
           </p>
+          {(() => {
+            // Lotes avícolas a los que van dirigidas las demás actividades del banner.
+            const lots = Array.from(
+              new Set(
+                tasksList
+                  .slice(1)
+                  .filter((t) => t.targetRubro === 'avicola')
+                  .map((t) => t.batchCode || t.targetAnimal || 'Lote')
+              )
+            ).filter((l) => !(tasksList[0]?.targetRubro === 'avicola' && l === (tasksList[0].batchCode || tasksList[0].targetAnimal || 'Lote')));
+            return lots.length > 0 ? (
+              <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                🐔 También Avícola · {lots.join(', ')}
+              </span>
+            ) : null;
+          })()}
 
           <div className="flex items-center justify-between pt-1 text-[10px] text-emerald-400 font-semibold">
             <span>Toca para ver detalles o marcar como realizada</span>

@@ -88,9 +88,9 @@ export const screensMockupsCatalog: ScreenMockupDoc[] = [
         number: 5,
         name: 'Módulo de Acceso a Avicultura de Engorde',
         controlType: 'Botón',
-        description: 'Visualiza los lotes de pollos de engorde activos, conversión alimenticia (FCR) y días de ciclo.',
-        action: 'Abre el modal `AvicolaModal` para liquidación de lotes, pesado de muestras y control de bajas.',
-        backendOrDb: 'Colección Firestore `avicola_lots`. Al liquidar un lote calcula biomasa total en kg e inserta el ingreso contable.',
+        description: 'Tarjeta "Gestión Avícola": cuenta en vivo los pollos en galpón, lotes activos, bajas y tareas avícolas registradas en el módulo Pollos de Engorde.',
+        action: 'Abre el módulo de pantalla completa `Pollos de Engorde` (AvicolaModule): Home avícola con balance, alertas y calendario; detalle de lote con Ventas, Gastos, Ingresos, Control (pesos, alimentación, mortalidad, sanidad) y Gestión (resumen, reportes, bodega).',
+        backendOrDb: 'Colecciones Firestore de lotes, ventas, gastos, ingresos, mortalidad y pesajes avícolas; tareas en `SanitaryTask` (targetRubro avicola) y movimientos financieros con rubro `avicola`, que alimentan el balance del Home de la granja.',
       },
       {
         id: 'opt-home-6',

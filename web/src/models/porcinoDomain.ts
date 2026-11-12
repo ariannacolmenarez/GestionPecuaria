@@ -1567,6 +1567,10 @@ export const consumeWarehouseItem: DomainFn<ConsumeWarehouseItemInput> = (state,
   if (!item) return fail('El insumo no existe.');
   if (!isPositive(input.amount)) return fail('La cantidad a consumir debe ser mayor a 0.');
   if (input.amount > item.quantity) return fail(`Stock insuficiente: hay ${item.quantity} ${item.unit} de ${item.name}.`);
+  if (item.rubro === 'avicola') {
+    // El consumo avícola se carga al lote (gasto del lote + egreso rubro 'avicola') desde Pollos de Engorde.
+    return fail(`${item.name} es un insumo avícola: regístrelo desde el lote en Pollos de Engorde (Gestión > Bodega) para cargarlo a sus gastos.`);
+  }
   const date = input.date || todayISO();
   // Un código que no corresponde a ningún animal se trata como etiqueta libre (ej. 'Galpón 2').
   const target = findAnimal(state, { id: input.targetAnimalId, code: input.targetAnimalCode });
@@ -1642,7 +1646,7 @@ export const addWarehouseItem: DomainFn<AddWarehouseItemInput> = (state, input) 
       movement({
         type: 'egreso',
         concept: `Compra de insumo: ${it.quantity} ${it.unit} de ${item.name}`,
-        rubro: 'porcino',
+        rubro: it.rubro && it.rubro !== 'general' ? it.rubro : 'porcino',
         amount: total,
         date: input.date || todayISO(),
         category: 'Compra de insumos',
@@ -1651,6 +1655,86 @@ export const addWarehouseItem: DomainFn<AddWarehouseItemInput> = (state, input) 
     );
   }
   return d.done(`Insumo ${item.name} agregado${purchase ? ` (egreso $${total.toFixed(2)})` : ''}.`, { itemId: item.id });
+};
+
+export interface PurchaseWarehouseItemInput {
+  itemId: string;
+  /** Cantidad comprada, en la unidad del insumo. */
+  quantity: number;
+  /** Precio por unidad de esta compra. */
+  unitCostUsd: number;
+  date?: string;
+  supplier?: string;
+  /** N.º de factura o nota de compra. */
+  invoice?: string;
+  notes?: string;
+}
+
+/**
+ * Compra (reposición) de un insumo existente: suma stock, recalcula el costo unitario promedio
+ * ponderado y registra el egreso "Compra de insumos" en el balance del rubro del insumo.
+ * Desde la primera compra registrada el insumo queda como `expensedOnPurchase`, así el consumo
+ * posterior solo imputa costo al animal/lote (sin duplicar el egreso). Si quedaba stock previo que
+ * aún no se había llevado a gasto, se regulariza en el mismo momento para no perder ese costo.
+ */
+export const purchaseWarehouseItem: DomainFn<PurchaseWarehouseItemInput> = (state, input) => {
+  const item = state.warehouseItems.find((i) => i.id === input.itemId);
+  if (!item) return fail('El insumo no existe en el almacén.');
+  if (!isPositive(input.quantity)) return fail('La cantidad comprada debe ser mayor a 0.');
+  if (!isPositive(input.unitCostUsd)) return fail('El precio por unidad debe ser mayor a 0.');
+  const date = input.date || todayISO();
+  const dateErr = invalidEventDate(date, 'de la compra');
+  if (dateErr) return fail(dateErr);
+
+  const d = new Draft(state);
+  const prevQty = Math.max(0, num(item.quantity));
+  const prevCost = Math.max(0, num(item.unitCostUsd));
+  const newQty = round2(prevQty + input.quantity);
+  const avgCost = newQty > 0 ? round2((prevQty * prevCost + input.quantity * input.unitCostUsd) / newQty) : input.unitCostUsd;
+  const total = round2(input.quantity * input.unitCostUsd);
+  const rubro = item.rubro && item.rubro !== 'general' ? item.rubro : 'porcino';
+  const supplier = input.supplier?.trim() || item.supplier;
+
+  // Regularizar stock previo que no se había llevado a gasto (evita perder ese costo)
+  const pendingPrevValue = !item.expensedOnPurchase ? round2(prevQty * prevCost) : 0;
+  if (pendingPrevValue > 0) {
+    d.putMovement(
+      movement({
+        type: 'egreso',
+        concept: `Regularización de stock previo: ${prevQty} ${item.unit} de ${item.name}`,
+        rubro,
+        amount: pendingPrevValue,
+        date,
+        category: 'Compra de insumos',
+        details: 'Stock existente sin egreso registrado; se asienta al pasar el insumo a control por compras.',
+      })
+    );
+  }
+
+  d.putItem({ ...item, quantity: newQty, unitCostUsd: avgCost, supplier, expensedOnPurchase: true });
+  d.putMovement(
+    movement({
+      type: 'egreso',
+      concept: `Compra de insumo: ${input.quantity} ${item.unit} de ${item.name}`,
+      rubro,
+      amount: total,
+      date,
+      category: 'Compra de insumos',
+      details: [
+        supplier ? `Proveedor: ${supplier}` : '',
+        input.invoice?.trim() ? `Factura: ${input.invoice.trim()}` : '',
+        `Precio: $${input.unitCostUsd}/${item.unit}`,
+        input.notes?.trim() || '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    })
+  );
+  return d.done(
+    `Compra registrada: +${input.quantity} ${item.unit} de ${item.name} (egreso $${total.toFixed(2)}).` +
+      (pendingPrevValue > 0 ? ` Se regularizó el stock previo ($${pendingPrevValue.toFixed(2)}).` : ''),
+    { itemId: item.id, totalUsd: total }
+  );
 };
 
 export const deleteWarehouseItem: DomainFn<{ itemId: string }> = (state, input) => {

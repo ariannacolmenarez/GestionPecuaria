@@ -72,6 +72,8 @@ export interface MenuPorcinoProps {
   /** Modal de almacén controlado (BottomNav → Almacén). */
   showWarehouse?: boolean;
   onShowWarehouseChange?: (open: boolean) => void;
+  /** Abre el módulo avícola (las tareas avícolas se gestionan allí, no en el calendario porcino). */
+  onOpenAvicola?: () => void;
 }
 
 /** Límite de Suspense por modal: cargar uno no oculta a los demás abiertos. */
@@ -105,7 +107,7 @@ type WeaningPayload = {
 
 export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
   animals,
-  tasks,
+  tasks: allTasks,
   movements,
   warehouseItems,
   litters = EMPTY_LITTERS,
@@ -120,8 +122,20 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
   onTabChange,
   showWarehouse: showWarehouseProp,
   onShowWarehouseChange,
+  onOpenAvicola,
 }) => {
   const today = todayProp || todayISO();
+
+  // Las tareas avícolas se completan en su módulo (completeLotTask imputa el insumo al lote);
+  // el calendario porcino solo trabaja con sus propias tareas.
+  const tasks = useMemo(() => allTasks.filter((t) => t.targetRubro !== 'avicola'), [allTasks]);
+  const avicolaDueCount = useMemo(
+    () =>
+      allTasks.filter(
+        (t) => t.targetRubro === 'avicola' && (t.status === 'pendiente' || t.status === 'retrasada') && t.date <= today
+      ).length,
+    [allTasks, today]
+  );
 
   // --------------------------------------------------------------------------
   // Pestaña y almacén: controlados (si el padre los pasa) o internos
@@ -235,9 +249,18 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
   const handleAddWarehouseItem = useCallback(
     (newItem: WarehouseItem, options?: { registerPurchase?: boolean }): DomainResult => {
       const { id: _ignoredId, ...item } = newItem; // el id lo genera el dominio
-      return A.addWarehouseItem({ item, registerPurchase: !!options?.registerPurchase || !!item.expensedOnPurchase });
+      return A.addWarehouseItem({
+        item: { ...item, rubro: item.rubro || 'porcino' },
+        registerPurchase: !!options?.registerPurchase || !!item.expensedOnPurchase,
+      });
     },
     [A]
+  );
+
+  // Compras de insumos del rubro porcino (historial en Almacén; también suman al Balance como egreso)
+  const porcinoPurchases = useMemo(
+    () => movements.filter((m) => m.category === 'Compra de insumos' && (m.rubro || 'porcino') === 'porcino'),
+    [movements]
   );
 
   const handleConfirmWeaning = useCallback(
@@ -390,6 +413,19 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
           />
         )}
 
+        {activeTab === 'sanitario' && onOpenAvicola && avicolaDueCount > 0 && (
+          <div className="px-4 pt-3">
+            <button
+              type="button"
+              onClick={onOpenAvicola}
+              className="w-full min-h-10 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800"
+            >
+              <span>🐔 Ver también tareas avícolas por hacer ({avicolaDueCount})</span>
+              <span aria-hidden>›</span>
+            </button>
+          </div>
+        )}
+
         {activeTab === 'sanitario' && (
           <TabSanitario
             tasks={tasks}
@@ -463,6 +499,8 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
             onConsumeItem={handleConsumeItem}
             onAddItem={handleAddWarehouseItem}
             onDeleteItem={(itemId: string) => A.deleteWarehouseItem({ itemId })}
+            onPurchaseItem={(p) => A.purchaseWarehouseItem(p)}
+            purchases={porcinoPurchases}
           />
           </LazyBoundary>
         )}
