@@ -22,7 +22,7 @@ export default defineConfig(() => {
       outDir: path.resolve(__dirname, 'app/src/main/assets/public'),
       emptyOutDir: true,
       // El único chunk > 500 kB es el SDK de Firebase (Firestore), aislado en su propio chunk.
-      chunkSizeWarningLimit: 700,
+      chunkSizeWarningLimit: 800,
       rollupOptions: {
         input: path.resolve(__dirname, 'web/index.html'),
         output: {

@@ -2,7 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useStat
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { runTopBackHandler } from './utils/backButton';
-import { Info } from 'lucide-react';
+import { Info, CloudOff } from 'lucide-react';
 
 // ============================================================================
 // ARQUITECTURA MODELO - VISTA - CONTROLADOR (MVC)
@@ -278,6 +278,22 @@ function useHardwareBackButton(ctrl: FarmController, nav: PhoneNav, enabled: boo
   }, [enabled]);
 }
 
+/** Estado de conexión del teléfono (eventos online/offline del WebView). */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
+  return online;
+}
+
 // ============================================================================
 // CONTENIDO DEL TELÉFONO (compartido por modo nativo y modo navegador)
 // ============================================================================
@@ -292,6 +308,7 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
     [ctrl.warehouseItems, nav.currentRubro]
   );
   const avicolaLot = inAvicola ? ctrl.selectedAvicolaLot : null;
+  const online = useOnline();
   const headerTitle =
     mockupScreen === 'home' ? farmName : inAvicola ? avicolaLot?.name || 'Pollos de Engorde' : 'Menú Porcino';
 
@@ -311,6 +328,12 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
         showBack={mockupScreen !== 'home'}
         onBack={onBack}
       />
+
+      {!online && (
+        <div role="status" className="bg-amber-100 text-amber-900 text-[11px] font-semibold px-3 py-1.5 flex items-center gap-1.5 shrink-0">
+          <CloudOff className="w-3.5 h-3.5 shrink-0" /> Sin conexión: lo que registres se guarda en el teléfono y se subirá a la nube al volver la señal.
+        </div>
+      )}
 
       {ctrl.showPushBanner && bannerTasks.length > 0 && (
         <PhoneNotificationBannerView

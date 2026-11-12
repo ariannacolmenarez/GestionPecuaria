@@ -275,6 +275,14 @@ function subscribeAll<T>(farmId: string, col: string, key: string, onUpdate: (li
       (snap) => {
         const list: T[] = [];
         snap.forEach((d) => list.push(d.data() as T));
+        // Sin conexión y sin nada en la caché de Firestore: no borrar los datos guardados en el teléfono
+        if (snap.metadata.fromCache && list.length === 0) {
+          const local = readLocal<T[]>(key, []);
+          if (local.length > 0) {
+            onUpdate(local);
+            return;
+          }
+        }
         writeLocal(key, list);
         onUpdate(list);
       },

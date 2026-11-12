@@ -93,6 +93,10 @@ function cachedMember(uid: string): MemberDoc | null {
 /** Decide si el usuario autenticado tiene acceso a la granja (y con qué rol). */
 export async function resolveAccess(user: User, farmId: string = FARM_ID): Promise<AccessResult> {
   const email = (user.email || '').toLowerCase();
+  // Acceso ya verificado en este teléfono: se entra de inmediato (también sin internet).
+  // Los cambios de rol o la baja se aplican en vivo con subscribeMyMember al haber conexión.
+  const known = cachedMember(user.uid);
+  if (known) return { status: 'ok', member: known };
   try {
     const mine = await getDoc(memberRef(farmId, user.uid));
     if (mine.exists()) {

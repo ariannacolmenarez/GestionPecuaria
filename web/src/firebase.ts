@@ -15,17 +15,35 @@ import {
   type Auth,
   type User,
 } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentSingleTabManager,
+  doc,
+  getDocFromServer,
+  type Firestore,
+} from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App singleton
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Initialize Firestore with configured databaseId if present, otherwise use default
+// Firestore con caché PERSISTENTE en el teléfono (IndexedDB):
+// - sin internet la app abre con los últimos datos sincronizados;
+// - lo registrado sin conexión queda en cola en el teléfono (aunque se cierre la app)
+//   y se sube solo a la nube al recuperar la conexión.
 const customDbId = (firebaseConfig as any).firestoreDatabaseId;
-export const db = customDbId && customDbId !== '(default)'
-  ? getFirestore(app, customDbId)
-  : getFirestore(app);
+const dbId = customDbId && customDbId !== '(default)' ? customDbId : undefined;
+function createDb(): Firestore {
+  try {
+    const settings = { localCache: persistentLocalCache({ tabManager: persistentSingleTabManager(undefined) }) };
+    return dbId ? initializeFirestore(app, settings, dbId) : initializeFirestore(app, settings);
+  } catch {
+    return dbId ? getFirestore(app, dbId) : getFirestore(app);
+  }
+}
+export const db = createDb();
 
 // Autenticación: la sesión se conserva en el teléfono (IndexedDB, con respaldo en localStorage).
 // initializeAuth (y no getAuth) evita depender de popups/redirect, que no existen en la WebView de Android.
