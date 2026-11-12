@@ -51,6 +51,7 @@ export const AnimalSuppliesPanel: React.FC<{
   const kind = headCount(animal) > 1 ? 'lote' : 'cerdo';
   const stockValue = round2(here.reduce((s, i) => s + toNumber(i.quantity) * toNumber(i.unitCostUsd), 0));
 
+  const [expanded, setExpanded] = useState(false);
   const [mode, setMode] = useState<null | 'compra' | 'traer'>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -175,21 +176,31 @@ export const AnimalSuppliesPanel: React.FC<{
   const errorBox = error && <div className="p-2 bg-rose-100 border border-rose-300 rounded-lg text-[11px] font-bold text-rose-800">{error}</div>;
 
   return (
-    <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 space-y-2.5 text-xs">
-      <div className="flex items-start justify-between gap-2">
+    <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-2.5 space-y-2.5 text-xs">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="w-full flex items-center justify-between gap-2 text-left cursor-pointer"
+      >
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+          <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
             <MapPin className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <h4 className="font-black text-slate-900 text-xs">Almacén de este {kind}</h4>
-            <p className="text-[10px] text-slate-500">
-              {here.length === 0 ? 'Sin insumos asignados' : `${here.length} insumo${here.length === 1 ? '' : 's'} · valor $${stockValue.toFixed(2)}`}
+            <p className="text-[10px] text-slate-500 truncate">
+              {here.length === 0 ? 'Sin insumos asignados · toca para ingresar' : `${here.length} insumo${here.length === 1 ? '' : 's'} · valor $${stockValue.toFixed(2)}`}
             </p>
           </div>
         </div>
-      </div>
+        <span className="text-slate-500 font-bold shrink-0">{expanded ? '▲' : '▼'}</span>
+      </button>
 
+      {notice && <div className="p-2 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-800 font-semibold text-[11px]">{notice}</div>}
+
+      {expanded && (
+      <>
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
@@ -213,7 +224,6 @@ export const AnimalSuppliesPanel: React.FC<{
         </button>
       </div>
 
-      {notice && <div className="p-2 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-800 font-semibold text-[11px]">{notice}</div>}
       {!mode && !useId && errorBox}
 
       {mode === 'compra' && (
@@ -376,6 +386,8 @@ export const AnimalSuppliesPanel: React.FC<{
             </li>
           ))}
         </ul>
+      )}
+      </>
       )}
     </section>
   );

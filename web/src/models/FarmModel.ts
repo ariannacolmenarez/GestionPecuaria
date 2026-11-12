@@ -291,6 +291,8 @@ export interface SanitaryTask {
   loteId?: string;
   /** Día de vida del lote en que toca la tarea (1 = fecha de inicio). Si existe, la fecha se recalcula al cambiar el inicio. */
   lifeDay?: number;
+  /** Días antes del sacrificio (0 = día de sacrificio) si la tarea viene de un paso relativo de la plantilla: se recalcula al cambiar los días de producción. */
+  slaughterOffset?: number;
   /** Tipo de actividad (vacuna, vitamina, medicamento, desinfeccion, cama, pesaje, alimentacion, otro). */
   activityKind?: string;
 }

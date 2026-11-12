@@ -22,6 +22,7 @@ import { ageInDays } from '../../utils/dates';
 import { ModalActionReturn } from './modalResult';
 import { AddPigsForm, NewPigsData } from './herd/AddPigsForm';
 import { AddMotherForm, NewMotherData } from './herd/AddMotherForm';
+import { CategoryIcon, iconCategoryOf } from './porcino/CategoryIcon';
 
 interface HerdCategoryViewModalProps {
   category: PorcinoCategory | 'lechones';
@@ -547,11 +548,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                     className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-500 hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 group"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <img
-                        src={animal.photoUrl}
-                        alt={animal.code}
-                        className="w-14 h-14 rounded-2xl object-cover border border-slate-200 shrink-0 group-hover:border-emerald-500 transition-colors"
-                      />
+                      <CategoryIcon category={iconCategoryOf(animal)} size="md" label={animal.code} />
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <h4 className="font-black font-mono text-sm text-slate-900 group-hover:text-emerald-700 transition-colors">

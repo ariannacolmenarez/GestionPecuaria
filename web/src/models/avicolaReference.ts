@@ -210,12 +210,64 @@ export function resolvePlanDay(item: Pick<AvicolaPlanItem, 'day'>, productionDay
   return Math.max(1, Math.round(d));
 }
 
-/** Plan base aplicable a un ciclo (descarta pasos posteriores al sacrificio). */
-export function basePlanForCycle(productionDays: number): Array<AvicolaPlanItem & { lifeDay: number }> {
+/**
+ * Plan base aplicable a un ciclo (descarta pasos posteriores al sacrificio).
+ * `template` = plantilla personalizada de la granja; sin ella se usa el plan de referencia.
+ */
+export function basePlanForCycle(
+  productionDays: number,
+  template: AvicolaPlanItem[] = AVICOLA_BASE_SANITARY_PLAN
+): Array<AvicolaPlanItem & { lifeDay: number }> {
   const P = Math.max(1, Math.round(productionDays || AVICOLA_DEFAULT_PRODUCTION_DAYS));
-  return AVICOLA_BASE_SANITARY_PLAN.map((p) => ({ ...p, lifeDay: resolvePlanDay(p, P) }))
+  return (template && template.length ? template : AVICOLA_BASE_SANITARY_PLAN)
+    .map((p) => ({ ...p, lifeDay: resolvePlanDay(p, P) }))
     .filter((p) => p.lifeDay <= P)
     .sort((a, b) => a.lifeDay - b.lifeDay);
+}
+
+// ----------------------------------------------------------------------------
+// Plantilla personalizable del plan sanitario (una por granja)
+// ----------------------------------------------------------------------------
+/** Documento persistido: la plantilla que usan todos los lotes nuevos. */
+export interface AvicolaPlanTemplateDoc {
+  id: 'default';
+  items: AvicolaPlanItem[];
+  updatedAt?: string;
+}
+
+export const AVICOLA_PLAN_MIN_DAY = -30;
+
+/**
+ * Valida y normaliza la plantilla: títulos obligatorios, día entero distinto de 0 para
+ * días de vida (1..90) o 0..-30 relativo al sacrificio, claves únicas.
+ */
+export function validatePlanTemplate(items: AvicolaPlanItem[]): { ok: true; items: AvicolaPlanItem[] } | { ok: false; error: string } {
+  if (!Array.isArray(items)) return { ok: false, error: 'La plantilla no es válida.' };
+  const seen = new Set<string>();
+  const out: AvicolaPlanItem[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const title = (it?.title || '').trim();
+    if (!title) return { ok: false, error: `La actividad ${i + 1} necesita un título.` };
+    const day = Math.round(Number(it.day));
+    if (!Number.isFinite(day) || day > AVICOLA_MAX_PRODUCTION_DAYS || day < AVICOLA_PLAN_MIN_DAY) {
+      return { ok: false, error: `"${title}": el día debe estar entre 1 y ${AVICOLA_MAX_PRODUCTION_DAYS}, o hasta ${-AVICOLA_PLAN_MIN_DAY} días antes del sacrificio.` };
+    }
+    let key = (it.key || '').trim() || `custom_${i}_${title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 24)}`;
+    while (seen.has(key)) key = `${key}_${i}`;
+    seen.add(key);
+    out.push({
+      key,
+      day,
+      kind: AVICOLA_ACTIVITY_KINDS.some((k) => k.key === it.kind) ? it.kind : 'otro',
+      title,
+      procedure: (it.procedure || '').trim() || title,
+      medicament: (it.medicament || '').trim() || undefined,
+      dosage: (it.dosage || '').trim() || undefined,
+      defaultEnabled: it.defaultEnabled !== false,
+    });
+  }
+  return { ok: true, items: out };
 }
 
 // ----------------------------------------------------------------------------

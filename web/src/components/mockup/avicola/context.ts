@@ -7,6 +7,7 @@ import type { SanitaryTask, WarehouseItem, FinancialMovement } from '../../../mo
 import type { AvicolaData, AvicolaHomeSummary } from '../../../models/avicolaDomain';
 import type { AvicolaActions } from '../../../controllers/FarmController';
 import type { ControlSub, LotTab } from './shared';
+import type { AvicolaPlanItem } from '../../../models/avicolaReference';
 
 export interface AvicolaCtx {
   data: AvicolaData;
@@ -20,6 +21,10 @@ export interface AvicolaCtx {
   openLot: (loteId: string | null, tab?: LotTab, sub?: ControlSub) => void;
   /** Abre el almacén global de la app. */
   openWarehouse?: () => void;
+  /** Plantilla del plan sanitario de la granja (la usan todos los lotes nuevos). */
+  planTemplate: AvicolaPlanItem[];
+  /** Guarda la plantilla (null = restaurar la de referencia). */
+  savePlanTemplate: (items: AvicolaPlanItem[] | null) => { ok: true; message: string } | { ok: false; error: string };
 }
 
 export const AvicolaContext = createContext<AvicolaCtx | null>(null);

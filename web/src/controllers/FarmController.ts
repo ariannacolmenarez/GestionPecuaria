@@ -134,7 +134,8 @@ import {
   ConsumeWarehouseForLotInput,
 } from '../models/avicolaDomain';
 import { dbService, FARM_ID, buildEmptySummary } from '../services/dbService';
-import { todayISO, currentMonthYear } from '../utils/dates';
+import { todayISO, currentMonthYear, nowISO } from '../utils/dates';
+import { AVICOLA_BASE_SANITARY_PLAN, validatePlanTemplate, type AvicolaPlanItem } from '../models/avicolaReference';
 import { newId } from '../utils/ids';
 
 export type MainAppView = 'mockup' | 'documentation' | 'mvc';
@@ -183,6 +184,8 @@ export function useFarmController() {
   const [avicolaIncomes, setAvicolaIncomes] = useState<AvicolaIncome[]>([]);
   const [avicolaMortality, setAvicolaMortality] = useState<AvicolaMortality[]>([]);
   const [avicolaWeighings, setAvicolaWeighings] = useState<AvicolaWeighing[]>([]);
+  /** Plantilla del plan sanitario avícola de la granja (base para todos los lotes nuevos). */
+  const [avicolaPlanTemplate, setAvicolaPlanTemplate] = useState<AvicolaPlanItem[]>(AVICOLA_BASE_SANITARY_PLAN);
   /** Lote avícola abierto en el módulo (null = Home avícola "Pollos de Engorde"). */
   const [selectedAvicolaLotId, setSelectedAvicolaLotId] = useState<string | null>(null);
   // Protocolos y planes: plantillas de configuración (no son datos de animales)
@@ -310,6 +313,10 @@ export function useFarmController() {
       dbService.subscribeAvicolaIncomes(FARM_ID, (l) => applyAvicolaState({ incomes: l })),
       dbService.subscribeAvicolaMortality(FARM_ID, (l) => applyAvicolaState({ mortality: l })),
       dbService.subscribeAvicolaWeighings(FARM_ID, (l) => applyAvicolaState({ weighings: l })),
+      dbService.subscribeAvicolaPlanTemplate(FARM_ID, (docs) => {
+        const items = docs.find((x) => x.id === 'default')?.items;
+        setAvicolaPlanTemplate(items && items.length ? items : AVICOLA_BASE_SANITARY_PLAN);
+      }),
     ];
     return () => {
       alive = false;
@@ -601,6 +608,25 @@ export function useFarmController() {
     [applyPorcinoState, triggerToast]
   );
 
+  /** Guarda la plantilla del plan sanitario avícola (null = restaurar la de referencia). */
+  const saveAvicolaPlanTemplate = useCallback(
+    (items: AvicolaPlanItem[] | null): { ok: true; message: string } | { ok: false; error: string } => {
+      const v = validatePlanTemplate(items === null ? AVICOLA_BASE_SANITARY_PLAN : items);
+      if ('error' in v) return { ok: false, error: v.error };
+      setAvicolaPlanTemplate(v.items);
+      dbService
+        .saveAvicolaPlanTemplate(FARM_ID, { id: 'default', items: v.items, updatedAt: nowISO() })
+        .catch((e) => console.warn('saveAvicolaPlanTemplate failed:', e));
+      const message =
+        items === null
+          ? 'Plan sanitario avícola restaurado al de referencia.'
+          : `Plan sanitario avícola guardado (${v.items.length} actividades). Se aplicará a los lotes nuevos.`;
+      triggerToast(message);
+      return { ok: true, message };
+    },
+    [triggerToast]
+  );
+
   const handleUpdateBatchConfigs = useCallback(
     (newConfigs: BatchProductionConfig[]) => {
       applyPorcinoState({ batchConfigs: newConfigs });
@@ -849,6 +875,8 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     porcinoActions,
     dispatchAvicola,
     avicolaActions,
+    avicolaPlanTemplate,
+    saveAvicolaPlanTemplate,
 
     // Acciones
     triggerToast,

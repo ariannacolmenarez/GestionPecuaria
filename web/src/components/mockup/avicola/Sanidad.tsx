@@ -609,10 +609,10 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
 
 /** Aplicar el plan base a un lote existente (omite pasos ya programados). */
 export const PlanBaseSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ lot, onClose }) => {
-  const { actions, tasks, today } = useAvicola();
+  const { actions, tasks, today, planTemplate } = useAvicola();
   const existing = useMemo(() => new Set(lotTasks(tasks, lot.id).filter((t) => t.status !== 'cancelada').map((t) => t.protocolKey).filter(Boolean)), [tasks, lot.id]);
   const [rows, setRows] = useState(() =>
-    basePlanForCycle(lot.productionDays)
+    basePlanForCycle(lot.productionDays, planTemplate)
       .filter((p) => !existing.has(p.key))
       .map((p) => ({ key: p.key, enabled: p.defaultEnabled && dateOfLotDay(lot, p.lifeDay) >= today, lifeDay: p.lifeDay, title: p.title, kind: p.kind, procedure: p.procedure, medicament: p.medicament, dosage: p.dosage }))
   );
@@ -629,7 +629,7 @@ export const PlanBaseSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> =
     onClose();
   };
   return (
-    <BottomSheet title="Plan sanitario base" subtitle={`${lot.name} · ${existing.size} pasos ya programados`} icon={<Layers className="w-5 h-5" />} iconClass="bg-slate-900 text-amber-300" onClose={onClose} footer={
+    <BottomSheet title="Plan de vacunas y cuidados" subtitle={`${lot.name} · ${existing.size} pasos ya programados`} icon={<Layers className="w-5 h-5" />} iconClass="bg-slate-900 text-amber-300" onClose={onClose} footer={
       <PrimaryButton tone="indigo" onClick={apply} className="w-full" disabled={rows.length === 0}>
         Aplicar {rows.filter((r) => r.enabled).length} actividades
       </PrimaryButton>

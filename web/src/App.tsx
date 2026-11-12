@@ -302,6 +302,8 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
               focus={nav.avicolaFocus}
               onFocusHandled={nav.clearAvicolaFocus}
               onOpenWarehouse={nav.openWarehouse}
+              planTemplate={ctrl.avicolaPlanTemplate}
+              onSavePlanTemplate={ctrl.saveAvicolaPlanTemplate}
             />
             {/* Almacén abierto desde el módulo avícola: encima del módulo, con altas y compras del rubro avícola */}
             {nav.showWarehouse && (

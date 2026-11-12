@@ -15,6 +15,7 @@ import type { AvicolaFocusRequest, ControlSub, GestionSub, LotTab } from './shar
 import { AvicolaHome } from './AvicolaHome';
 import { LoteDetail } from './LoteDetail';
 import { NuevoLoteSheet } from './LoteForms';
+import type { AvicolaPlanItem } from '../../../models/avicolaReference';
 
 export type { AvicolaFocusRequest, LotTab, ControlSub } from './shared';
 
@@ -35,6 +36,8 @@ export interface AvicolaModuleProps {
   /** Se llama tras aplicar `focus` para que el padre la limpie. */
   onFocusHandled?: () => void;
   onOpenWarehouse?: () => void;
+  planTemplate: AvicolaPlanItem[];
+  onSavePlanTemplate: AvicolaCtx['savePlanTemplate'];
 }
 
 export const AvicolaModule: React.FC<AvicolaModuleProps> = ({
@@ -51,6 +54,8 @@ export const AvicolaModule: React.FC<AvicolaModuleProps> = ({
   focus,
   onFocusHandled,
   onOpenWarehouse,
+  planTemplate,
+  onSavePlanTemplate,
 }) => {
   const [tab, setTab] = useState<LotTab>('ventas');
   const [controlSub, setControlSub] = useState<ControlSub>('alimentacion');
@@ -88,8 +93,20 @@ export const AvicolaModule: React.FC<AvicolaModuleProps> = ({
   }, [selectedLotId, selectedLot, data.lots, onOpenLot]);
 
   const ctx: AvicolaCtx = useMemo(
-    () => ({ data, tasks, movements, warehouseItems, today, home, actions, openLot, openWarehouse: onOpenWarehouse }),
-    [data, tasks, movements, warehouseItems, today, home, actions, openLot, onOpenWarehouse]
+    () => ({
+      data,
+      tasks,
+      movements,
+      warehouseItems,
+      today,
+      home,
+      actions,
+      openLot,
+      openWarehouse: onOpenWarehouse,
+      planTemplate,
+      savePlanTemplate: onSavePlanTemplate,
+    }),
+    [data, tasks, movements, warehouseItems, today, home, actions, openLot, onOpenWarehouse, planTemplate, onSavePlanTemplate]
   );
 
   return (

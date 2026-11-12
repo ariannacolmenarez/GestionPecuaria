@@ -43,6 +43,7 @@ import { granjaSummaryData } from '../data/pecuarioData';
 import { calculatePorcinoCounters, PorcinoDetailedCounters } from '../models/PorcinoCalculations';
 import { currentPeriodLabel, nowISO } from '../utils/dates';
 import { newId } from '../utils/ids';
+import type { AvicolaPlanTemplateDoc } from '../models/avicolaReference';
 
 export const FARM_ID = 'granja_arianna_principal';
 
@@ -65,6 +66,7 @@ const STORAGE_KEYS = {
   AVICOLA_INCOMES: 'pecuario_local_avicola_incomes_v5_clean',
   AVICOLA_MORTALITY: 'pecuario_local_avicola_mortality_v5_clean',
   AVICOLA_WEIGHINGS: 'pecuario_local_avicola_weighings_v5_clean',
+  AVICOLA_PLAN_TEMPLATE: 'pecuario_local_avicola_plan_template_v5_clean',
 };
 
 /** Colecciones Firestore bajo farms/{farmId}. */
@@ -85,6 +87,7 @@ const COL = {
   avicolaIncomes: 'avicola_incomes',
   avicolaMortality: 'avicola_mortality',
   avicolaWeighings: 'avicola_weighings',
+  avicolaPlanTemplate: 'avicola_plan_template',
 } as const;
 
 /** @deprecated Sin datos de muestra: siempre vacío. */
@@ -642,6 +645,19 @@ export const dbService = {
   },
   subscribeFeedingPlans(farmId: string = FARM_ID, onUpdate: (plans: ProductionFeedingPlan[]) => void): () => void {
     return subscribeAll<ProductionFeedingPlan>(farmId, COL.feedingPlans, STORAGE_KEYS.FEEDING_PLANS, onUpdate);
+  },
+
+  // ==========================================
+  // PLANTILLA DEL PLAN SANITARIO AVÍCOLA (un documento 'default')
+  // ==========================================
+  getAvicolaPlanTemplate(farmId: string = FARM_ID): Promise<AvicolaPlanTemplateDoc[]> {
+    return getAll<AvicolaPlanTemplateDoc>(farmId, COL.avicolaPlanTemplate, STORAGE_KEYS.AVICOLA_PLAN_TEMPLATE);
+  },
+  saveAvicolaPlanTemplate(farmId: string = FARM_ID, docData: AvicolaPlanTemplateDoc): Promise<void> {
+    return bulkSave(farmId, COL.avicolaPlanTemplate, STORAGE_KEYS.AVICOLA_PLAN_TEMPLATE, [stripUndefined(docData)], () => 'default');
+  },
+  subscribeAvicolaPlanTemplate(farmId: string = FARM_ID, onUpdate: (docs: AvicolaPlanTemplateDoc[]) => void): () => void {
+    return subscribeAll<AvicolaPlanTemplateDoc>(farmId, COL.avicolaPlanTemplate, STORAGE_KEYS.AVICOLA_PLAN_TEMPLATE, onUpdate);
   },
 
   // ==========================================

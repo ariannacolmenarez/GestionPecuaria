@@ -12,9 +12,7 @@ import {
   headCount,
 } from '../../../models/PorcinoCalculations';
 import { metric, money } from './shared';
-
-const FALLBACK_PHOTO =
-  'https://images.unsplash.com/photo-1516467508483-a7212febe31a?w=200&auto=format&fit=crop&q=80';
+import { CategoryIcon, iconCategoryOf } from './CategoryIcon';
 
 export interface TabRebanoProps {
   animals: PorcinoAnimal[];
@@ -37,21 +35,19 @@ type TraceFilter = 'todos' | 'engorde' | 'maternidad' | 'verracos' | 'bajas';
 
 const CategoryCard: React.FC<{
   title: string;
-  img: string;
+  category: 'engorde' | 'maternidad' | 'verracos';
   count: number;
   subtitle: string;
   badge: string;
   badgeClass: string;
   onClick: () => void;
-}> = ({ title, img, count, subtitle, badge, badgeClass, onClick }) => (
+}> = ({ title, category, count, subtitle, badge, badgeClass, onClick }) => (
   <div
     onClick={onClick}
     className="bg-slate-200/70 hover:bg-slate-200 border border-slate-300/80 rounded-xl p-2.5 flex flex-col items-center justify-between cursor-pointer transition-all hover:scale-[1.02] shadow-xs"
   >
     <span className="text-xs font-bold text-slate-800 text-center mb-1">{title}</span>
-    <div className="w-16 h-16 rounded-xl overflow-hidden bg-white shadow-xs p-1 mb-2 flex items-center justify-center">
-      <img src={img} alt={title} loading="lazy" className="w-full h-full object-cover rounded-lg" />
-    </div>
+    <CategoryIcon category={category} size="lg" className="mb-2 shadow-xs" />
     <div className="text-center w-full">
       <span className="text-xl font-black text-slate-900 block leading-tight">{count}</span>
       <span className="text-[10px] text-slate-600 font-semibold block">{subtitle}</span>
@@ -168,7 +164,7 @@ export const TabRebano: React.FC<TabRebanoProps> = ({
       <div className="grid grid-cols-3 gap-2.5">
         <CategoryCard
           title="Engorde"
-          img="https://images.unsplash.com/photo-1570042225831-d98fa7577f1e?w=200&auto=format&fit=crop&q=80"
+          category="engorde"
           count={counters.engorde}
           subtitle={`${counters.lotesEngordeCount} lotes • ${metric(engorde.pesoPromedioKg, ' kg')}`}
           badge={`GDP: ${metric(engorde.gananciaDiariaPesoGdpKg, ' kg/d', 2)}`}
@@ -177,7 +173,7 @@ export const TabRebano: React.FC<TabRebanoProps> = ({
         />
         <CategoryCard
           title="Maternidad"
-          img="https://images.unsplash.com/photo-1516467508483-a7212febe31a?w=200&auto=format&fit=crop&q=80"
+          category="maternidad"
           count={counters.productoras}
           subtitle={`${counters.maternidadGestantes}g / ${counters.maternidadLactantes}l`}
           badge={`LNV: ${metric(maternidad.promedioLechonesNacidosVivos, ' lech.', 1)}`}
@@ -186,7 +182,7 @@ export const TabRebano: React.FC<TabRebanoProps> = ({
         />
         <CategoryCard
           title="Verracos"
-          img="https://images.unsplash.com/photo-1545468800-856f6620f779?w=200&auto=format&fit=crop&q=80"
+          category="verracos"
           count={counters.verracos}
           subtitle="Padrillos"
           badge={`${verracos.totalMontasRegistradas} montas`}
@@ -201,9 +197,7 @@ export const TabRebano: React.FC<TabRebanoProps> = ({
         className="bg-white hover:bg-amber-50/40 rounded-2xl p-3.5 border border-amber-200/90 shadow-xs flex items-center justify-between cursor-pointer transition-all hover:scale-[1.01]"
       >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-lg shadow-xs">
-            🐷
-          </div>
+          <CategoryIcon category="lechones" className="rounded-xl shadow-xs" />
           <div>
             <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
               <span>Lechones en Lactancia</span>
@@ -301,12 +295,7 @@ export const TabRebano: React.FC<TabRebanoProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <img
-                      src={a.photoUrl || FALLBACK_PHOTO}
-                      alt={a.code}
-                      loading="lazy"
-                      className="w-10 h-10 rounded-lg object-cover border border-slate-200 shadow-xs group-hover:border-emerald-400 transition-colors"
-                    />
+                    <CategoryIcon category={iconCategoryOf(a)} label={a.code} />
                     <div>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <strong className="text-slate-900 font-bold group-hover:text-emerald-700 transition-colors">

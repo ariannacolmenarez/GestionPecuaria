@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { PorcinoAnimal, AnimalTraceEvent, ProductionFeedingPlan, WarehouseItem } from '../../types';
 import { AnimalSuppliesPanel, SupplyActions } from './porcino/AnimalSuppliesPanel';
+import { CategoryIcon, iconCategoryOf } from './porcino/CategoryIcon';
 import { isActiveAnimal } from '../../models/porcinoRules';
 import { getAnimalFeedingAndGrowthInfo, productionFeedingPlansDefault } from '../../data/pecuarioData';
 import { todayISO } from '../../utils/dates';
@@ -76,6 +77,7 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddEventForm, setShowAddEventForm] = useState(false);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [showNutrition, setShowNutrition] = useState(false);
 
   // Requirement 8: Feeding and Growth information calculated from configuration and age (fecha real)
   const feedingInfo = useMemo(() => {
@@ -230,11 +232,7 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
         <div className="bg-slate-900 text-white p-4 shrink-0 relative overflow-hidden">
           <div className="flex items-start justify-between relative z-10">
             <div className="flex items-center gap-3">
-              <img
-                src={animal.photoUrl}
-                alt={animal.code}
-                className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500 shadow-md shrink-0"
-              />
+              <CategoryIcon category={iconCategoryOf(animal)} size="md" label={animal.code} className="border-2 border-emerald-500 shadow-md" />
               <div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-xl font-black font-mono tracking-tight text-white">
@@ -319,24 +317,29 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
         {/* =========================================================================
             REQUISITO 8: DETALLE DE EDAD, PESO ESPERADO, CONSUMO DIARIO Y ALIMENTO
         ========================================================================= */}
-        <div className="p-3.5 bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-emerald-50/80 border-b border-amber-200/90 shrink-0 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs">
+        {/* Plegado por defecto: una sola línea con lo esencial para dejar espacio a la trazabilidad */}
+        <div className="px-3 py-2 bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-emerald-50/80 border-b border-amber-200/90 shrink-0 space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowNutrition((v) => !v)}
+            aria-expanded={showNutrition}
+            className="w-full flex items-center justify-between gap-2 text-left cursor-pointer"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs shrink-0">
                 <Utensils className="w-4 h-4" />
               </div>
-              <div>
-                <h4 className="font-black text-xs text-slate-900 flex items-center gap-1.5">
-                  Plan Nutricional & Parámetros de Crecimiento
-                </h4>
-                <span className="text-[10px] text-slate-600">
-                  Etapa: <strong>{feedingInfo.stageName}</strong> • Estado: <strong>{feedingInfo.animalState}</strong>
+              <div className="min-w-0">
+                <h4 className="font-black text-xs text-slate-900 truncate">Plan nutricional</h4>
+                <span className="text-[10px] text-slate-600 block truncate">
+                  {feedingInfo.stageName} • <strong>{feedingInfo.dailyConsumptionKg} kg/día</strong> • {feedingInfo.ageWeeks} sem.
                 </span>
               </div>
             </div>
 
+            <span className="flex items-center gap-1.5 shrink-0">
             <span
-              className={`text-[10px] font-bold px-2.5 py-1 rounded-full border flex items-center gap-1 ${
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
                 isBelowWeight
                   ? 'bg-amber-100 text-amber-900 border-amber-300'
                   : isAboveWeight
@@ -344,15 +347,14 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
                   : 'bg-emerald-100 text-emerald-900 border-emerald-300'
               }`}
             >
-              {isBelowWeight
-                ? '⚠️ Peso bajo para la etapa'
-                : isAboveWeight
-                ? '📈 Sobrepeso / Adelanto'
-                : '✅ En peso ideal de etapa'}
+              {isBelowWeight ? '⚠️ Peso bajo' : isAboveWeight ? '📈 Sobrepeso' : '✅ Peso ideal'}
             </span>
-          </div>
+            <span className="text-slate-500 text-xs font-bold">{showNutrition ? '▲' : '▼'}</span>
+            </span>
+          </button>
 
           {/* 4 Key Metrics Grid */}
+          {showNutrition && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             {/* 1. Alimento Administrado */}
             <div className="bg-white p-2 rounded-xl border border-amber-200/80 shadow-2xs">
@@ -396,6 +398,7 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
               </span>
             </div>
           </div>
+          )}
         </div>
 
         {/* Action & Filter Bar */}

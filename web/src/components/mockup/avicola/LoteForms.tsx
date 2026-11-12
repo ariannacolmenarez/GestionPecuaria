@@ -11,6 +11,7 @@ import {
   AVICOLA_MIN_PRODUCTION_DAYS,
   AVICOLA_PRODUCTION_DAY_SHORTCUTS,
   basePlanForCycle,
+  type AvicolaPlanItem,
   AVICOLA_ACTIVITY_KINDS,
 } from '../../../models/avicolaReference';
 import { isLotActive, lotBirds, type AvicolaPlanTaskInput } from '../../../models/avicolaDomain';
@@ -105,10 +106,12 @@ interface PlanRow {
   procedure: string;
   medicament?: string;
   dosage?: string;
+  /** Paso relativo al sacrificio (días antes); se pierde si el usuario mueve el día a mano. */
+  slaughterOffset?: number;
 }
 
-function buildPlanRows(productionDays: number): PlanRow[] {
-  return basePlanForCycle(productionDays).map((p) => ({
+export function buildPlanRows(productionDays: number, template?: AvicolaPlanItem[]): PlanRow[] {
+  return basePlanForCycle(productionDays, template).map((p) => ({
     key: p.key,
     enabled: p.defaultEnabled,
     lifeDay: p.lifeDay,
@@ -117,6 +120,7 @@ function buildPlanRows(productionDays: number): PlanRow[] {
     procedure: p.procedure,
     medicament: p.medicament,
     dosage: p.dosage,
+    slaughterOffset: p.day <= 0 ? -p.day : undefined,
   }));
 }
 
@@ -144,11 +148,11 @@ export const PlanEditor: React.FC<{ rows: PlanRow[]; onChange: (rows: PlanRow[])
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{kindLabel(r.kind)}</span>
               <div className="flex items-center gap-1">
-                <button type="button" aria-label="Día anterior" onClick={() => onChange(rows.map((x, j) => (j === i ? { ...x, lifeDay: Math.max(1, x.lifeDay - 1) } : x)))} className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                <button type="button" aria-label="Día anterior" onClick={() => onChange(rows.map((x, j) => (j === i ? { ...x, lifeDay: Math.max(1, x.lifeDay - 1), slaughterOffset: undefined } : x)))} className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
                   <Minus className="w-3.5 h-3.5" />
                 </button>
                 <span className="text-xs font-bold tabular-nums w-14 text-center">Día {r.lifeDay}</span>
-                <button type="button" aria-label="Día siguiente" onClick={() => onChange(rows.map((x, j) => (j === i ? { ...x, lifeDay: Math.min(maxDay, x.lifeDay + 1) } : x)))} className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                <button type="button" aria-label="Día siguiente" onClick={() => onChange(rows.map((x, j) => (j === i ? { ...x, lifeDay: Math.min(maxDay, x.lifeDay + 1), slaughterOffset: undefined } : x)))} className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -164,14 +168,14 @@ export const PlanEditor: React.FC<{ rows: PlanRow[]; onChange: (rows: PlanRow[])
 function planInput(rows: PlanRow[]): AvicolaPlanTaskInput[] {
   return rows
     .filter((r) => r.enabled && r.title.trim())
-    .map((r) => ({ key: r.key, lifeDay: r.lifeDay, kind: r.kind, title: r.title.trim(), procedure: r.procedure, medicament: r.medicament, dosage: r.dosage }));
+    .map((r) => ({ key: r.key, lifeDay: r.lifeDay, kind: r.kind, title: r.title.trim(), procedure: r.procedure, medicament: r.medicament, dosage: r.dosage, slaughterOffset: r.slaughterOffset }));
 }
 
 // ---------------------------------------------------------------------------
 // Nuevo lote
 // ---------------------------------------------------------------------------
 export const NuevoLoteSheet: React.FC<{ onClose: () => void; onCreated: (loteId: string) => void }> = ({ onClose, onCreated }) => {
-  const { actions, today, data } = useAvicola();
+  const { actions, today, data, planTemplate } = useAvicola();
   const d = new Date();
   const placeholder = `Ej: Lote ${MONTH_NAMES_ES[d.getMonth()]} ${d.getFullYear()}`;
   const [name, setName] = useState('');
@@ -183,7 +187,7 @@ export const NuevoLoteSheet: React.FC<{ onClose: () => void; onCreated: (loteId:
   const [shed, setShed] = useState('');
   const [withPlan, setWithPlan] = useState(true);
   const [showPlan, setShowPlan] = useState(false);
-  const [rows, setRows] = useState<PlanRow[]>(() => buildPlanRows(AVICOLA_DEFAULT_PRODUCTION_DAYS));
+  const [rows, setRows] = useState<PlanRow[]>(() => buildPlanRows(AVICOLA_DEFAULT_PRODUCTION_DAYS, planTemplate));
   const [includePast, setIncludePast] = useState(false);
   const [tried, setTried] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,7 +195,7 @@ export const NuevoLoteSheet: React.FC<{ onClose: () => void; onCreated: (loteId:
   const changeDays = (v: number) => {
     setDays(v);
     // Recalcula los pasos relativos al sacrificio, conservando ediciones de título/activación
-    const fresh = buildPlanRows(v);
+    const fresh = buildPlanRows(v, planTemplate);
     setRows((prev) => fresh.map((f) => {
       const old = prev.find((p) => p.key === f.key);
       return old ? { ...f, enabled: old.enabled, title: old.title } : f;

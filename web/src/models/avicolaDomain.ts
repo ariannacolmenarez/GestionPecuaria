@@ -47,6 +47,7 @@ import {
   idealWeightForDay,
   kgFactor,
   AVICOLA_BASE_SANITARY_PLAN,
+  AvicolaPlanItem,
 } from './avicolaReference';
 import { addDays, daysBetween, todayISO, nowISO, parseISODate, daysInMonth, monthPrefixOf } from '../utils/dates';
 import { newId } from '../utils/ids';
@@ -931,6 +932,8 @@ export interface AvicolaPlanTaskInput {
   medicament?: string;
   dosage?: string;
   responsible?: string;
+  /** Paso relativo al sacrificio: días antes (0 = día de sacrificio). */
+  slaughterOffset?: number;
 }
 
 function buildPlanTasks(lot: AvicolaLot, items: AvicolaPlanTaskInput[], fromDate?: string): { tasks: SanitaryTask[]; skipped: number } {
@@ -958,6 +961,7 @@ function buildPlanTasks(lot: AvicolaLot, items: AvicolaPlanTaskInput[], fromDate
       responsible: it.responsible || AVICOLA_RESPONSIBLE,
       sourceEvent: it.key ? 'plan_avicola' : 'manual',
       protocolKey: it.key,
+      slaughterOffset: typeof it.slaughterOffset === 'number' && it.slaughterOffset >= 0 ? Math.round(it.slaughterOffset) : undefined,
     });
   });
   return { tasks, skipped };
@@ -981,6 +985,8 @@ export interface CreateLotInput {
    * arreglo = pasos elegidos/editados por el usuario; 'none' u omitido = sin plan.
    */
   sanitaryPlan?: 'base' | 'none' | AvicolaPlanTaskInput[];
+  /** Plantilla personalizada de la granja (para sanitaryPlan: 'base'). */
+  planTemplate?: AvicolaPlanItem[];
   /** Si el lote empezó en el pasado, generar también las tareas ya vencidas (por defecto false). */
   includePastTasks?: boolean;
 }
@@ -1039,9 +1045,18 @@ export const createLot: AvicolaDomainFn<CreateLotInput> = (state, input) => {
   };
   let items: AvicolaPlanTaskInput[] = [];
   if (input.sanitaryPlan === 'base') {
-    items = basePlanForCycle(productionDays)
+    items = basePlanForCycle(productionDays, input.planTemplate)
       .filter((p) => p.defaultEnabled)
-      .map((p) => ({ key: p.key, lifeDay: p.lifeDay, kind: p.kind, title: p.title, procedure: p.procedure, medicament: p.medicament, dosage: p.dosage }));
+      .map((p) => ({
+        key: p.key,
+        lifeDay: p.lifeDay,
+        kind: p.kind,
+        title: p.title,
+        procedure: p.procedure,
+        medicament: p.medicament,
+        dosage: p.dosage,
+        slaughterOffset: p.day <= 0 ? -p.day : undefined,
+      }));
   } else if (Array.isArray(input.sanitaryPlan)) {
     for (const it of input.sanitaryPlan) {
       if (!it || !it.title || !it.title.trim()) return fail('Cada actividad del plan sanitario necesita un título.');
@@ -1101,10 +1116,12 @@ export const updateLot: AvicolaDomainFn<UpdateLotInput> = (state, input) => {
     if (t.loteId !== lot.id) return;
     let next: SanitaryTask = t;
     if (isPendingTask(t)) {
-      // Pasos relativos al sacrificio (día <= 0 en el plan base) se recalculan si cambian los días de producción.
+      // Pasos relativos al sacrificio se recalculan si cambian los días de producción.
+      // Las tareas nuevas guardan slaughterOffset; las antiguas se resuelven con el plan de referencia.
       const planStep = t.protocolKey ? AVICOLA_BASE_SANITARY_PLAN.find((p) => p.key === t.protocolKey) : undefined;
+      const offset = typeof t.slaughterOffset === 'number' ? t.slaughterOffset : planStep && planStep.day <= 0 ? -planStep.day : undefined;
       let lifeDay = t.lifeDay;
-      if (daysChanged && planStep && planStep.day <= 0) lifeDay = resolvePlanDay(planStep, updated.productionDays);
+      if (daysChanged && offset !== undefined) lifeDay = resolvePlanDay({ day: -offset }, updated.productionDays);
       if (lifeDay !== undefined && (startChanged || lifeDay !== t.lifeDay)) {
         const date = dateOfLotDay(updated, lifeDay);
         if (date !== t.date || lifeDay !== t.lifeDay) {

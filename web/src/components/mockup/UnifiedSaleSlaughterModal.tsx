@@ -418,13 +418,15 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
 
                 <div>
                   <label className="block text-slate-600 font-semibold mb-1">
-                    Costo de lo Vendido ($):
+                    Total de lo Vendido ($):
                   </label>
-                  <div className="w-full px-2.5 py-1.5 border border-slate-200 bg-slate-50 rounded-xl font-mono font-semibold text-slate-800">
-                    {costNum.toFixed(2)}
+                  {/* Valor de la venta = kg liquidables × precio por kg (se recalcula al escribir) */}
+                  <div className="w-full px-2.5 py-1.5 border border-emerald-300 bg-emerald-50 rounded-xl font-mono font-black text-emerald-900">
+                    {grossRevenue.toFixed(2)}
                   </div>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">
-                    {countNum > 0 ? `$${(costNum / countNum).toFixed(2)} / cabeza` : '—'} (proporcional)
+                  <span className="text-[10px] text-slate-500 block mt-0.5">
+                    {effectiveCommercialWeightKg.toFixed(1)} kg × ${priceNum.toFixed(2)}
+                    {countNum > 0 ? ` · $${(grossRevenue / countNum).toFixed(2)} / cabeza` : ''}
                   </span>
                 </div>
               </div>
@@ -550,6 +552,15 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                     {netProfit >= 0 ? '+' : ''}${netProfit.toFixed(2)}
                   </strong>
                 </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-emerald-200/90">
+                <span>
+                  Costo de producción de lo vendido:{' '}
+                  <strong className="text-white">${costNum.toFixed(2)}</strong>
+                  {countNum > 0 ? ` ($${(costNum / countNum).toFixed(2)} / cabeza)` : ''}
+                </span>
+                <span className="text-[10px] text-emerald-300/80">Ganancia = ingreso neto − costo de producción</span>
               </div>
 
               <div className="flex flex-wrap items-center justify-between text-xs text-emerald-200/90 pt-1 border-t border-emerald-800/80">

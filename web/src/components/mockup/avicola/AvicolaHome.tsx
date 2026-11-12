@@ -3,11 +3,12 @@
  * calendario, Mis Lotes (activos y finalizados) y FAB "Nuevo lote".
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Bell, Bird, CalendarDays, ChevronDown, Flag, MoreVertical, Pencil, Trash2, Undo2 } from 'lucide-react';
+import { AlertTriangle, Bell, Bird, CalendarDays, ChevronDown, ChevronRight, Flag, MoreVertical, Pencil, Syringe, Trash2, Undo2 } from 'lucide-react';
 import type { AvicolaLotCard } from '../../../models/avicolaDomain';
 import { useAvicola } from './context';
 import { BalanceCard, ConfirmDialog, EmptyState, FabButton, FOCUS, STAGE_STYLES, StageProgressBar, shortDate, usd, plural } from './shared';
 import { EditLoteDialog } from './LoteForms';
+import { PlanTemplateSheet } from './PlanTemplate';
 import { pushBackHandler } from '../../../utils/backButton';
 
 const Bullet: React.FC<{ cls: string; dot: string; children: React.ReactNode }> = ({ cls, dot, children }) => (
@@ -157,12 +158,12 @@ export const AvicolaHome: React.FC<{ onNewLot: () => void; openCalendarRequest?:
   openCalendarRequest = 0,
   onCalendarRequestHandled,
 }) => {
-  const { home, actions, openLot } = useAvicola();
+  const { home, actions, openLot, planTemplate } = useAvicola();
   const [showFinished, setShowFinished] = useState(false);
   const [editing, setEditing] = useState<AvicolaLotCard | null>(null);
   const [confirm, setConfirm] = useState<{ action: 'finalize' | 'delete'; card: AvicolaLotCard } | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<'alerts' | 'calendar' | null>(null);
+  const [sheet, setSheet] = useState<'alerts' | 'calendar' | 'plan' | null>(null);
   // Desde el centro de alertas global: abrir directamente el calendario de lotes
   useEffect(() => {
     if (openCalendarRequest > 0) {
@@ -224,6 +225,24 @@ export const AvicolaHome: React.FC<{ onNewLot: () => void; openCalendarRequest?:
             </button>
           </div>
           <BalanceCard income={home.totalIncome} expenses={home.totalExpenses} scopeLabel="Todos los lotes" />
+          {/* Plantilla del plan sanitario: se aplica a cada lote nuevo (como los protocolos porcinos) */}
+          <button
+            onClick={() => setSheet('plan')}
+            className={`w-full flex items-center gap-3 bg-white rounded-2xl border border-indigo-200 p-3 text-left ${FOCUS}`}
+          >
+            <span className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <Syringe className="w-5 h-5" />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-bold text-slate-900">Plan de vacunas y cuidados</span>
+              <span className="block text-[11px] text-slate-500 truncate">
+                {planTemplate.length} actividades · {planTemplate.filter((p) => p.defaultEnabled).length} por defecto en cada lote nuevo
+              </span>
+            </span>
+            <span className="text-xs font-bold text-indigo-700 flex items-center gap-0.5 shrink-0">
+              Configurar <ChevronRight className="w-4 h-4" />
+            </span>
+          </button>
         </div>
 
         <div className="px-4 space-y-3">
@@ -308,6 +327,7 @@ export const AvicolaHome: React.FC<{ onNewLot: () => void; openCalendarRequest?:
       )}
       {sheet === 'alerts' && <LazyAlerts onClose={() => setSheet(null)} />}
       {sheet === 'calendar' && <LazyCalendar onClose={() => setSheet(null)} />}
+      {sheet === 'plan' && <PlanTemplateSheet onClose={() => setSheet(null)} />}
     </div>
   );
 };
