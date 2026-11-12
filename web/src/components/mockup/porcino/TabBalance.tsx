@@ -5,9 +5,15 @@ import { calculateBalanceByPeriod } from '../../../models/PorcinoCalculations';
 import { MONTH_NAMES_SHORT_ES, parseISODate } from '../../../utils/dates';
 import { money } from './shared';
 
+export type BalanceRubro = 'porcino' | 'avicola' | 'bovino';
+
+const RUBRO_LABEL: Record<BalanceRubro, string> = { porcino: 'Porcino', avicola: 'Avícola', bovino: 'Bovino' };
+
 export interface TabBalanceProps {
   movements: FinancialMovement[];
   today: string;
+  /** Rubro del balance (por defecto porcino): solo se cuentan sus movimientos. */
+  rubro?: BalanceRubro;
 }
 
 const MovementList: React.FC<{
@@ -54,16 +60,18 @@ const MovementList: React.FC<{
   );
 };
 
-export const TabBalance: React.FC<TabBalanceProps> = ({ movements, today }) => {
+export const TabBalance: React.FC<TabBalanceProps> = ({ movements, today, rubro: rubroProp }) => {
+  const rubro: BalanceRubro = rubroProp || 'porcino';
+  const label = RUBRO_LABEL[rubro];
   const todayDate = parseISODate(today) ?? new Date();
   const [filter, setFilter] = useState<'mes' | 'año'>('mes');
   const [month, setMonth] = useState<number>(todayDate.getMonth() + 1);
   const [year, setYear] = useState<number>(todayDate.getFullYear());
 
-  // Solo movimientos del rubro porcino
+  // Solo movimientos del rubro
   const balance = useMemo(
-    () => calculateBalanceByPeriod(movements, filter, month, year, 'porcino'),
-    [movements, filter, month, year]
+    () => calculateBalanceByPeriod(movements, filter, month, year, rubro),
+    [movements, filter, month, year, rubro]
   );
 
   const maxVal = useMemo(
@@ -135,7 +143,7 @@ export const TabBalance: React.FC<TabBalanceProps> = ({ movements, today }) => {
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Resultado Porcino ({balance.periodLabel})
+            Resultado {label} ({balance.periodLabel})
           </span>
           <span className="text-[10px] text-slate-400 font-medium">{movementsCount} movimientos</span>
         </div>
@@ -209,15 +217,15 @@ export const TabBalance: React.FC<TabBalanceProps> = ({ movements, today }) => {
           </div>
         ) : (
           <p className="text-[11px] text-slate-400 italic text-center py-6">
-            Sin movimientos porcinos registrados en {year}. Las compras, ventas y consumos aparecerán aquí automáticamente.
+            Sin movimientos del rubro {label.toLowerCase()} en {year}. Las compras, ventas y consumos aparecerán aquí automáticamente.
           </p>
         )}
       </div>
 
       <div className="space-y-2">
         <h4 className="text-xs font-bold text-slate-800">Desglose de Movimientos ({balance.periodLabel})</h4>
-        <MovementList title="Egresos (-) Porcino" items={balance.egresosFiltrados} total={balance.totalEgresos} kind="egreso" />
-        <MovementList title="Ingresos (+) Porcino" items={balance.ingresosFiltrados} total={balance.totalIngresos} kind="ingreso" />
+        <MovementList title={`Egresos (-) ${label}`} items={balance.egresosFiltrados} total={balance.totalEgresos} kind="egreso" />
+        <MovementList title={`Ingresos (+) ${label}`} items={balance.ingresosFiltrados} total={balance.totalIngresos} kind="ingreso" />
       </div>
     </div>
   );

@@ -20,6 +20,7 @@ import { isActiveAnimal, headCount, round2 } from '../../models/porcinoRules';
 import { newId } from '../../utils/ids';
 import { todayISO } from '../../utils/dates';
 import { ModalActionReturn, runModalAction, toNumber } from './modalResult';
+import { itemMatchesRubro, WAREHOUSE_RUBRO_LABEL, type WarehouseRubro } from '../../models/warehouseRubro';
 
 export interface AddWarehouseItemOptions {
   /** true = registrar la compra como egreso (el dominio marca el insumo con expensedOnPurchase). */
@@ -46,7 +47,18 @@ interface WarehouseModalProps {
   purchases?: FinancialMovement[];
   /** Asignar/mover stock a una ubicación (lote/cerdo o almacén general) -> porcinoActions.assignWarehouseItemLocation. */
   onAssignLocation?: (input: AssignLocationPayload) => ModalActionReturn;
+  /** Rubro del almacén: solo se muestran y crean insumos de ese rubro (por defecto porcino). */
+  rubro?: WarehouseRubro;
+  /**
+   * Lotes avícolas (modo avícola): ubicación opcional al dar de alta y destino OBLIGATORIO del consumo
+   * (onConsumeItem recibe el id del lote como targetAnimalId).
+   */
+  lotLocations?: { id: string; label: string }[];
+  /** Contenido extra bajo la cabecera (p. ej. selector de rubro desde el Home de la granja). */
+  headerExtra?: React.ReactNode;
 }
+
+export type { WarehouseRubro };
 
 export interface PurchaseItemPayload {
   itemId: string;
@@ -115,8 +127,16 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
   onPurchaseItem,
   purchases = [],
   onAssignLocation,
+  rubro: rubroProp,
+  lotLocations,
+  headerExtra,
 }) => {
-  const safeItems = items || [];
+  const rubro: WarehouseRubro = rubroProp || 'porcino';
+  const safeItems = useMemo(() => (items || []).filter((i) => itemMatchesRubro(i, rubro)), [items, rubro]);
+  const isAvicola = rubro === 'avicola';
+  const lotMode = isAvicola && !!lotLocations;
+  const lotLabel = (loteId?: string) =>
+    !loteId ? 'Bodega general' : lotLocations?.find((l) => l.id === loteId)?.label || 'Lote finalizado';
   const [locationFilter, setLocationFilter] = useState<string>(ALL_LOCATIONS);
   const [activeTab, setActiveTab] = useState<'alimentos' | 'medicinas' | 'otros'>('alimentos');
   const [searchQuery, setSearchQuery] = useState('');
@@ -315,7 +335,12 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
     setShowConsumeDialog(item);
     setConsumeAmount('');
     // Insumo ubicado en un lote/cerdo activo: el destino sugerido es esa ubicación
-    setConsumeTargetId(item.animalId && activeAnimals.some((a) => a.id === item.animalId) ? item.animalId : NO_TARGET);
+    if (lotMode) {
+      // Avícola: el consumo siempre se carga a un lote (su bodega o el primero activo)
+      setConsumeTargetId(item.loteId && lotLocations!.some((l) => l.id === item.loteId) ? item.loteId : lotLocations![0]?.id || NO_TARGET);
+    } else {
+      setConsumeTargetId(item.animalId && activeAnimals.some((a) => a.id === item.animalId) ? item.animalId : NO_TARGET);
+    }
     setConsumeTargetText('');
     setDialogError(null);
   };
@@ -347,8 +372,15 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
       setDialogError(`Stock insuficiente: solo hay ${stock} ${showConsumeDialog.unit}.`);
       return;
     }
-    const targetAnimal = activeAnimals.find((a) => a.id === consumeTargetId);
-    const targetLabel = targetAnimal
+    const targetLot = lotMode ? lotLocations!.find((l) => l.id === consumeTargetId) : undefined;
+    if (lotMode && !targetLot) {
+      setDialogError('Elige el lote al que se carga el consumo.');
+      return;
+    }
+    const targetAnimal = lotMode ? undefined : activeAnimals.find((a) => a.id === consumeTargetId);
+    const targetLabel = targetLot
+      ? targetLot.label
+      : targetAnimal
       ? targetAnimal.code
       : consumeTargetId === FREE_TARGET
       ? consumeTargetText.trim()
@@ -360,7 +392,7 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
 
     setIsSaving(true);
     const res = await runModalAction(() =>
-      onConsumeItem(showConsumeDialog.id, amountNum, targetLabel, targetAnimal?.id)
+      onConsumeItem(showConsumeDialog.id, amountNum, targetLabel, targetLot?.id || targetAnimal?.id)
     );
     setIsSaving(false);
     if (!res.ok) {
@@ -394,18 +426,20 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
       setDialogError('El costo y el consumo mensual no pueden ser negativos.');
       return;
     }
-    const location = locationsEnabled ? newItemLocation : GENERAL_LOCATION;
+    const location = locationsEnabled || lotMode ? newItemLocation : GENERAL_LOCATION;
+    const where = (i: WarehouseItem) => (lotMode ? i.loteId : i.animalId) || GENERAL_LOCATION;
     if (
       safeItems.some(
         (i) =>
           i.name.trim().toLowerCase() === name.toLowerCase() &&
           i.category === activeTab &&
           i.unit === newItemUnit &&
-          (i.animalId || GENERAL_LOCATION) === location &&
-          i.rubro !== 'avicola'
+          where(i) === location
       )
     ) {
-      setDialogError(`Ya existe "${name}" en ${locLabel(location || undefined)}: usa "Comprar" para sumarle stock.`);
+      setDialogError(
+        `Ya existe "${name}" en ${lotMode ? lotLabel(location || undefined) : locLabel(location || undefined)}: usa "Comprar" para sumarle stock.`
+      );
       return;
     }
 
@@ -422,7 +456,8 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
       monthlyConsumptionRate: monthly,
       supplier: newItemSupplier.trim() || undefined,
       expirationDate: newItemExpiration || undefined,
-      animalId: location || undefined,
+      rubro,
+      ...(lotMode ? { loteId: location || undefined } : { animalId: location || undefined }),
     };
     const purchase = registerPurchase && qty > 0 && cost > 0;
 
@@ -441,11 +476,11 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
     setNewItemMonthly('');
     setNewItemSupplier('');
     setNewItemExpiration('');
-    const where = location ? ` en ${locLabel(location)}` : '';
+    const whereTxt = location ? ` en ${lotMode ? lotLabel(location) : locLabel(location)}` : '';
     flash(
       purchase
-        ? `Nuevo ítem "${created.name}" registrado${where} y compra de $${round2(qty * cost).toFixed(2)} asentada como egreso.`
-        : `Nuevo ítem "${created.name}" registrado${where || ' en Almacén'}.`
+        ? `Nuevo ítem "${created.name}" registrado${whereTxt} y compra de $${round2(qty * cost).toFixed(2)} asentada como egreso.`
+        : `Nuevo ítem "${created.name}" registrado${whereTxt || ' en Almacén'}.`
     );
   };
 
@@ -467,10 +502,10 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-base text-white leading-tight">
-                Almacén & Inventario Pecuario
+                Almacén {WAREHOUSE_RUBRO_LABEL[rubro]}
               </h3>
               <p className="text-[11px] text-slate-400">
-                Control de Alimentos, Medicinas y Proyección de Stock a 2 Meses
+                {isAvicola ? 'Alimento e insumos de los pollos · consumo cargado al lote' : rubro === 'bovino' ? 'Alimento e insumos del ganado bovino' : 'Alimentos, medicinas y proyección de stock a 2 meses'}
               </p>
             </div>
           </div>
@@ -481,6 +516,8 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {headerExtra}
 
         {/* Feedback alert */}
         {successMessage && (
@@ -706,6 +743,11 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                         )}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">{item.subCategory}</p>
+                      {lotMode && (
+                        <span className={`inline-flex items-center gap-1 mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${item.loteId ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
+                          <MapPin className="w-3 h-3" /> {lotLabel(item.loteId)}
+                        </span>
+                      )}
                       {locationsEnabled && item.rubro !== 'avicola' && (
                         <span
                           className={`inline-flex items-center gap-1 mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -761,7 +803,7 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                           <MapPin className="w-3.5 h-3.5" /> Ubicar
                         </button>
                       )}
-                      {item.rubro === 'avicola' ? (
+                      {item.rubro === 'avicola' && !lotMode ? (
                         <span
                           className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-lg"
                           title="El consumo de insumos avícolas se registra desde el lote para cargarlo a sus gastos"
@@ -848,9 +890,27 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                   />
                 </div>
 
+                {lotMode ? (
+                  <div>
+                    <label className="block text-slate-600 font-semibold mb-1">Lote de pollos que lo consume:</label>
+                    <select
+                      value={consumeTargetId}
+                      onChange={(e) => setConsumeTargetId(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-900 bg-white"
+                    >
+                      {lotLocations!.length === 0 && <option value={NO_TARGET}>No hay lotes activos</option>}
+                      {lotLocations!.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-slate-500 mt-1">El costo se registra como gasto del lote y aparece en sus finanzas.</p>
+                  </div>
+                ) : (
                 <div>
                   <label className="block text-slate-600 font-semibold mb-1">
-                    Destino del Consumo (animal / lote):
+                    {rubro === 'bovino' ? 'Destino del consumo:' : 'Destino del Consumo (animal / lote):'}
                   </label>
                   <select
                     value={consumeTargetId}
@@ -875,10 +935,13 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                     />
                   )}
                 </div>
+                )}
 
                 <div className="p-2.5 bg-emerald-50 rounded-xl text-emerald-800 text-[11px] leading-relaxed">
                   Se descontará del stock
-                  {consumeTargetId !== NO_TARGET && consumeTargetId !== FREE_TARGET
+                  {lotMode
+                    ? ' y su costo se cargará al lote elegido.'
+                    : consumeTargetId !== NO_TARGET && consumeTargetId !== FREE_TARGET
                     ? ' y su costo se imputará al costo acumulado del animal/lote seleccionado.'
                     : '. Si eliges un animal o lote, el costo se imputa a su costo acumulado.'}
                   {showConsumeDialog.expensedOnPurchase
@@ -1136,6 +1199,25 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
                   />
                 </div>
+
+                {lotMode && (
+                  <div>
+                    <label className="block font-semibold text-slate-700">Lote (opcional):</label>
+                    <select
+                      value={newItemLocation}
+                      onChange={(e) => setNewItemLocation(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900 bg-white"
+                    >
+                      <option value={GENERAL_LOCATION}>Bodega general (todos los lotes)</option>
+                      {lotLocations!.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Asígnalo a un lote si es solo para ese galpón.</p>
+                  </div>
+                )}
 
                 {locationsEnabled && (
                   <div>

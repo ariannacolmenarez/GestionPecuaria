@@ -1595,7 +1595,7 @@ export const consumeWarehouseItem: DomainFn<ConsumeWarehouseItemInput> = (state,
       movement({
         type: 'egreso',
         concept: `Consumo: ${input.amount} ${item.unit} de ${item.name} (${label})`,
-        rubro: 'porcino',
+        rubro: item.rubro === 'bovino' ? 'bovino' : 'porcino',
         amount: cost,
         date,
         category: warehouseExpenseCategory(item),

@@ -9,10 +9,24 @@ import {
   Bird,
   ShieldAlert,
   ShieldCheck,
+  Beef,
+  Package,
+  Calculator,
 } from 'lucide-react';
 import { FarmSummary, FinancialMovement, WarehouseItem } from '../../types';
 import { calculateUtilityTrendPercent, evaluateWarehouseReplenishment } from '../../models/PorcinoCalculations';
 import type { AvicolaHomeSummary } from '../../models/avicolaDomain';
+import { itemMatchesRubro, type WarehouseRubro } from '../../models/warehouseRubro';
+
+/** Rubros de la granja (secciones de Balance y Almacén). */
+const RUBRO_SECTIONS: { key: WarehouseRubro; label: string; Icon: React.ElementType; tint: string }[] = [
+  { key: 'porcino', label: 'Porcino', Icon: PiggyBank, tint: 'bg-rose-100 text-rose-700' },
+  { key: 'avicola', label: 'Avícola', Icon: Bird, tint: 'bg-amber-100 text-amber-700' },
+  { key: 'bovino', label: 'Bovino', Icon: Beef, tint: 'bg-sky-100 text-sky-700' },
+];
+/** Nombre del rubro en finances.byRubro -> clave. */
+const rubroKeyOf = (label: string): WarehouseRubro =>
+  /av/i.test(label) ? 'avicola' : /bov/i.test(label) ? 'bovino' : 'porcino';
 
 const STAGE_SEG: Record<string, string> = {
   Preinicio: 'bg-sky-500',
@@ -33,9 +47,11 @@ interface HomeDashboardProps {
   onNavigateToPorcino: () => void;
   onNavigateToBovino: () => void;
   onNavigateToAvicola: () => void;
-  onOpenFinancials: () => void;
+  /** Balance del rubro indicado (o con selector de rubro si no se indica). */
+  onOpenFinancials: (rubro?: WarehouseRubro) => void;
   onOpenAlerts?: () => void;
-  onOpenWarehouse?: () => void;
+  /** Almacén del rubro indicado (o con selector de rubro si no se indica). */
+  onOpenWarehouse?: (rubro?: WarehouseRubro) => void;
   /** Tareas pendientes para hoy. */
   tasksCountToday?: number;
   /** Tareas pendientes con fecha pasada. */
@@ -87,6 +103,18 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         .sort((a, b) => a.monthsOfSupply - b.monthsOfSupply),
     [warehouseItems]
   );
+
+  // Insumos y críticos por rubro (sección "Balance y almacén por rubro")
+  const rubroStock = useMemo(() => {
+    const evaluated = evaluateWarehouseReplenishment(warehouseItems);
+    const by = (k: WarehouseRubro) => {
+      const list = evaluated.filter((i) => itemMatchesRubro(i, k));
+      return { total: list.length, critical: list.filter((i) => i.isCritical).length };
+    };
+    return { porcino: by('porcino'), avicola: by('avicola'), bovino: by('bovino') };
+  }, [warehouseItems]);
+  const rubroOfItem = (i: WarehouseItem): WarehouseRubro =>
+    itemMatchesRubro(i, 'avicola') ? 'avicola' : itemMatchesRubro(i, 'bovino') ? 'bovino' : 'porcino';
 
   // Avícola: todo se deriva de los registros del módulo (summary.counts.avicola + avicolaHome).
   const av = counts.avicola;
@@ -186,7 +214,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </div>
           </div>
           <button
-            onClick={onOpenFinancials}
+            onClick={() => onOpenFinancials()}
             className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
             title="Ver balance detallado"
           >
@@ -223,7 +251,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 const utility = safe(r.utility);
                 const share = utilityBase > 0 ? Math.round((Math.abs(utility) / utilityBase) * 100) : 0;
                 return (
-                  <div key={r.rubro} className="flex items-center justify-between text-xs">
+                  <button
+                    key={r.rubro}
+                    type="button"
+                    onClick={() => onOpenFinancials(rubroKeyOf(r.rubro))}
+                    title={`Ver balance ${r.rubro}`}
+                    className="w-full flex items-center justify-between text-xs py-1 px-1 -mx-1 rounded-lg hover:bg-white/10 cursor-pointer"
+                  >
                     <div className="flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
                       <span className="font-medium text-slate-100">{r.rubro}</span>
@@ -234,8 +268,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                         {usd(Math.abs(utility))}
                       </span>
                       <span className="text-[10px] text-emerald-300/70 w-8 text-right">{share > 0 ? `${share}%` : '—'}</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-emerald-300/70" />
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -473,10 +508,62 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         )}
       </section>
 
+      {/* Balance y almacén seccionados por rubro: cada botón abre solo ese rubro */}
+      <section id="rubro-sections-card" className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs space-y-2.5">
+        <div>
+          <h3 className="text-sm font-black text-slate-900">Balance y almacén por rubro</h3>
+          <p className="text-[11px] text-slate-500">Cada rubro tiene su propio balance ({finances.period}) y su propio almacén.</p>
+        </div>
+        {RUBRO_SECTIONS.map(({ key, label, Icon, tint }) => {
+          const r = finances.byRubro.find((x) => rubroKeyOf(x.rubro) === key);
+          const utility = safe(r?.utility);
+          const items = rubroStock[key];
+          return (
+            <div key={key} className="rounded-xl border border-slate-200 p-2.5 space-y-2">
+              <div className="flex items-center gap-2.5">
+                <span className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${tint}`}>
+                  <Icon className="w-5 h-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-slate-900">{label}</p>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    Mes:{' '}
+                    <strong className={utility < 0 ? 'text-rose-700' : 'text-emerald-700'}>
+                      {utility < 0 ? '-' : '+'}
+                      {usd(Math.abs(utility))}
+                    </strong>{' '}
+                    · {items.total} {items.total === 1 ? 'insumo' : 'insumos'}
+                    {items.critical > 0 && <span className="text-amber-700 font-bold"> · {items.critical} crítico{items.critical === 1 ? '' : 's'}</span>}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenFinancials(key)}
+                  className="min-h-10 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Calculator className="w-4 h-4" /> Balance
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenWarehouse?.(key)}
+                  disabled={!onOpenWarehouse}
+                  className="relative min-h-10 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Package className="w-4 h-4" /> Almacén
+                  {items.critical > 0 && <span className="w-2 h-2 rounded-full bg-amber-500" aria-label="Insumos críticos" />}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </section>
+
       {/* Alerta de almacén calculada (cobertura < 2 meses) */}
       {criticalItems.length > 0 ? (
         <button
-          onClick={onOpenWarehouse}
+          onClick={() => onOpenWarehouse?.(criticalItems[0] ? rubroOfItem(criticalItems[0]) : undefined)}
           disabled={!onOpenWarehouse}
           className="w-full text-left bg-amber-50 border border-amber-200/80 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-900 cursor-pointer disabled:cursor-default"
         >

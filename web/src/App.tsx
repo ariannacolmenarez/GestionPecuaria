@@ -29,11 +29,13 @@ import {
 import type { PorcinoTab } from './components/mockup/MenuPorcino';
 import type { BottomNavScreen } from './components/mockup/BottomNav';
 import type { AvicolaFocusRequest } from './components/mockup/avicola/shared';
+import { RubroPanels } from './components/mockup/RubroPanels';
+import { itemMatchesRubro } from './models/warehouseRubro';
+import { countCriticalWarehouseItems } from './models/PorcinoCalculations';
 
 // Vistas secundarias cargadas bajo demanda (chunks propios, fuera del bundle inicial)
 const BovinoModalView = lazy(() => import('./views/bovino/BovinoModalView').then((m) => ({ default: m.BovinoModalView })));
 // Módulo avícola "Pollos de Engorde" a pantalla completa (reemplaza al antiguo AvicolaModal desde el Home)
-const WarehouseModalLazy = lazy(() => import('./components/mockup/WarehouseModal').then((m) => ({ default: m.WarehouseModal })));
 const AvicolaModuleView = lazy(() => import('./views/avicola/AvicolaModuleView').then((m) => ({ default: m.AvicolaModuleView })));
 const DocumentationView = lazy(() => import('./views/doc/DocumentationView').then((m) => ({ default: m.DocumentationView })));
 const MvcArchitectureView = lazy(() => import('./views/mvc/MvcArchitectureView').then((m) => ({ default: m.MvcArchitectureView })));
@@ -53,15 +55,35 @@ const appendMovement: DomainFn<FinancialMovement> = (state, m) => {
   };
 };
 
-/** Navegación interna del teléfono: pestaña del menú porcino y modal de almacén. */
+/** Rubro de un almacén o balance. */
+export type Rubro = 'porcino' | 'avicola' | 'bovino';
+/** Almacén / balance abierto: `locked` = se entró desde un módulo y solo muestra ese rubro. */
+export interface RubroPanel {
+  rubro: Rubro;
+  locked: boolean;
+}
+
+/** Normaliza el rubro recibido (un onClick puede pasar el evento como argumento). */
+const asRubro = (r: unknown): Rubro => (r === 'avicola' || r === 'bovino' ? r : 'porcino');
+
+/** Navegación interna del teléfono: pestaña del menú porcino, almacén y balance por rubro. */
 function usePhoneNavigation(ctrl: FarmController) {
   const { mockupScreen, setMockupScreen, setShowAlertsModal, openAvicola, openAvicolaLot } = ctrl;
   const [porcinoTab, setPorcinoTab] = useState<PorcinoTab>('porcinos');
-  const [showWarehouse, setShowWarehouse] = useState(false);
+  const [warehouse, setWarehouse] = useState<RubroPanel | null>(null);
+  const [balance, setBalance] = useState<RubroPanel | null>(null);
   const [avicolaFocus, setAvicolaFocus] = useState<AvicolaFocusRequest | null>(null);
   // Nonce de peticiones de navegación (contador, no fecha del sistema)
   const focusSeq = useRef(0);
   const nextNonce = () => ++focusSeq.current;
+
+  /** Rubro de la pantalla actual (null = Home de la granja). */
+  const currentRubro: Rubro | null = mockupScreen === 'avicola' ? 'avicola' : mockupScreen === 'porcino' ? 'porcino' : null;
+
+  const closePanels = useCallback(() => {
+    setWarehouse(null);
+    setBalance(null);
+  }, []);
 
   /** El módulo avícola consumió la petición: se limpia para que un remontaje no la repita. */
   const clearAvicolaFocus = useCallback(() => setAvicolaFocus(null), []);
@@ -69,61 +91,75 @@ function usePhoneNavigation(ctrl: FarmController) {
   /** Home avícola; con newLot abre directamente el formulario "Nuevo lote". */
   const goAvicola = useCallback(
     (opts: { newLot?: boolean; openCalendar?: boolean } = {}) => {
-      setShowWarehouse(false);
+      closePanels();
       openAvicola();
       // Una petición vieja no debe reabrir el formulario al volver a entrar al módulo
       setAvicolaFocus(
         opts.newLot || opts.openCalendar ? { nonce: nextNonce(), newLot: opts.newLot, openCalendar: opts.openCalendar } : null
       );
     },
-    [openAvicola]
+    [openAvicola, closePanels]
   );
 
   /** Detalle de un lote en su pestaña inicial (Ventas), desde la vista previa del Home de la granja. */
   const goAvicolaLot = useCallback(
     (loteId: string) => {
-      setShowWarehouse(false);
+      closePanels();
       openAvicolaLot(loteId);
       setAvicolaFocus({ nonce: nextNonce(), tab: 'ventas' });
     },
-    [openAvicolaLot]
+    [openAvicolaLot, closePanels]
   );
 
   /** Detalle de un lote en Control › Sanidad (desde alertas globales). */
   const goAvicolaLotSanidad = useCallback(
     (loteId: string) => {
-      setShowWarehouse(false);
+      closePanels();
       openAvicolaLot(loteId);
       setAvicolaFocus({ nonce: nextNonce(), tab: 'control', sub: 'sanidad' });
     },
-    [openAvicolaLot]
+    [openAvicolaLot, closePanels]
   );
 
   const openPorcino = useCallback(
     (tab?: PorcinoTab) => {
+      closePanels();
       if (tab) setPorcinoTab(tab);
       setMockupScreen('porcino');
     },
-    [setMockupScreen]
+    [setMockupScreen, closePanels]
   );
 
-  const openWarehouse = useCallback(() => {
-    // Desde el módulo avícola el almacén se abre encima del módulo, sin cambiar de pantalla
-    const fromAvicola = mockupScreen === 'avicola';
-    if (!fromAvicola) setMockupScreen('porcino');
-    setShowWarehouse(true);
-  }, [mockupScreen, setMockupScreen]);
+  /**
+   * Almacén por rubro. Dentro de un módulo se abre solo el de ese rubro; desde el Home de la
+   * granja se abre el rubro pedido (o porcino) con selector para cambiar de rubro.
+   */
+  const openWarehouse = useCallback(
+    (rubro?: Rubro) => {
+      setBalance(null);
+      setWarehouse(currentRubro ? { rubro: currentRubro, locked: true } : { rubro: asRubro(rubro), locked: false });
+    },
+    [currentRubro]
+  );
 
-  /** Cierre/apertura del almacén: si se abrió desde el módulo avícola, el módulo sigue debajo. */
-  const onShowWarehouseChange = useCallback((open: boolean) => {
-    setShowWarehouse(open);
-  }, []);
+  /** Balance por rubro (mismas reglas que el almacén). En el menú porcino se usa su pestaña Balance. */
+  const openBalance = useCallback(
+    (rubro?: Rubro) => {
+      setWarehouse(null);
+      if (currentRubro === 'porcino') {
+        setPorcinoTab('balance');
+        return;
+      }
+      setBalance(currentRubro ? { rubro: currentRubro, locked: true } : { rubro: asRubro(rubro), locked: false });
+    },
+    [currentRubro]
+  );
 
   const onNavigate = useCallback(
     (screen: BottomNavScreen) => {
       switch (screen) {
         case 'home':
-          setShowWarehouse(false);
+          closePanels();
           setMockupScreen('home');
           break;
         case 'porcino':
@@ -132,16 +168,13 @@ function usePhoneNavigation(ctrl: FarmController) {
         case 'sanitario':
           // En el módulo avícola, "Actividades" abre el calendario de los lotes de pollos
           if (mockupScreen === 'avicola') {
-            setShowWarehouse(false);
             goAvicola({ openCalendar: true });
             break;
           }
-          setShowWarehouse(false);
           openPorcino(screen);
           break;
         case 'balance':
-          setShowWarehouse(false);
-          openPorcino(screen);
+          openBalance();
           break;
         case 'almacen':
           openWarehouse();
@@ -151,30 +184,33 @@ function usePhoneNavigation(ctrl: FarmController) {
           break;
       }
     },
-    [openPorcino, openWarehouse, goAvicola, mockupScreen, setMockupScreen, setShowAlertsModal]
+    [openPorcino, openWarehouse, openBalance, goAvicola, closePanels, mockupScreen, setMockupScreen, setShowAlertsModal]
   );
 
-  // El módulo avícola cuelga del Home de la granja: se resalta "Granja" en la barra inferior.
-  const activeScreen: BottomNavScreen = showWarehouse
+  const activeScreen: BottomNavScreen = warehouse
     ? 'almacen'
-    : mockupScreen === 'home' || mockupScreen === 'avicola'
-      ? 'home'
-      : showWarehouse
-      ? 'almacen'
-      : porcinoTab === 'sanitario' || porcinoTab === 'balance'
-      ? porcinoTab
-      : 'porcino';
+    : balance
+      ? 'balance'
+      : mockupScreen === 'home' || mockupScreen === 'avicola'
+        ? 'home'
+        : porcinoTab === 'sanitario' || porcinoTab === 'balance'
+          ? porcinoTab
+          : 'porcino';
 
   return {
     porcinoTab,
     setPorcinoTab,
-    showWarehouse,
-    setShowWarehouse,
     openPorcino,
     openWarehouse,
+    openBalance,
+    warehouse,
+    setWarehouse,
+    balance,
+    setBalance,
+    closePanels,
+    currentRubro,
     onNavigate,
     activeScreen,
-    onShowWarehouseChange,
     avicolaFocus,
     clearAvicolaFocus,
     goAvicola,
@@ -205,15 +241,15 @@ function useHardwareBackButton(ctrl: FarmController, nav: PhoneNav, enabled: boo
       if (c.showMembersModal) return c.setShowMembersModal(false);
       if (c.showSettingsModal) return c.setShowSettingsModal(false);
       if (c.showBovinoModal) return c.setShowBovinoModal(false);
+      // Almacén o balance abiertos: se cierran primero
+      if (n.warehouse || n.balance) return n.closePanels();
       if (c.mockupScreen === 'avicola') {
-        if (n.showWarehouse) n.onShowWarehouseChange(false);
-        else if (c.selectedAvicolaLotId) c.openAvicolaLot(null);
+        if (c.selectedAvicolaLotId) c.openAvicolaLot(null);
         else c.setMockupScreen('home');
         return;
       }
       if (c.mockupScreen !== 'home') {
-        if (n.showWarehouse) n.onShowWarehouseChange(false);
-        else c.setMockupScreen('home');
+        c.setMockupScreen('home');
         return;
       }
       void CapacitorApp.exitApp();
@@ -232,9 +268,10 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
   const bannerTasks = useMemo(() => [...overduePendingTasks, ...todayPendingTasks], [overduePendingTasks, todayPendingTasks]);
   const farmName = summary.name || 'Mi Granja';
   const inAvicola = mockupScreen === 'avicola';
-  const avicolaPurchases = useMemo(
-    () => ctrl.movements.filter((m) => m.category === 'Compra de insumos' && m.rubro === 'avicola'),
-    [ctrl.movements]
+  // Badge del Almacén: insumos críticos del rubro de la pantalla (o de toda la granja en el Home)
+  const warehouseAlertCount = useMemo(
+    () => countCriticalWarehouseItems(nav.currentRubro ? ctrl.warehouseItems.filter((i) => itemMatchesRubro(i, nav.currentRubro!)) : ctrl.warehouseItems),
+    [ctrl.warehouseItems, nav.currentRubro]
   );
   const avicolaLot = inAvicola ? ctrl.selectedAvicolaLot : null;
   const headerTitle =
@@ -282,7 +319,7 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
             onNavigateToAvicola={() => nav.goAvicola()}
             onCreateAvicolaLot={() => nav.goAvicola({ newLot: true })}
             onOpenAvicolaLot={nav.goAvicolaLot}
-            onOpenFinancials={() => nav.openPorcino('balance')}
+            onOpenFinancials={nav.openBalance}
             onOpenAlerts={() => ctrl.setShowAlertsModal(true)}
             onOpenWarehouse={nav.openWarehouse}
           />
@@ -305,26 +342,6 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
               planTemplate={ctrl.avicolaPlanTemplate}
               onSavePlanTemplate={ctrl.saveAvicolaPlanTemplate}
             />
-            {/* Almacén abierto desde el módulo avícola: encima del módulo, con altas y compras del rubro avícola */}
-            {nav.showWarehouse && (
-              <WarehouseModalLazy
-                items={ctrl.warehouseItems}
-                onClose={() => nav.onShowWarehouseChange(false)}
-                onConsumeItem={(itemId, amount, target) =>
-                  ctrl.porcinoActions.consumeWarehouseItem({ itemId, amount, targetLabel: target })
-                }
-                onAddItem={(newItem, options) => {
-                  const { id: _ignoredId, ...item } = newItem;
-                  return ctrl.porcinoActions.addWarehouseItem({
-                    item: { ...item, rubro: item.rubro || 'avicola' },
-                    registerPurchase: !!options?.registerPurchase || !!item.expensedOnPurchase,
-                  });
-                }}
-                onDeleteItem={(itemId) => ctrl.porcinoActions.deleteWarehouseItem({ itemId })}
-                onPurchaseItem={(p) => ctrl.porcinoActions.purchaseWarehouseItem(p)}
-                purchases={avicolaPurchases}
-              />
-            )}
           </Suspense>
         ) : (
           <MenuPorcinoView
@@ -344,8 +361,6 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
             onBackToHome={() => setMockupScreen('home')}
             activeTab={nav.porcinoTab}
             onTabChange={nav.setPorcinoTab}
-            showWarehouse={nav.showWarehouse}
-            onShowWarehouseChange={nav.onShowWarehouseChange}
             onOpenAvicola={() => nav.goAvicola()}
           />
         )}
@@ -359,9 +374,18 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
           activeScreen={nav.activeScreen}
           onNavigate={nav.onNavigate}
           notificationCount={ctrl.totalNotifications}
-          warehouseAlertCount={ctrl.criticalWarehouseCount}
+          warehouseAlertCount={warehouseAlertCount}
         />
       )}
+
+      {/* Almacén y balance por rubro (bloqueados en el rubro del módulo; con selector desde el Home) */}
+      <RubroPanels
+        ctrl={ctrl}
+        warehouse={nav.warehouse}
+        balance={nav.balance}
+        onWarehouseChange={nav.setWarehouse}
+        onBalanceChange={nav.setBalance}
+      />
 
       {/* Capa de superposición del teléfono: las hojas del módulo avícola se montan aquí (portal). */}
       <div id="phone-overlay-root" className="absolute inset-0 z-50 pointer-events-none" />
