@@ -501,6 +501,7 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
             onDeleteItem={(itemId: string) => A.deleteWarehouseItem({ itemId })}
             onPurchaseItem={(p) => A.purchaseWarehouseItem(p)}
             purchases={porcinoPurchases}
+            onAssignLocation={(p) => A.assignWarehouseItemLocation(p)}
           />
           </LazyBoundary>
         )}
@@ -553,6 +554,8 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
             }
             onRecordSlaughter={() => openSale(traceAnimal.category, traceAnimal.code)}
             onRecordFarrowing={() => setFarrowing({ sowCode: traceAnimal.code })}
+            warehouseItems={warehouseItems}
+            supplyActions={A}
           />
           </LazyBoundary>
         )}

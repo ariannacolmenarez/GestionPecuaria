@@ -24,7 +24,9 @@ import {
   Layers,
   Users,
 } from 'lucide-react';
-import { PorcinoAnimal, AnimalTraceEvent, ProductionFeedingPlan } from '../../types';
+import { PorcinoAnimal, AnimalTraceEvent, ProductionFeedingPlan, WarehouseItem } from '../../types';
+import { AnimalSuppliesPanel, SupplyActions } from './porcino/AnimalSuppliesPanel';
+import { isActiveAnimal } from '../../models/porcinoRules';
 import { getAnimalFeedingAndGrowthInfo, productionFeedingPlansDefault } from '../../data/pecuarioData';
 import { todayISO } from '../../utils/dates';
 import { newId } from '../../utils/ids';
@@ -53,6 +55,9 @@ interface AnimalTraceabilityModalProps {
     | ((animalId: string, newWeight: number, meta?: WeighingMeta) => ModalActionReturn);
   onRecordSlaughter?: () => void;
   onRecordFarrowing?: () => void;
+  /** Almacén: insumos ubicados en este lote/cerdo, compras directas y consumo. */
+  warehouseItems?: WarehouseItem[];
+  supplyActions?: SupplyActions;
 }
 
 export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = ({
@@ -64,6 +69,8 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
   onUpdateWeight,
   onRecordSlaughter,
   onRecordFarrowing,
+  warehouseItems,
+  supplyActions,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -453,6 +460,11 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
 
         {/* Modal Body / Timeline */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {/* Almacén del lote/cerdo: insumos asignados, compra directa y consumo */}
+          {supplyActions && isActiveAnimal(animal) && (
+            <AnimalSuppliesPanel animal={animal} items={warehouseItems || []} actions={supplyActions} />
+          )}
+
           {/* Add Trace Event Form Drawer */}
           {showAddEventForm && (
             <form

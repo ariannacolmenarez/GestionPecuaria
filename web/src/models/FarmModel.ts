@@ -237,6 +237,11 @@ export interface WarehouseItem {
   rubro?: 'porcino' | 'bovino' | 'avicola' | 'general';
   /** Lote avícola al que se asignó el insumo (bodega del lote). */
   loteId?: string;
+  /**
+   * Ubicación porcina: id del lote o cerdo (PorcinoAnimal) al que está destinado el insumo.
+   * Sin valor = almacén general. Un mismo producto puede tener una fila por ubicación.
+   */
+  animalId?: string;
 }
 
 export interface SanitaryTask {

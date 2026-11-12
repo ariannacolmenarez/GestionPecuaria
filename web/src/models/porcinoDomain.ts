@@ -1572,8 +1572,12 @@ export const consumeWarehouseItem: DomainFn<ConsumeWarehouseItemInput> = (state,
     return fail(`${item.name} es un insumo avícola: regístrelo desde el lote en Pollos de Engorde (Gestión > Bodega) para cargarlo a sus gastos.`);
   }
   const date = input.date || todayISO();
+  // Insumo con ubicación (lote/cerdo) y sin destino indicado: se imputa a su ubicación si sigue activa.
+  const locAnimal = item.animalId ? state.animals.find((a) => a.id === item.animalId) : undefined;
+  const useLocation =
+    !input.targetAnimalId && !input.targetAnimalCode && !input.targetLitterId && !input.targetLabel && !!locAnimal && isActiveAnimal(locAnimal);
   // Un código que no corresponde a ningún animal se trata como etiqueta libre (ej. 'Galpón 2').
-  const target = findAnimal(state, { id: input.targetAnimalId, code: input.targetAnimalCode });
+  const target = findAnimal(state, { id: useLocation ? locAnimal!.id : input.targetAnimalId, code: input.targetAnimalCode });
   const litter = input.targetLitterId ? state.litters.find((l) => l.id === input.targetLitterId) : undefined;
   if (input.targetAnimalId && !target) return fail('El animal destino no existe.');
   if (target && !isActiveAnimal(target)) return fail(`El animal ${target.code} ya no está activo.`);
@@ -1629,6 +1633,21 @@ export const addWarehouseItem: DomainFn<AddWarehouseItemInput> = (state, input) 
   if (!isNonNegative(it.quantity)) return fail('La cantidad no puede ser negativa.');
   if (!isNonNegative(it.unitCostUsd)) return fail('El costo unitario no puede ser negativo.');
   if (!isNonNegative(it.monthlyConsumptionRate ?? 0)) return fail('El consumo mensual no puede ser negativo.');
+  const loc = resolveLocation(state, it.animalId);
+  if ('error' in loc) return fail(loc.error);
+  const dup = state.warehouseItems.find(
+    (x) =>
+      sameProduct(x, it) &&
+      (x.animalId || undefined) === loc.animalId &&
+      (x.rubro === 'avicola') === (it.rubro === 'avicola') &&
+      (x.loteId || undefined) === (it.loteId || undefined)
+  );
+  if (dup) {
+    return fail(`Ya existe "${dup.name}" (${dup.unit}) en ${locationName(state, loc.animalId)}: usa "Comprar" para sumarle stock.`);
+  }
+  const date = input.date || todayISO();
+  const dateErr = invalidEventDate(date, 'del ingreso');
+  if (dateErr) return fail(dateErr);
   const d = new Draft(state);
   const total = round2(it.quantity * it.unitCostUsd);
   const purchase = !!input.registerPurchase && total > 0;
@@ -1639,23 +1658,93 @@ export const addWarehouseItem: DomainFn<AddWarehouseItemInput> = (state, input) 
     minAlertThreshold: num(it.minAlertThreshold),
     monthlyConsumptionRate: num(it.monthlyConsumptionRate),
     expensedOnPurchase: purchase,
+    animalId: loc.animalId,
   };
   d.putItem(item);
+  const where = loc.animal ? ` → ${loc.animal.code}` : '';
   if (purchase) {
     d.putMovement(
       movement({
         type: 'egreso',
-        concept: `Compra de insumo: ${it.quantity} ${it.unit} de ${item.name}`,
+        concept: `Compra de insumo: ${it.quantity} ${it.unit} de ${item.name}${where}`,
         rubro: it.rubro && it.rubro !== 'general' ? it.rubro : 'porcino',
         amount: total,
-        date: input.date || todayISO(),
+        date,
         category: 'Compra de insumos',
         details: it.supplier ? `Proveedor ${it.supplier}` : undefined,
       })
     );
   }
-  return d.done(`Insumo ${item.name} agregado${purchase ? ` (egreso $${total.toFixed(2)})` : ''}.`, { itemId: item.id });
+  if (loc.animal && num(it.quantity) > 0) traceSupplyIn(d, loc.animal, item, num(it.quantity), date, purchase ? total : 0);
+  return d.done(`Insumo ${item.name} agregado${where}${purchase ? ` (egreso $${total.toFixed(2)})` : ''}.`, { itemId: item.id });
 };
+
+// ---- Ubicación de insumos (almacén general o un lote/cerdo porcino) ----
+
+type LocationResult = { animalId?: string; animal?: PorcinoAnimal } | { error: string };
+
+/** Valida la ubicación: vacía = almacén general; si no, un lote/cerdo porcino activo. */
+function resolveLocation(state: PorcinoState, animalId?: string | null): LocationResult {
+  if (!animalId) return {};
+  const animal = state.animals.find((a) => a.id === animalId);
+  if (!animal) return { error: 'La ubicación (lote o cerdo) no existe.' };
+  if (!isActiveAnimal(animal)) return { error: `${animal.code} ya no está activo: elige otra ubicación.` };
+  return { animalId: animal.id, animal };
+}
+
+/** Nombre legible de una ubicación. */
+function locationName(state: PorcinoState, animalId?: string): string {
+  if (!animalId) return 'el almacén general';
+  const a = state.animals.find((x) => x.id === animalId);
+  return a ? `${headCount(a) > 1 ? 'el lote' : 'el cerdo'} ${a.code}` : 'una ubicación eliminada';
+}
+
+/** Mismo producto (nombre, unidad y categoría), sin importar la ubicación. */
+function sameProduct(a: Pick<WarehouseItem, 'name' | 'unit' | 'category'>, b: Pick<WarehouseItem, 'name' | 'unit' | 'category'>) {
+  return a.name.trim().toLowerCase() === b.name.trim().toLowerCase() && a.unit === b.unit && a.category === b.category;
+}
+
+/** Evento de trazabilidad (sin costo: el costo se imputa al consumir) al ingresar insumo a un lote/cerdo. */
+function traceSupplyIn(d: Draft, animal: PorcinoAnimal, item: WarehouseItem, qty: number, date: string, purchaseUsd: number) {
+  const current = d.animal(animal.id) || animal;
+  d.putAnimal(
+    withTrace(
+      current,
+      {
+        date,
+        type: item.category === 'alimentos' ? 'alimentacion' : 'observacion',
+        title: `Ingreso de ${item.name}: ${qty} ${item.unit}`,
+        description: purchaseUsd > 0
+          ? `Compra de $${purchaseUsd.toFixed(2)} asignada a esta ubicación en el almacén. El costo se carga al consumirlo.`
+          : 'Insumo asignado a esta ubicación en el almacén. El costo se carga al consumirlo.',
+        responsible: DEFAULT_RESPONSIBLE,
+        details: { warehouseItemId: item.id, amount: qty },
+      },
+      { addCost: false }
+    )
+  );
+}
+
+/** Fila del producto en una ubicación: la existente o una nueva (stock 0) clonada del producto base. */
+function itemAtLocation(d: Draft, base: WarehouseItem, animalId?: string): WarehouseItem {
+  const existing = d.state.warehouseItems.find(
+    (x) => x.rubro !== 'avicola' && sameProduct(x, base) && (x.animalId || undefined) === animalId
+  );
+  if (existing) return existing;
+  const created: WarehouseItem = {
+    ...base,
+    id: newId('wh'),
+    quantity: 0,
+    animalId,
+    loteId: undefined,
+    expensedOnPurchase: base.expensedOnPurchase,
+    // El consumo mensual estimado queda en la fila general; la de la ubicación arranca en 0
+    monthlyConsumptionRate: 0,
+    minAlertThreshold: 0,
+  };
+  d.putItem(created);
+  return created;
+}
 
 export interface PurchaseWarehouseItemInput {
   itemId: string;
@@ -1668,6 +1757,12 @@ export interface PurchaseWarehouseItemInput {
   /** N.º de factura o nota de compra. */
   invoice?: string;
   notes?: string;
+  /**
+   * Ubicación donde entra la compra: id de lote/cerdo, null = almacén general,
+   * undefined = la ubicación actual del insumo. Si difiere, se usa (o crea) la fila
+   * del mismo producto en esa ubicación.
+   */
+  animalId?: string | null;
 }
 
 /**
@@ -1678,8 +1773,8 @@ export interface PurchaseWarehouseItemInput {
  * aún no se había llevado a gasto, se regulariza en el mismo momento para no perder ese costo.
  */
 export const purchaseWarehouseItem: DomainFn<PurchaseWarehouseItemInput> = (state, input) => {
-  const item = state.warehouseItems.find((i) => i.id === input.itemId);
-  if (!item) return fail('El insumo no existe en el almacén.');
+  const base = state.warehouseItems.find((i) => i.id === input.itemId);
+  if (!base) return fail('El insumo no existe en el almacén.');
   if (!isPositive(input.quantity)) return fail('La cantidad comprada debe ser mayor a 0.');
   if (!isPositive(input.unitCostUsd)) return fail('El precio por unidad debe ser mayor a 0.');
   const date = input.date || todayISO();
@@ -1687,6 +1782,19 @@ export const purchaseWarehouseItem: DomainFn<PurchaseWarehouseItemInput> = (stat
   if (dateErr) return fail(dateErr);
 
   const d = new Draft(state);
+  // Ubicación destino de la compra
+  let item = base;
+  let locAnimal: PorcinoAnimal | undefined;
+  if (input.animalId !== undefined && base.rubro !== 'avicola') {
+    const loc = resolveLocation(state, input.animalId);
+    if ('error' in loc) return fail(loc.error);
+    locAnimal = loc.animal;
+    if (loc.animalId !== (base.animalId || undefined)) item = itemAtLocation(d, base, loc.animalId);
+  } else if (base.animalId) {
+    locAnimal = state.animals.find((a) => a.id === base.animalId && isActiveAnimal(a));
+  }
+  const where = locAnimal ? ` → ${locAnimal.code}` : '';
+
   const prevQty = Math.max(0, num(item.quantity));
   const prevCost = Math.max(0, num(item.unitCostUsd));
   const newQty = round2(prevQty + input.quantity);
@@ -1711,11 +1819,13 @@ export const purchaseWarehouseItem: DomainFn<PurchaseWarehouseItemInput> = (stat
     );
   }
 
-  d.putItem({ ...item, quantity: newQty, unitCostUsd: avgCost, supplier, expensedOnPurchase: true });
+  const updated: WarehouseItem = { ...item, quantity: newQty, unitCostUsd: avgCost, supplier, expensedOnPurchase: true };
+  d.putItem(updated);
+  if (locAnimal) traceSupplyIn(d, locAnimal, updated, input.quantity, date, total);
   d.putMovement(
     movement({
       type: 'egreso',
-      concept: `Compra de insumo: ${input.quantity} ${item.unit} de ${item.name}`,
+      concept: `Compra de insumo: ${input.quantity} ${item.unit} de ${item.name}${where}`,
       rubro,
       amount: total,
       date,
@@ -1731,10 +1841,73 @@ export const purchaseWarehouseItem: DomainFn<PurchaseWarehouseItemInput> = (stat
     })
   );
   return d.done(
-    `Compra registrada: +${input.quantity} ${item.unit} de ${item.name} (egreso $${total.toFixed(2)}).` +
+    `Compra registrada: +${input.quantity} ${item.unit} de ${item.name}${where} (egreso $${total.toFixed(2)}).` +
       (pendingPrevValue > 0 ? ` Se regularizó el stock previo ($${pendingPrevValue.toFixed(2)}).` : ''),
     { itemId: item.id, totalUsd: total }
   );
+};
+
+export interface AssignWarehouseItemLocationInput {
+  itemId: string;
+  /** Lote/cerdo destino; null = devolver al almacén general. */
+  animalId: string | null;
+  /** Cantidad a mover (por defecto, todo el stock de la fila). */
+  quantity?: number;
+  date?: string;
+}
+
+/**
+ * Asigna (o mueve) stock de un insumo a otra ubicación: almacén general ↔ lote/cerdo.
+ * Es un traslado interno: no crea egresos ni imputa costo (el costo se carga al consumir).
+ */
+export const assignWarehouseItemLocation: DomainFn<AssignWarehouseItemLocationInput> = (state, input) => {
+  const src = state.warehouseItems.find((i) => i.id === input.itemId);
+  if (!src) return fail('El insumo no existe.');
+  if (src.rubro === 'avicola') return fail(`${src.name} es un insumo avícola: se gestiona desde Pollos de Engorde.`);
+  const loc = resolveLocation(state, input.animalId);
+  if ('error' in loc) return fail(loc.error);
+  if (loc.animalId === (src.animalId || undefined)) return fail(`${src.name} ya está en ${locationName(state, loc.animalId)}.`);
+  const stock = Math.max(0, num(src.quantity));
+  const qty = input.quantity === undefined ? stock : input.quantity;
+  if (!isPositive(qty)) return fail('La cantidad a mover debe ser mayor a 0.');
+  if (qty > stock) return fail(`Stock insuficiente: hay ${stock} ${src.unit} de ${src.name}.`);
+  const date = input.date || todayISO();
+  const dateErr = invalidEventDate(date, 'de la asignación');
+  if (dateErr) return fail(dateErr);
+
+  const d = new Draft(state);
+  const dest = state.warehouseItems.find(
+    (x) => x.id !== src.id && x.rubro !== 'avicola' && sameProduct(x, src) && (x.animalId || undefined) === loc.animalId
+  );
+  if (dest && !!dest.expensedOnPurchase !== !!src.expensedOnPurchase) {
+    return fail(
+      `No se puede combinar con el ${dest.name} de ${locationName(state, loc.animalId)}: uno ya está en el balance como compra y el otro no. Registra una compra del insumo primero.`
+    );
+  }
+  const movingAll = qty === stock;
+  if (!dest && movingAll) {
+    // Sin fila destino: la misma fila cambia de ubicación
+    d.putItem({ ...src, animalId: loc.animalId });
+  } else {
+    const target = dest || itemAtLocation(d, src, loc.animalId);
+    const tQty = Math.max(0, num(target.quantity));
+    const newQty = round2(tQty + qty);
+    const avg = newQty > 0 ? round2((tQty * num(target.unitCostUsd) + qty * num(src.unitCostUsd)) / newQty) : num(src.unitCostUsd);
+    d.putItem({ ...target, quantity: newQty, unitCostUsd: avg });
+    if (movingAll && dest) {
+      // La fila origen queda vacía y se fusiona: tareas pendientes apuntan al destino
+      d.removeItem(src.id);
+      d.state.tasks.forEach((t) => {
+        if (t.warehouseItemId === src.id && (t.status === 'pendiente' || t.status === 'retrasada')) {
+          d.putTask({ ...t, warehouseItemId: dest.id });
+        }
+      });
+    } else {
+      d.putItem({ ...src, quantity: round2(stock - qty) });
+    }
+  }
+  if (loc.animal) traceSupplyIn(d, loc.animal, src, qty, date, 0);
+  return d.done(`${qty} ${src.unit} de ${src.name} asignados a ${locationName(state, loc.animalId)}.`, { itemId: src.id });
 };
 
 export const deleteWarehouseItem: DomainFn<{ itemId: string }> = (state, input) => {
