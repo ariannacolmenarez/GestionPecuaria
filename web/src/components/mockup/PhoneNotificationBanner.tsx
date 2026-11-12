@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
-import { Bell, X, ChevronRight, CheckCircle2, Calendar } from 'lucide-react';
+import { X, ChevronRight, Calendar } from 'lucide-react';
 import { SanitaryTask } from '../../types';
+import { MONTH_NAMES_ES, parseISODate, todayISO } from '../../utils/dates';
 
 interface PhoneNotificationBannerProps {
   todayTasks?: SanitaryTask[];
   todayPendingTasks?: SanitaryTask[];
   onOpenAlerts: () => void;
   onDismiss: () => void;
+  /** Fecha real (YYYY-MM-DD). */
+  today?: string;
+  /** Nombre de la granja mostrado como app emisora. */
+  farmName?: string;
 }
 
 export const PhoneNotificationBanner: React.FC<PhoneNotificationBannerProps> = ({
@@ -14,10 +19,14 @@ export const PhoneNotificationBanner: React.FC<PhoneNotificationBannerProps> = (
   todayPendingTasks,
   onOpenAlerts,
   onDismiss,
+  today = todayISO(),
+  farmName = 'Granja',
 }) => {
+  const d = parseISODate(today);
+  const todayLabel = d ? `${d.getDate()} de ${MONTH_NAMES_ES[d.getMonth()]}` : today;
   const [isHovered, setIsHovered] = useState(false);
   const tasksList = todayTasks || todayPendingTasks || [];
-  const pendingTasks = tasksList.filter((t) => t.status === 'pendiente');
+  const pendingTasks = tasksList.filter((t) => t.status === 'pendiente' || t.status === 'retrasada');
 
   if (tasksList.length === 0) return null;
 
@@ -35,7 +44,7 @@ export const PhoneNotificationBanner: React.FC<PhoneNotificationBannerProps> = (
             <span className="w-5 h-5 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-[10px] font-black shadow-xs">
               🐖
             </span>
-            <span className="tracking-wide">GRANJA ARIANNA</span>
+            <span className="tracking-wide uppercase">{farmName}</span>
             <span className="text-[10px] text-slate-500">• ahora</span>
           </div>
 
@@ -56,7 +65,7 @@ export const PhoneNotificationBanner: React.FC<PhoneNotificationBannerProps> = (
           <div className="flex items-center justify-between">
             <h5 className="font-bold text-xs text-white flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span>Actividades para Hoy (19 de Agosto)</span>
+              <span>Actividades para Hoy ({todayLabel})</span>
             </h5>
             <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
               {pendingTasks.length} {pendingTasks.length === 1 ? 'pendiente' : 'pendientes'}

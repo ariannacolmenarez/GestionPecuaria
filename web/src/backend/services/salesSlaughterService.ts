@@ -1,3 +1,4 @@
+import { newId } from '../../utils/ids';
 import { SaleSlaughterDTO } from '../types';
 import { financialService } from './financialService';
 
@@ -14,31 +15,7 @@ class SalesSlaughterService {
   }
 
   private seedSales() {
-    const seed: SaleSlaughterDTO = {
-      id: 'sale-001',
-      rubro: 'porcino',
-      targetType: 'lote',
-      batchCode: 'ENG-LOT-00',
-      animalCount: 20,
-      saleDate: '2026-08-10',
-      clientOrBuyer: 'Frigorífico Central del Valle',
-      saleType: 'canal_fria',
-      liveWeightKg: 2150,
-      carcassWeightKg: 1677, // 78% rendimiento en canal
-      dressingPercentage: 78.0,
-      pricePerUnit: 2.85, // USD por kg de canal
-      grossRevenueUsd: 4779.45,
-      slaughterFeeUsd: 180.0,
-      transportFeeUsd: 120.0,
-      netRevenueUsd: 4479.45,
-      accumulatedCostUsd: 2850.0,
-      netProfitUsd: 1629.45,
-      profitMarginPercent: 36.38,
-      destinationFacility: 'Matadero Industrial Las Acacias',
-      sanitaryInspectionGuideNumber: 'GUI-VET-2026-8812',
-    };
-
-    this.sales.set(seed.id, seed);
+    // Sin datos de ejemplo: el servicio arranca vacío y solo contiene lo que registre el usuario.
   }
 
   public async getAllSales(): Promise<SaleSlaughterDTO[]> {
@@ -63,7 +40,7 @@ class SalesSlaughterService {
     destinationFacility?: string;
     sanitaryInspectionGuideNumber?: string;
   }): Promise<SaleSlaughterDTO> {
-    const id = `sale_${Date.now()}`;
+    const id = newId('sale');
     const dressingPercentage =
       params.carcassWeightKg && params.liveWeightKg > 0
         ? Math.round((params.carcassWeightKg / params.liveWeightKg) * 1000) / 10

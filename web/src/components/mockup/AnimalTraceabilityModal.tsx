@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   X,
   History,
@@ -26,14 +26,31 @@ import {
 } from 'lucide-react';
 import { PorcinoAnimal, AnimalTraceEvent, ProductionFeedingPlan } from '../../types';
 import { getAnimalFeedingAndGrowthInfo, productionFeedingPlansDefault } from '../../data/pecuarioData';
+import { todayISO } from '../../utils/dates';
+import { newId } from '../../utils/ids';
+import { ModalActionReturn, NormalizedModalResult, runModalAction, toNumber } from './modalResult';
+
+/** Datos del pesaje que acompañan al nuevo peso (para registrar UN solo evento). */
+export interface WeighingMeta {
+  date: string;
+  notes?: string;
+  responsible?: string;
+}
 
 interface AnimalTraceabilityModalProps {
   animal: PorcinoAnimal;
   feedingPlans?: ProductionFeedingPlan[];
   onClose: () => void;
-  onAddEvent?: (event: AnimalTraceEvent) => void;
-  onAddTraceEvent?: (animalId: string, event: AnimalTraceEvent) => void;
-  onUpdateWeight?: ((newWeight: number) => void) | ((animalId: string, newWeight: number) => void);
+  onAddEvent?: (event: AnimalTraceEvent) => ModalActionReturn;
+  onAddTraceEvent?: (animalId: string, event: AnimalTraceEvent) => ModalActionReturn;
+  /**
+   * Un pesaje con peso nuevo llama SOLO a esta función (no a onAddEvent/onAddTraceEvent):
+   * conectar a porcinoActions.updateAnimalWeight({animalId, newWeightKg, date: meta.date, notes: meta.notes}),
+   * que actualiza el peso y agrega el evento en una sola operación.
+   */
+  onUpdateWeight?:
+    | ((newWeight: number) => ModalActionReturn)
+    | ((animalId: string, newWeight: number, meta?: WeighingMeta) => ModalActionReturn);
   onRecordSlaughter?: () => void;
   onRecordFarrowing?: () => void;
 }
@@ -53,32 +70,48 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
   const [showAddEventForm, setShowAddEventForm] = useState(false);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
-  // Requirement 8: Feeding and Growth information calculated from configuration and age
-  const feedingInfo = getAnimalFeedingAndGrowthInfo(animal, feedingPlans);
+  // Requirement 8: Feeding and Growth information calculated from configuration and age (fecha real)
+  const feedingInfo = useMemo(() => {
+    const plans = feedingPlans && feedingPlans.some((p) => p.phases && p.phases.length > 0)
+      ? feedingPlans.filter((p) => p.phases && p.phases.length > 0)
+      : productionFeedingPlansDefault;
+    return getAnimalFeedingAndGrowthInfo(animal, plans);
+  }, [animal, feedingPlans]);
 
   // Weight evaluation
   const isBelowWeight = animal.currentWeightKg < feedingInfo.minExpectedWeight;
   const isAboveWeight = animal.currentWeightKg > feedingInfo.maxExpectedWeight;
 
   // New Event Form State
-  const [eventDate, setEventDate] = useState('2026-08-19');
+  const [eventDate, setEventDate] = useState(todayISO());
   const [eventType, setEventType] = useState<AnimalTraceEvent['type']>('pesaje');
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
-  const [eventResponsible, setEventResponsible] = useState('Dr. Roberto Salas (Vet)');
+  const [eventResponsible, setEventResponsible] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [newWeightValue, setNewWeightValue] = useState<string>('');
   const [eventCost, setEventCost] = useState<string>('');
 
-  const events = animal.traceability || [];
+  // Más recientes primero
+  const events = useMemo(
+    () => [...(animal.traceability || [])].sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+    [animal.traceability]
+  );
 
-  const filteredEvents = events.filter((ev) => {
-    const matchesType = filterType === 'all' || ev.type === filterType;
-    const matchesQuery =
-      ev.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ev.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (ev.responsible && ev.responsible.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesType && matchesQuery;
-  });
+  const filteredEvents = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return events.filter((ev) => {
+      const matchesType = filterType === 'all' || ev.type === filterType;
+      if (!matchesType) return false;
+      if (!q) return true;
+      return (
+        (ev.title || '').toLowerCase().includes(q) ||
+        (ev.description || '').toLowerCase().includes(q) ||
+        (ev.responsible || '').toLowerCase().includes(q)
+      );
+    });
+  }, [events, filterType, searchQuery]);
 
   const getEventBadge = (type: AnimalTraceEvent['type']) => {
     switch (type) {
@@ -101,44 +134,79 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
     }
   };
 
-  const handleCreateEvent = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!eventTitle.trim()) return;
-
-    const newEv: AnimalTraceEvent = {
-      id: `tr-${Date.now()}`,
-      date: eventDate,
-      type: eventType,
-      title: eventTitle.trim(),
-      description: eventDescription.trim() || 'Evento registrado en el historial de trazabilidad.',
-      responsible: eventResponsible.trim(),
-      costUsd: eventCost ? parseFloat(eventCost) : undefined,
-    };
-
-    if (onAddEvent) {
-      onAddEvent(newEv);
-    } else if (onAddTraceEvent) {
-      onAddTraceEvent(animal.id, newEv);
-    }
-
-    if (eventType === 'pesaje' && newWeightValue && onUpdateWeight) {
-      const weightNum = parseFloat(newWeightValue);
-      if (!isNaN(weightNum) && weightNum > 0) {
-        if (onUpdateWeight.length === 1) {
-          (onUpdateWeight as (w: number) => void)(weightNum);
-        } else {
-          (onUpdateWeight as (id: string, w: number) => void)(animal.id, weightNum);
-        }
-      }
-    }
-
-    setSuccessNotice(`Evento "${newEv.title}" agregado a la trazabilidad.`);
+  const resetForm = () => {
     setShowAddEventForm(false);
     setEventTitle('');
     setEventDescription('');
     setNewWeightValue('');
     setEventCost('');
+    setFormError(null);
+  };
 
+  const handleCreateEvent = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setFormError(null);
+    const title = eventTitle.trim();
+    if (!title) {
+      setFormError('Indica el título del evento.');
+      return;
+    }
+    if (!eventDate || eventDate > todayISO()) {
+      setFormError('La fecha del evento no puede ser futura.');
+      return;
+    }
+    const isWeighing = eventType === 'pesaje' && newWeightValue.trim() !== '';
+    const weightNum = toNumber(newWeightValue, NaN);
+    if (isWeighing && (!Number.isFinite(weightNum) || weightNum <= 0 || weightNum > 600)) {
+      setFormError('El peso debe estar entre 0 y 600 kg.');
+      return;
+    }
+    const costNum = toNumber(eventCost);
+    if (costNum < 0) {
+      setFormError('El costo no puede ser negativo.');
+      return;
+    }
+
+    setIsSaving(true);
+    let res: NormalizedModalResult;
+    if (isWeighing && onUpdateWeight) {
+      // UNA sola acción: el peso y el evento de pesaje se guardan juntos
+      const notes = [title, eventDescription.trim()].filter(Boolean).join('. ');
+      res = await runModalAction(() =>
+        onUpdateWeight.length === 1
+          ? (onUpdateWeight as (w: number) => ModalActionReturn)(weightNum)
+          : (onUpdateWeight as (id: string, w: number, m?: WeighingMeta) => ModalActionReturn)(animal.id, weightNum, {
+              date: eventDate,
+              notes,
+              responsible: eventResponsible.trim() || undefined,
+            })
+      );
+    } else {
+      const newEv: AnimalTraceEvent = {
+        id: newId('tr'),
+        date: eventDate,
+        type: eventType,
+        title,
+        description: eventDescription.trim() || 'Evento registrado en el historial de trazabilidad.',
+        responsible: eventResponsible.trim() || undefined,
+        costUsd: costNum > 0 ? costNum : undefined,
+      };
+      if (onAddEvent) {
+        res = await runModalAction(() => onAddEvent(newEv));
+      } else if (onAddTraceEvent) {
+        res = await runModalAction(() => onAddTraceEvent(animal.id, newEv));
+      } else {
+        res = { ok: false, error: 'No hay una acción configurada para guardar eventos.' };
+      }
+    }
+    setIsSaving(false);
+
+    if (!res.ok) {
+      setFormError(res.error || 'No se pudo guardar el evento.');
+      return;
+    }
+    setSuccessNotice(`Evento "${title}" agregado a la trazabilidad.`);
+    resetForm();
     setTimeout(() => setSuccessNotice(null), 3500);
   };
 
@@ -199,7 +267,7 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
                   {animal.category === 'engorde' && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-400/30 text-emerald-200 border border-emerald-400/50 flex items-center gap-1">
                       <Users className="w-3 h-3 text-emerald-300" />
-                      Lote de {animal.batchAnimalCount || 25} animales
+                      {(animal.batchAnimalCount || 1) > 1 ? `Lote de ${animal.batchAnimalCount} animales` : 'Animal individual'}
                     </span>
                   )}
                 </div>
@@ -211,7 +279,7 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[11px] text-slate-300">
                   {animal.category === 'engorde' && (
                     <span className="flex items-center gap-1 font-bold text-emerald-300 bg-emerald-900/60 px-2 py-0.5 rounded-md border border-emerald-500/40">
-                      <Users className="w-3.5 h-3.5 text-emerald-300" /> {animal.batchAnimalCount || 25} cerdos en el lote
+                      <Users className="w-3.5 h-3.5 text-emerald-300" /> {animal.batchAnimalCount || 1} {(animal.batchAnimalCount || 1) === 1 ? 'cerdo' : 'cerdos en el lote'}
                     </span>
                   )}
                   <span className="flex items-center gap-1 font-semibold text-emerald-400">
@@ -421,6 +489,7 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
                   <input
                     type="date"
                     required
+                    max={todayISO()}
                     value={eventDate}
                     onChange={(e) => setEventDate(e.target.value)}
                     className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900"
@@ -440,32 +509,41 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
                 />
               </div>
 
-              {eventType === 'pesaje' && (
-                <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                {eventType === 'pesaje' ? (
                   <div>
                     <label className="block font-semibold text-slate-700 mb-0.5">Nuevo Peso Registrado (kg):</label>
                     <input
                       type="number"
                       step="0.1"
+                      min="0"
+                      max="600"
                       placeholder={`Actual: ${animal.currentWeightKg} kg`}
                       value={newWeightValue}
                       onChange={(e) => setNewWeightValue(e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-bold"
                     />
                   </div>
+                ) : (
                   <div>
                     <label className="block font-semibold text-slate-700 mb-0.5">Costo Asociado ($ USD):</label>
                     <input
                       type="number"
-                      step="0.5"
+                      step="0.01"
+                      min="0"
                       placeholder="0.00"
                       value={eventCost}
                       onChange={(e) => setEventCost(e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900"
                     />
                   </div>
+                )}
+                <div className="text-[10px] text-slate-500 self-end pb-1">
+                  {eventType === 'pesaje'
+                    ? 'Con peso: se actualiza el animal y se registra el pesaje en una sola operación.'
+                    : 'El costo se imputa al animal (no genera egreso en el balance).'}
                 </div>
-              )}
+              </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-0.5">Detalles / Procedimiento / Observaciones:</label>
@@ -478,12 +556,19 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
                 />
               </div>
 
+              {formError && (
+                <div className="p-2 bg-rose-100 border border-rose-300 rounded-lg text-[11px] font-bold text-rose-800">
+                  {formError}
+                </div>
+              )}
+
               <div className="flex items-center justify-between pt-1">
                 <div className="w-1/2">
                   <label className="block text-[10px] text-slate-500 font-semibold">Responsable:</label>
                   <input
                     type="text"
                     value={eventResponsible}
+                    placeholder="Nombre o rol"
                     onChange={(e) => setEventResponsible(e.target.value)}
                     className="w-full px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-900"
                   />
@@ -491,16 +576,17 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowAddEventForm(false)}
+                    onClick={resetForm}
                     className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded-xl font-semibold"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold shadow-xs cursor-pointer"
+                    disabled={isSaving}
+                    className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer"
                   >
-                    Guardar en Historial
+                    {isSaving ? 'Guardando...' : 'Guardar en Historial'}
                   </button>
                 </div>
               </div>
@@ -511,7 +597,7 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs text-slate-500 font-semibold px-1">
               <span>Línea de Tiempo de Trazabilidad ({filteredEvents.length} eventos)</span>
-              <span className="text-[11px] text-slate-400">Orden cronológico</span>
+              <span className="text-[11px] text-slate-400">Más recientes primero</span>
             </div>
 
             {filteredEvents.length === 0 ? (

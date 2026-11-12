@@ -1,14 +1,33 @@
-import React, { useState } from 'react';
-import { X, Heart, ShieldCheck, CheckCircle2, AlertTriangle, Baby, Stethoscope } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { X, CheckCircle2, Baby, Stethoscope } from 'lucide-react';
 import { PorcinoAnimal, FarrowingRecord, LactatingLitter } from '../../types';
+import { isActiveAnimal, sowReproductiveState } from '../../models/porcinoRules';
+import { todayISO } from '../../utils/dates';
+import { newId } from '../../utils/ids';
+import { ModalActionReturn, runModalAction } from './modalResult';
 
 interface FarrowingModalProps {
   sows?: PorcinoAnimal[];
   animals?: PorcinoAnimal[];
   preselectedSowCode?: string;
   onClose: () => void;
-  onRegisterFarrowing: (record: FarrowingRecord, newLitter: LactatingLitter) => void;
+  /**
+   * record.id / newLitter.id son provisionales: el dominio (registerFarrowing) genera los ids
+   * definitivos. newLitter.sowId trae el id de la cerda seleccionada.
+   * Puede devolver un DomainResult para mostrar éxito/error real.
+   */
+  onRegisterFarrowing: (record: FarrowingRecord, newLitter: LactatingLitter) => ModalActionReturn;
 }
+
+const NO_DISEASE = 'Ninguna (Cerda y camada clínicamente sanas)';
+
+const suggestBatchCode = (sow?: PorcinoAnimal) =>
+  sow ? `CAM-${sow.code}-P${(sow.parity || 0) + 1}` : '';
+
+const toInt = (v: string) => {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
 
 export const FarrowingModal: React.FC<FarrowingModalProps> = ({
   sows,
@@ -17,47 +36,71 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
   onClose,
   onRegisterFarrowing,
 }) => {
-  const availableSows = (sows && sows.length > 0)
-    ? sows
-    : (animals ? animals.filter((a) => a.category === 'maternidad' || a.category === 'cerdas') : []);
-  const safeSowList = availableSows.length > 0 ? availableSows : (animals || []);
+  // Solo cerdas de maternidad activas y gestantes (el dominio rechaza partos de cerdas no gestantes)
+  const gestatingSows = useMemo(() => {
+    const source = sows && sows.length > 0 ? sows : animals || [];
+    return source.filter(
+      (a) => a.category === 'maternidad' && isActiveAnimal(a) && sowReproductiveState(a) === 'gestante'
+    );
+  }, [sows, animals]);
 
-  const [sowCode, setSowCode] = useState(preselectedSowCode || safeSowList[0]?.code || 'CER-104');
-  const [date, setDate] = useState('2026-08-19');
-  const [bornAlive, setBornAlive] = useState('12');
-  const [malesCount, setMalesCount] = useState('6');
-  const [femalesCount, setFemalesCount] = useState('6');
+  const initialSow = gestatingSows.find((s) => s.code === preselectedSowCode) || gestatingSows[0];
+
+  const [sowCode, setSowCode] = useState(initialSow?.code || '');
+  const [date, setDate] = useState(todayISO());
+  const [bornAlive, setBornAlive] = useState('');
+  const [malesCount, setMalesCount] = useState('');
+  const [femalesCount, setFemalesCount] = useState('');
   const [stillborn, setStillborn] = useState('0'); // nacidos muertos
   const [mummies, setMummies] = useState('0'); // momias
   const [hasReproductiveDisease, setHasReproductiveDisease] = useState(false);
-  const [diseaseNotes, setDiseaseNotes] = useState('Ninguna (Cerda y camada clínicamente sanas)');
-  const [litterBatchCode, setLitterBatchCode] = useState(`CAM-${sowCode}-P2`);
-  const [notes, setNotes] = useState('Parto eutócico sin complicaciones. Excelente reflejo de succión en los lechones.');
+  const [diseaseNotes, setDiseaseNotes] = useState(NO_DISEASE);
+  const [litterBatchCode, setLitterBatchCode] = useState(suggestBatchCode(initialSow));
+  const [notes, setNotes] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Auto update batch code when sow changes
+  const selectedSow = gestatingSows.find((s) => s.code === sowCode);
+
+  // Al cambiar de cerda se sugiere el código de camada según su número de parto
   const handleSowChange = (code: string) => {
     setSowCode(code);
-    setLitterBatchCode(`CAM-${code}-L${Math.floor(Math.random() * 8 + 1)}`);
+    setLitterBatchCode(suggestBatchCode(gestatingSows.find((s) => s.code === code)));
   };
 
-  const totalBorn =
-    (parseInt(bornAlive, 10) || 0) +
-    (parseInt(stillborn, 10) || 0) +
-    (parseInt(mummies, 10) || 0);
+  const alive = toInt(bornAlive);
+  const males = toInt(malesCount);
+  const females = toInt(femalesCount);
+  const dead = toInt(stillborn);
+  const mum = toInt(mummies);
+  const totalBorn = alive + dead + mum;
+  const sexMismatch = (malesCount !== '' || femalesCount !== '') && males + females !== alive;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const alive = parseInt(bornAlive, 10) || 0;
-    const males = parseInt(malesCount, 10) || 0;
-    const females = parseInt(femalesCount, 10) || 0;
-    const dead = parseInt(stillborn, 10) || 0;
-    const mum = parseInt(mummies, 10) || 0;
+  const handleSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setError(null);
+    if (!selectedSow) {
+      setError('Selecciona una cerda gestante.');
+      return;
+    }
+    if (!date || date > todayISO()) {
+      setError('La fecha del parto no puede ser futura.');
+      return;
+    }
+    if (totalBorn <= 0) {
+      setError('Registra al menos un lechón nacido (vivo, muerto o momia).');
+      return;
+    }
+    if (males + females !== alive) {
+      setError(`Machos (${males}) + hembras (${females}) debe ser igual a nacidos vivos (${alive}).`);
+      return;
+    }
+    const code = litterBatchCode.trim() || suggestBatchCode(selectedSow);
 
     const record: FarrowingRecord = {
-      id: `parto-${Date.now()}`,
-      sowCode,
+      id: newId('parto'),
+      sowCode: selectedSow.code,
       date,
       totalBorn,
       bornAlive: alive,
@@ -67,17 +110,19 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
       femalesCount: females,
       hasReproductiveDisease,
       diseaseNotes: hasReproductiveDisease ? diseaseNotes : 'Ninguna (Cerda sana)',
-      litterBatchCode: litterBatchCode.trim() || `CAM-${sowCode}`,
-      notes,
+      litterBatchCode: code,
+      notes: notes.trim() || undefined,
     };
 
     const newLitter: LactatingLitter = {
-      id: `lit-${Date.now()}`,
-      batchCode: litterBatchCode.trim() || `CAM-${sowCode}`,
-      sowCode,
+      id: newId('lit'),
+      batchCode: code,
+      sowCode: selectedSow.code,
+      sowId: selectedSow.id,
       birthDate: date,
       currentCount: alive,
       initialCount: alive,
+      bornAlive: alive,
       malesCount: males,
       femalesCount: females,
       mortalityCount: 0,
@@ -85,11 +130,15 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
       weaningStatus: 'en_lactancia',
     };
 
-    onRegisterFarrowing(record, newLitter);
+    setIsSaving(true);
+    const res = await runModalAction(() => onRegisterFarrowing(record, newLitter));
+    setIsSaving(false);
+    if (!res.ok) {
+      setError(res.error || 'No se pudo registrar el parto.');
+      return;
+    }
+    if (res.meta?.litterBatchCode) setLitterBatchCode(String(res.meta.litterBatchCode));
     setIsSuccess(true);
-    setTimeout(() => {
-      onClose();
-    }, 2000);
   };
 
   return (
@@ -133,7 +182,29 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
             <p className="text-xs text-slate-600">
               Se registraron <strong>{bornAlive} lechones vivos</strong> para la cerda{' '}
               <strong>{sowCode}</strong> bajo el lote de camada <strong>{litterBatchCode}</strong>.
+              Se programaron las tareas sanitarias de los lechones desde la fecha del parto.
             </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-2 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+        ) : gestatingSows.length === 0 ? (
+          <div className="p-8 text-center space-y-3 text-xs">
+            <p className="font-bold text-slate-800 text-sm">No hay cerdas gestantes</p>
+            <p className="text-slate-500">
+              Para registrar un parto, primero registra la monta o servicio de la cerda (queda como Gestante).
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-bold cursor-pointer"
+            >
+              Cerrar
+            </button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-4 space-y-3.5 overflow-y-auto text-xs">
@@ -148,9 +219,9 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
                   onChange={(e) => handleSowChange(e.target.value)}
                   className="w-full px-2.5 py-2 border border-slate-300 rounded-xl font-bold text-slate-900 bg-white"
                 >
-                  {safeSowList.map((s) => (
+                  {gestatingSows.map((s) => (
                     <option key={s.id} value={s.code}>
-                      {s.code} - {s.stage || s.healthStatus} ({s.currentWeightKg} kg)
+                      {s.code} - {s.expectedFarrowingDate ? `parto prob. ${s.expectedFarrowingDate}` : s.stage || s.healthStatus}
                     </option>
                   ))}
                 </select>
@@ -163,6 +234,7 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
                 <input
                   type="date"
                   required
+                  max={todayISO()}
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                   className="w-full px-2.5 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
@@ -179,6 +251,7 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
                 type="text"
                 required
                 value={litterBatchCode}
+                placeholder="Ej. CAM-CER-001-P1"
                 onChange={(e) => setLitterBatchCode(e.target.value)}
                 className="w-full px-3 py-1.5 border border-slate-300 rounded-xl font-mono font-bold text-slate-900 bg-slate-50"
               />
@@ -200,6 +273,7 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
                     min="0"
                     required
                     value={bornAlive}
+                    placeholder="0"
                     onChange={(e) => setBornAlive(e.target.value)}
                     className="w-full mt-1 px-2 py-1 bg-white border border-emerald-300 rounded-lg text-emerald-950 font-black text-sm"
                   />
@@ -244,6 +318,7 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
                     type="number"
                     min="0"
                     value={malesCount}
+                    placeholder="0"
                     onChange={(e) => setMalesCount(e.target.value)}
                     className="w-full mt-0.5 px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-slate-900"
                   />
@@ -257,11 +332,17 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
                     type="number"
                     min="0"
                     value={femalesCount}
+                    placeholder="0"
                     onChange={(e) => setFemalesCount(e.target.value)}
                     className="w-full mt-0.5 px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-slate-900"
                   />
                 </div>
               </div>
+              {sexMismatch && (
+                <p className="text-[11px] font-bold text-rose-700">
+                  Machos + hembras ({males + females}) no coincide con nacidos vivos ({alive}).
+                </p>
+              )}
             </div>
 
             {/* Salud Reproductiva (Requisito 4: si no tuvo enfermedad reproductiva la cerda) */}
@@ -278,7 +359,7 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
                       checked={!hasReproductiveDisease}
                       onChange={() => {
                         setHasReproductiveDisease(false);
-                        setDiseaseNotes('Ninguna (Cerda y camada clínicamente sanas)');
+                        setDiseaseNotes(NO_DISEASE);
                       }}
                       className="text-emerald-600"
                     />
@@ -289,7 +370,10 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
                       type="radio"
                       name="hasReproductiveDisease"
                       checked={hasReproductiveDisease}
-                      onChange={() => setHasReproductiveDisease(true)}
+                      onChange={() => {
+                        setHasReproductiveDisease(true);
+                        setDiseaseNotes('Metritis puerperal / Secreción anormal');
+                      }}
                       className="text-rose-600"
                     />
                     <span className="text-rose-700 font-bold">Sí (Con Patología)</span>
@@ -330,10 +414,17 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
               <textarea
                 rows={2}
                 value={notes}
+                placeholder="Ej. Parto eutócico sin complicaciones"
                 onChange={(e) => setNotes(e.target.value)}
                 className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl text-slate-900 bg-white"
               />
             </div>
+
+            {error && (
+              <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-[11px] font-bold text-rose-800">
+                {error}
+              </div>
+            )}
 
             {/* Submit */}
             <div className="flex gap-2 pt-2">
@@ -346,9 +437,10 @@ export const FarrowingModal: React.FC<FarrowingModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="flex-1 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
+                disabled={isSaving}
+                className="flex-1 py-2 bg-rose-700 hover:bg-rose-800 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
               >
-                Registrar Parto
+                {isSaving ? 'Guardando...' : 'Registrar Parto'}
               </button>
             </div>
           </form>

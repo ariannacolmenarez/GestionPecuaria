@@ -1,14 +1,18 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   TrendingUp,
+  TrendingDown,
   ArrowUpRight,
   ArrowDownRight,
   ChevronRight,
   PiggyBank,
   Bird,
   ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
-import { FarmSummary } from '../../types';
+import { AvicolaLot, FarmSummary, FinancialMovement, WarehouseItem } from '../../types';
+import { calculateUtilityTrendPercent, evaluateWarehouseReplenishment } from '../../models/PorcinoCalculations';
+import { formatShortDate, todayISO } from '../../utils/dates';
 
 interface HomeDashboardProps {
   summary: FarmSummary;
@@ -17,8 +21,23 @@ interface HomeDashboardProps {
   onNavigateToAvicola: () => void;
   onOpenFinancials: () => void;
   onOpenAlerts?: () => void;
+  onOpenWarehouse?: () => void;
+  /** Tareas pendientes para hoy. */
   tasksCountToday?: number;
+  /** Tareas pendientes con fecha pasada. */
+  overdueTasksCount?: number;
+  /** Fecha real (YYYY-MM-DD). */
+  today?: string;
+  movements?: FinancialMovement[];
+  warehouseItems?: WarehouseItem[];
+  avicolaLots?: AvicolaLot[];
 }
+
+const safe = (n: unknown) => {
+  const v = Number(n);
+  return isFinite(v) ? v : 0;
+};
+const usd = (n: unknown) => `$${(Math.round(safe(n) * 100) / 100).toLocaleString()}`;
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   summary,
@@ -27,25 +46,52 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onNavigateToAvicola,
   onOpenFinancials,
   onOpenAlerts,
-  tasksCountToday = 2,
+  onOpenWarehouse,
+  tasksCountToday = 0,
+  overdueTasksCount = 0,
+  today = todayISO(),
+  movements = [],
+  warehouseItems = [],
+  avicolaLots = [],
 }) => {
-  const finances = summary?.finances || {
-    period: 'Agosto 2026',
-    totalExpenses: 0,
-    totalIncome: 0,
-    netUtility: 0,
-    byRubro: [],
-  };
-  const counts = summary?.counts || {
-    porcino: { productoras: 0, lechones: 0, verracos: 0, engorde: 0 },
-    bovino: { padrotes: 0, becerros: 0, vacas: 0 },
-    avicola: { pollosEngorde: 0 },
-  };
+  const { finances, counts } = summary;
+
+  const trend = useMemo(() => calculateUtilityTrendPercent(movements), [movements]);
+
+  // Insumos con cobertura < 2 meses (los más urgentes primero)
+  const criticalItems = useMemo(
+    () =>
+      evaluateWarehouseReplenishment(warehouseItems)
+        .filter((i) => i.isCritical)
+        .sort((a, b) => a.monthsOfSupply - b.monthsOfSupply),
+    [warehouseItems]
+  );
+
+  const activeAvicolaLots = useMemo(() => avicolaLots.filter((l) => l.status !== 'Liquidado'), [avicolaLots]);
+
+  const totalPorcino =
+    counts.porcino.productoras + counts.porcino.lechones + counts.porcino.verracos + counts.porcino.engorde;
+  const totalBovino = counts.bovino.padrotes + counts.bovino.becerros + counts.bovino.vacas;
+  const hasFinances = safe(finances.totalIncome) > 0 || safe(finances.totalExpenses) > 0;
+  const netUtility = safe(finances.netUtility);
+  const utilityBase = finances.byRubro.reduce((s, r) => s + Math.abs(safe(r.utility)), 0);
+  const isNewFarm = totalPorcino === 0 && totalBovino === 0 && counts.avicola.pollosEngorde === 0 && !hasFinances;
+  const pendingCount = tasksCountToday + overdueTasksCount;
 
   return (
     <div id="home-dashboard-scrollable" className="flex-1 overflow-y-auto p-4 space-y-4 pb-6">
-      {/* Notificación activa de actividades estimadas para hoy (Requisito 2) */}
-      {tasksCountToday > 0 && onOpenAlerts && (
+      {isNewFarm && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 text-xs text-emerald-900 space-y-1">
+          <p className="font-bold">¡Bienvenido a {summary.name || 'tu granja'}!</p>
+          <p className="text-[11px] text-emerald-800/90">
+            Todavía no hay registros. Empieza dando de alta tus animales en Gestión Porcina; los contadores, alertas y
+            el balance se calcularán automáticamente.
+          </p>
+        </div>
+      )}
+
+      {/* Actividades del día (fecha real) */}
+      {pendingCount > 0 && onOpenAlerts && (
         <button
           onClick={onOpenAlerts}
           className="w-full bg-blue-50/90 hover:bg-blue-100/90 border border-blue-200/90 rounded-2xl p-3 flex items-center justify-between text-left transition-all cursor-pointer shadow-xs group"
@@ -57,12 +103,15 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-blue-800">
-                  Actividades para Hoy (19 Ago)
+                  Actividades para Hoy ({formatShortDate(today)})
                 </span>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               </div>
               <p className="text-xs font-bold text-slate-900 mt-0.5">
-                {tasksCountToday} tareas sanitarias estimadas para el día
+                {tasksCountToday} {tasksCountToday === 1 ? 'tarea sanitaria' : 'tareas sanitarias'} para hoy
+                {overdueTasksCount > 0 && (
+                  <span className="text-rose-700"> • {overdueTasksCount} vencida{overdueTasksCount === 1 ? '' : 's'}</span>
+                )}
               </p>
             </div>
           </div>
@@ -72,7 +121,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </button>
       )}
 
-      {/* 1. Tablero Financiero Consolidado */}
+      {/* 1. Tablero financiero (derivado de los movimientos del mes actual) */}
       <section
         id="financial-summary-card"
         className="bg-gradient-to-br from-emerald-800 to-emerald-950 text-white rounded-2xl p-4 shadow-sm relative overflow-hidden"
@@ -82,33 +131,40 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-200">
               Balance General ({finances.period})
             </span>
-            <div className="flex items-baseline gap-2 mt-0.5">
+            <div className="flex items-baseline gap-2 mt-0.5 flex-wrap">
               <h2 className="text-2xl font-black text-white tracking-tight">
-                ${finances.netUtility.toLocaleString()}
+                {netUtility < 0 ? '-' : ''}
+                {usd(Math.abs(netUtility))}
               </h2>
-              <span className="text-xs font-semibold text-emerald-300 flex items-center">
-                <TrendingUp className="w-3 h-3 mr-0.5" /> +14.2% utilidad
-              </span>
+              {trend !== null && (
+                <span
+                  className={`text-xs font-semibold flex items-center ${trend >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                  title="Variación de la utilidad frente al mes anterior"
+                >
+                  {trend >= 0 ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
+                  {trend >= 0 ? '+' : ''}
+                  {trend}% vs mes anterior
+                </span>
+              )}
             </div>
           </div>
           <button
             onClick={onOpenFinancials}
             className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
-            title="Ver detalles financieros"
+            title="Ver balance detallado"
           >
             <ArrowUpRight className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Mini desglose Ingresos vs Gastos */}
         <div className="grid grid-cols-2 gap-2 bg-black/20 backdrop-blur-xs rounded-xl p-2.5 mb-3 border border-white/10 text-xs">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center font-bold">
               <ArrowUpRight className="w-3.5 h-3.5" />
             </div>
             <div>
-              <p className="text-[10px] text-emerald-200/80">Ganancias</p>
-              <p className="font-bold text-white">${finances.totalIncome.toLocaleString()}</p>
+              <p className="text-[10px] text-emerald-200/80">Ingresos</p>
+              <p className="font-bold text-white">{usd(finances.totalIncome)}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -117,44 +173,44 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </div>
             <div>
               <p className="text-[10px] text-emerald-200/80">Gastos</p>
-              <p className="font-bold text-white">${finances.totalExpenses.toLocaleString()}</p>
+              <p className="font-bold text-white">{usd(finances.totalExpenses)}</p>
             </div>
           </div>
         </div>
 
-        {/* Resumen por Rubro (Porcina, Bovina, Avícola) */}
         <div>
-          <p className="text-[10px] font-semibold text-emerald-200/80 mb-1.5">
-            Utilidad Neta por Rubro Productivo
-          </p>
-          <div className="space-y-1.5">
-            {(finances.byRubro || []).map((r) => {
-              const percentage = finances.netUtility ? Math.round((r.utility / finances.netUtility) * 100) : 0;
-              return (
-                <div key={r.rubro} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: r.color }}
-                    />
-                    <span className="font-medium text-slate-100">{r.rubro}</span>
+          <p className="text-[10px] font-semibold text-emerald-200/80 mb-1.5">Utilidad Neta por Rubro Productivo</p>
+          {hasFinances ? (
+            <div className="space-y-1.5">
+              {finances.byRubro.map((r) => {
+                const utility = safe(r.utility);
+                const share = utilityBase > 0 ? Math.round((Math.abs(utility) / utilityBase) * 100) : 0;
+                return (
+                  <div key={r.rubro} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                      <span className="font-medium text-slate-100">{r.rubro}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[11px] font-semibold ${utility < 0 ? 'text-rose-300' : 'text-emerald-200/90'}`}>
+                        {utility < 0 ? '-' : ''}
+                        {usd(Math.abs(utility))}
+                      </span>
+                      <span className="text-[10px] text-emerald-300/70 w-8 text-right">{share > 0 ? `${share}%` : '—'}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-emerald-200/90 font-semibold">
-                      ${r.utility.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] text-emerald-300/70 w-7 text-right">
-                      {percentage}%
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-[11px] text-emerald-100/80 italic">
+              Sin movimientos este mes. Las compras, ventas y consumos se reflejarán aquí.
+            </p>
+          )}
         </div>
       </section>
 
-      {/* 2. Sección Porcina (Principal) */}
+      {/* 2. Sección Porcina */}
       <section
         id="section-porcina-card"
         className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs hover:border-rose-200 transition-colors"
@@ -179,7 +235,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           </button>
         </div>
 
-        {/* Contadores requeridos: Productoras y Lechones */}
         <div className="grid grid-cols-2 gap-2.5">
           <div
             onClick={onNavigateToPorcino}
@@ -187,37 +242,34 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           >
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-slate-600">Productoras</span>
-              <span className="text-[10px] font-semibold text-rose-600 bg-rose-100/70 px-1.5 py-0.2 rounded">
-                Madres
-              </span>
+              <span className="text-[10px] font-semibold text-rose-600 bg-rose-100/70 px-1.5 py-0.2 rounded">Madres</span>
             </div>
-            <p className="text-2xl font-black text-slate-900 mt-1">
-              {counts.porcino.productoras}
-            </p>
-            <p className="text-[10px] text-slate-500 mt-0.5">Gestantes & Lactantes</p>
+            <p className="text-2xl font-black text-slate-900 mt-1">{counts.porcino.productoras}</p>
+            <p className="text-[10px] text-slate-500 mt-0.5">Gestantes, lactantes y vacías</p>
           </div>
-
           <div
             onClick={onNavigateToPorcino}
             className="bg-slate-50/90 hover:bg-rose-50/40 p-3 rounded-xl border border-slate-100 transition-all cursor-pointer"
           >
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-slate-600">Lechones</span>
-              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.2 rounded">
-                Crías
-              </span>
+              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.2 rounded">Crías</span>
             </div>
-            <p className="text-2xl font-black text-slate-900 mt-1">
-              {counts.porcino.lechones}
-            </p>
-            <p className="text-[10px] text-slate-500 mt-0.5">Lactancia & Pre-destete</p>
+            <p className="text-2xl font-black text-slate-900 mt-1">{counts.porcino.lechones}</p>
+            <p className="text-[10px] text-slate-500 mt-0.5">En lactancia</p>
           </div>
         </div>
 
-        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-          <span>Verracos: <strong className="text-slate-800 font-semibold">{counts.porcino.verracos}</strong></span>
-          <span>Engorde: <strong className="text-slate-800 font-semibold">{counts.porcino.engorde}</strong></span>
-          <span>Total Porcino: <strong className="text-rose-700 font-bold">{counts.porcino.productoras + counts.porcino.lechones + counts.porcino.verracos + counts.porcino.engorde} animales</strong></span>
+        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 gap-2 flex-wrap">
+          <span>
+            Verracos: <strong className="text-slate-800 font-semibold">{counts.porcino.verracos}</strong>
+          </span>
+          <span>
+            Engorde: <strong className="text-slate-800 font-semibold">{counts.porcino.engorde}</strong>
+          </span>
+          <span>
+            Total: <strong className="text-rose-700 font-bold">{totalPorcino} animales</strong>
+          </span>
         </div>
       </section>
 
@@ -245,26 +297,20 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
           </button>
         </div>
-
-        {/* Contadores requeridos: Padrotes, Becerros y Vacas */}
         <div className="grid grid-cols-3 gap-2">
-          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center">
-            <span className="text-[10px] font-medium text-slate-500">Padrotes</span>
-            <p className="text-lg font-black text-slate-900">{counts.bovino.padrotes}</p>
-            <span className="text-[9px] text-blue-600 font-medium">Reproductores</span>
-          </div>
-
-          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center">
-            <span className="text-[10px] font-medium text-slate-500">Becerros</span>
-            <p className="text-lg font-black text-slate-900">{counts.bovino.becerros}</p>
-            <span className="text-[9px] text-emerald-600 font-medium">Crías y Destete</span>
-          </div>
-
-          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center">
-            <span className="text-[10px] font-medium text-slate-500">Vacas</span>
-            <p className="text-lg font-black text-slate-900">{counts.bovino.vacas}</p>
-            <span className="text-[9px] text-indigo-600 font-medium">Ordeño / Cría</span>
-          </div>
+          {(
+            [
+              ['Padrotes', counts.bovino.padrotes, 'Reproductores', 'text-blue-600'],
+              ['Becerros', counts.bovino.becerros, 'Crías y Destete', 'text-emerald-600'],
+              ['Vacas', counts.bovino.vacas, 'Ordeño / Cría', 'text-indigo-600'],
+            ] as const
+          ).map(([label, value, hint, cls]) => (
+            <div key={label} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center">
+              <span className="text-[10px] font-medium text-slate-500">{label}</span>
+              <p className="text-lg font-black text-slate-900">{value}</p>
+              <span className={`text-[9px] font-medium ${cls}`}>{hint}</span>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -292,17 +338,19 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
           </button>
         </div>
-
-        {/* Contador requerido: Pollos de engorde con botón que redirecciona */}
         <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-200/60 flex items-center justify-between">
           <div>
-            <span className="text-[11px] font-semibold text-amber-900">
-              Pollos de Engorde
-            </span>
-            <p className="text-2xl font-black text-slate-900">
-              {counts.avicola.pollosEngorde.toLocaleString()}
+            <span className="text-[11px] font-semibold text-amber-900">Pollos de Engorde</span>
+            <p className="text-2xl font-black text-slate-900">{counts.avicola.pollosEngorde.toLocaleString()}</p>
+            <p className="text-[10px] text-slate-500">
+              {activeAvicolaLots.length === 0
+                ? 'Sin lotes activos'
+                : `${activeAvicolaLots.length} ${activeAvicolaLots.length === 1 ? 'lote activo' : 'lotes activos'}${
+                    activeAvicolaLots.length <= 2
+                      ? ` (${activeAvicolaLots.map((l) => `${l.code}${l.shed ? ' - ' + l.shed : ''}`).join(', ')})`
+                      : ''
+                  }`}
             </p>
-            <p className="text-[10px] text-slate-500">Lote 4 y 5 - Galpón 2</p>
           </div>
           <button
             onClick={onNavigateToAvicola}
@@ -313,16 +361,38 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </div>
       </section>
 
-      {/* Alerta de Stock preventiva */}
-      <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-900">
-        <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-        <div className="flex-1">
-          <p className="font-bold">Alerta Almacén: Stock de Lactancia</p>
-          <p className="text-[11px] text-amber-800/90 mt-0.5">
-            Quedan 650 kg de balanceado lactancia. Según la carga actual, la cobertura es de 23 días (&lt; 2 meses requeridos).
-          </p>
+      {/* Alerta de almacén calculada (cobertura < 2 meses) */}
+      {criticalItems.length > 0 ? (
+        <button
+          onClick={onOpenWarehouse}
+          disabled={!onOpenWarehouse}
+          className="w-full text-left bg-amber-50 border border-amber-200/80 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-900 cursor-pointer disabled:cursor-default"
+        >
+          <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-bold">
+              Alerta Almacén: {criticalItems.length} {criticalItems.length === 1 ? 'insumo crítico' : 'insumos críticos'}
+            </p>
+            {criticalItems.slice(0, 2).map((i) => {
+              const days = i.monthlyConsumptionRate > 0 ? Math.round((i.quantity / i.monthlyConsumptionRate) * 30) : null;
+              return (
+                <p key={i.id} className="text-[11px] text-amber-800/90 mt-0.5">
+                  Quedan {i.quantity.toLocaleString()} {i.unit} de {i.name}
+                  {days !== null ? `: cobertura de ${days} días (< 2 meses).` : ' (bajo el umbral mínimo).'}
+                </p>
+              );
+            })}
+            {criticalItems.length > 2 && (
+              <p className="text-[10px] text-amber-700 mt-0.5">y {criticalItems.length - 2} más…</p>
+            )}
+          </div>
+        </button>
+      ) : warehouseItems.length > 0 ? (
+        <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3 flex items-center gap-2.5 text-xs text-emerald-900">
+          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+          <p className="font-semibold">Almacén con cobertura suficiente (≥ 2 meses) en todos los insumos.</p>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 };

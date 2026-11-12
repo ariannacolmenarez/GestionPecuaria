@@ -21,8 +21,20 @@ export default defineConfig(() => {
     build: {
       outDir: path.resolve(__dirname, 'app/src/main/assets/public'),
       emptyOutDir: true,
+      // El único chunk > 500 kB es el SDK de Firebase (Firestore), aislado en su propio chunk.
+      chunkSizeWarningLimit: 700,
       rollupOptions: {
         input: path.resolve(__dirname, 'web/index.html'),
+        output: {
+          // Dependencias grandes en chunks propios (caché independiente del código de la app)
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (/[\\/]@?firebase[\\/]/.test(id)) return 'firebase';
+            if (/[\\/]lucide-react[\\/]/.test(id)) return 'icons';
+            if (/[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react';
+            return undefined;
+          },
+        },
       },
     },
     resolve: {

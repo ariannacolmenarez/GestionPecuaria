@@ -1,3 +1,4 @@
+import { todayISO } from '../../utils/dates';
 import { Request, Response } from 'express';
 import { sanitaryService } from '../services/sanitaryService';
 import { RubroType } from '../types';
@@ -17,7 +18,7 @@ export const sanitaryController = {
 
   async getTodayPending(req: Request, res: Response) {
     try {
-      const date = (req.query.date as string) || '2026-08-19';
+      const date = (req.query.date as string) || todayISO();
       const tasks = await sanitaryService.getTodayPendingTasks(date);
       res.json({ success: true, data: tasks });
     } catch (error: any) {

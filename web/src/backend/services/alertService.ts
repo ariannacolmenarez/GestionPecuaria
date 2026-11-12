@@ -1,3 +1,4 @@
+import { todayISO, addDays } from '../../utils/dates';
 import { SystemAlertDTO } from '../types';
 import { sanitaryService } from './sanitaryService';
 import { warehouseService } from './warehouseService';
@@ -12,7 +13,7 @@ import { avicolaService } from './avicolaService';
 class AlertService {
   public async getConsolidatedAlerts(): Promise<SystemAlertDTO[]> {
     const alerts: SystemAlertDTO[] = [];
-    const todayStr = '2026-08-19';
+    const todayStr = todayISO();
 
     // 1. Alertas de tareas sanitarias para hoy
     const todayTasks = await sanitaryService.getTodayPendingTasks(todayStr);
@@ -49,7 +50,7 @@ class AlertService {
     // 3. Alertas reproductivas: Partos próximos o retorno de celo
     const matings = await reproductionService.getMatings();
     matings.forEach((m) => {
-      if (m.expectedFarrowingDate && m.expectedFarrowingDate <= '2026-08-26') {
+      if (m.expectedFarrowingDate && m.expectedFarrowingDate <= addDays(todayStr, 7)) {
         alerts.push({
           id: `alt-far-${m.id}`,
           severity: 'critical',

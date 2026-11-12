@@ -1,12 +1,23 @@
+/**
+ * ============================================================================
+ * SERVICIO DE PERSISTENCIA (FIRESTORE + CACHÉ LOCAL OFFLINE)
+ * ============================================================================
+ * - Escrituras agrupadas con writeBatch (troceadas en 450 operaciones).
+ * - saveChanges(): persiste SOLO los documentos que cambió una operación de dominio.
+ * - Sin datos de muestra: una colección vacía devuelve [] (modo granja real).
+ * - Los contadores/finanzas del resumen se DERIVAN en el controlador; aquí solo se guardan.
+ */
+
 import {
   collection,
   doc,
   getDocs,
   getDoc,
   setDoc,
-  updateDoc,
   deleteDoc,
   onSnapshot,
+  writeBatch,
+  DocumentReference,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import {
@@ -18,16 +29,14 @@ import {
   SanitaryTask,
   WarehouseItem,
   LactatingLitter,
+  ProductionBatch,
+  BatchProductionConfig,
+  ProductionFeedingPlan,
 } from '../types';
-import {
-  granjaSummaryData,
-  porcinoAnimalsSample,
-  sanitaryTasksAugust2026,
-  financialMovementsPorcino,
-  warehouseItemsData,
-  initialLactatingLitters,
-} from '../data/pecuarioData';
-import { calculatePorcinoCounters, PorcinoDetailedCounters } from '../utils/porcinoCounters';
+import { granjaSummaryData } from '../data/pecuarioData';
+import { calculatePorcinoCounters, PorcinoDetailedCounters } from '../models/PorcinoCalculations';
+import { currentPeriodLabel, nowISO } from '../utils/dates';
+import { newId } from '../utils/ids';
 
 export const FARM_ID = 'granja_arianna_principal';
 
@@ -47,26 +56,77 @@ const STORAGE_KEYS = {
   FEEDING_PLANS: 'pecuario_local_feeding_plans_v5_clean',
 };
 
+/** Colecciones Firestore bajo farms/{farmId}. */
+const COL = {
+  animals: 'animals',
+  litters: 'litters',
+  tasks: 'tasks',
+  movements: 'movements',
+  warehouse: 'warehouse',
+  sales: 'sales',
+  bovino: 'bovino',
+  avicola: 'avicola',
+  batches: 'batches',
+  batchConfigs: 'batch_configs',
+  feedingPlans: 'feeding_plans',
+} as const;
+
+/** @deprecated Sin datos de muestra: siempre vacío. */
 export const initialBovinoHerdSample: any[] = [];
+/** @deprecated Sin datos de muestra: siempre vacío. */
 export const initialAvicolaLotsSample: any[] = [];
 
 export const BLANK_MODE_KEY = 'pecuario_blank_mode_v5';
+const BATCH_LIMIT = 450;
 
-// Purga inmediata incondicional de cualquier caché antigua en el teléfono
+// Purga de cachés antiguas (v1, con datos de prueba) que quedaran en el teléfono.
+// Las claves actuales usan el sufijo _v5_clean, así que nunca se leen datos viejos.
 try {
   if (typeof localStorage !== 'undefined') {
-    if (localStorage.getItem('pecuario_local_animals_v1') || localStorage.getItem('pecuario_local_litters_v1')) {
-      localStorage.clear();
-    }
+    const legacyKeys = Object.keys(localStorage).filter(
+      (k) => k.startsWith('pecuario_') && (/_v1$/.test(k) || k === 'pecuario_clean_slate_v3_ready')
+    );
+    legacyKeys.forEach((k) => localStorage.removeItem(k));
     localStorage.setItem(BLANK_MODE_KEY, 'true');
   }
 } catch {
   // Ignorar errores de entorno sin localStorage
 }
 
+/** La app trabaja siempre con datos reales (sin siembra de ejemplo). */
 export function isBlankMode(): boolean {
   return true;
 }
+
+/** Resumen vacío con el periodo actual. */
+export function buildEmptySummary(): FarmSummary {
+  return {
+    name: granjaSummaryData.name,
+    location: granjaSummaryData.location,
+    totalMembers: 1,
+    members: granjaSummaryData.members.slice(0, 1),
+    finances: {
+      period: currentPeriodLabel(),
+      totalExpenses: 0,
+      totalIncome: 0,
+      netUtility: 0,
+      byRubro: [
+        { rubro: 'Porcina', expenses: 0, income: 0, utility: 0, color: '#f43f5e' },
+        { rubro: 'Bovina', expenses: 0, income: 0, utility: 0, color: '#3b82f6' },
+        { rubro: 'Avícola', expenses: 0, income: 0, utility: 0, color: '#eab308' },
+      ],
+    },
+    counts: {
+      avicola: { pollosEngorde: 0 },
+      porcino: { productoras: 0, lechones: 0, verracos: 0, engorde: 0 },
+      bovino: { padrotes: 0, becerros: 0, vacas: 0 },
+    },
+  };
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
 
 function readLocal<T>(key: string, fallback: T): T {
   try {
@@ -86,22 +146,150 @@ function writeLocal<T>(key: string, value: T): void {
   }
 }
 
+/** Firestore rechaza `undefined`: se eliminan recursivamente. */
+export function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => stripUndefined(v)) as unknown as T;
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    const out: Record<string, any> = {};
+    Object.entries(value as Record<string, any>).forEach(([k, v]) => {
+      if (v !== undefined) out[k] = stripUndefined(v);
+    });
+    return out as T;
+  }
+  return value;
+}
+
+/** Fusiona documentos por id en la caché local (los nuevos van primero). */
+function mergeLocal<T extends { id?: string }>(key: string, docs: T[], deletedIds: string[] = []): void {
+  if (docs.length === 0 && deletedIds.length === 0) return;
+  const current = readLocal<T[]>(key, []);
+  const incoming = new Map(docs.map((d) => [d.id, d]));
+  const kept = current.filter((c) => !incoming.has(c.id) && !deletedIds.includes(c.id as string));
+  writeLocal(key, [...docs, ...kept]);
+}
+
+type BatchOp = { ref: DocumentReference; data?: any; del?: boolean };
+
+/** Ejecuta operaciones en lotes de 450 con writeBatch. */
+async function commitOps(ops: BatchOp[]): Promise<void> {
+  for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    ops.slice(i, i + BATCH_LIMIT).forEach((op) => {
+      if (op.del) batch.delete(op.ref);
+      // Reemplazo completo (sin merge): las entidades se envían enteras, así los
+      // campos que el dominio deja en undefined se eliminan también en Firestore.
+      else batch.set(op.ref, stripUndefined(op.data));
+    });
+    await batch.commit();
+  }
+}
+
+const docRef = (farmId: string, col: string, id: string) => doc(db, 'farms', farmId, col, id);
+
+function upsertOps<T extends { id?: string }>(farmId: string, col: string, items: T[], idOf?: (x: T) => string): BatchOp[] {
+  const stamp = nowISO();
+  return items.map((it) => {
+    const id = idOf ? idOf(it) : (it.id as string);
+    return { ref: docRef(farmId, col, id), data: { ...it, updatedAt: stamp } };
+  });
+}
+
+async function bulkSave<T extends { id?: string }>(
+  farmId: string,
+  col: string,
+  key: string,
+  items: T[],
+  idOf?: (x: T) => string
+): Promise<void> {
+  writeLocal(key, items);
+  try {
+    await commitOps(upsertOps(farmId, col, items, idOf));
+  } catch (err) {
+    console.warn(`Could not batch-sync ${col}:`, err);
+  }
+}
+
+async function saveOne<T extends { id?: string }>(farmId: string, col: string, key: string, item: T, idOf?: (x: T) => string) {
+  mergeLocal(key, [item]);
+  const id = idOf ? idOf(item) : (item.id as string);
+  try {
+    await setDoc(docRef(farmId, col, id), stripUndefined({ ...item, updatedAt: nowISO() }));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `farms/${farmId}/${col}/${id}`);
+  }
+}
+
+async function deleteOne(farmId: string, col: string, key: string, id: string) {
+  mergeLocal(key, [], [id]);
+  try {
+    await deleteDoc(docRef(farmId, col, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `farms/${farmId}/${col}/${id}`);
+  }
+}
+
+async function getAll<T>(farmId: string, col: string, key: string): Promise<T[]> {
+  try {
+    const snap = await getDocs(collection(db, 'farms', farmId, col));
+    const list: T[] = [];
+    snap.forEach((d) => list.push(d.data() as T));
+    writeLocal(key, list);
+    return list;
+  } catch (err) {
+    console.warn(`Using local cache for ${col}:`, err);
+    return readLocal<T[]>(key, []);
+  }
+}
+
+function subscribeAll<T>(farmId: string, col: string, key: string, onUpdate: (list: T[]) => void): () => void {
+  try {
+    return onSnapshot(
+      collection(db, 'farms', farmId, col),
+      (snap) => {
+        const list: T[] = [];
+        snap.forEach((d) => list.push(d.data() as T));
+        writeLocal(key, list);
+        onUpdate(list);
+      },
+      (err) => {
+        console.warn(`Offline mode active for ${col} stream:`, err);
+        onUpdate(readLocal<T[]>(key, []));
+      }
+    );
+  } catch {
+    onUpdate(readLocal<T[]>(key, []));
+    return () => {};
+  }
+}
+
+/** Conjunto de documentos a persistir en una sola escritura por lote. */
+export interface FarmChanges {
+  animals?: PorcinoAnimal[];
+  litters?: LactatingLitter[];
+  tasks?: SanitaryTask[];
+  movements?: FinancialMovement[];
+  warehouseItems?: WarehouseItem[];
+  deletedWarehouseItems?: string[];
+  productionBatches?: ProductionBatch[];
+  sales?: (UnifiedSaleResult & { id: string })[];
+}
+
+// ============================================================================
+// SERVICIO
+// ============================================================================
+
 export const dbService = {
-  /**
-   * Inicializa la base de datos en Firestore.
-   * Si la base de datos está vacía y no está en modo en blanco, siembra automáticamente los datos iniciales de la granja.
-   */
+  /** Crea el documento de la granja si no existe (resumen vacío, periodo actual). */
   async initializeDatabase(farmId: string = FARM_ID): Promise<void> {
     try {
       const farmRef = doc(db, 'farms', farmId);
       const farmSnap = await getDoc(farmRef);
-
       if (!farmSnap.exists()) {
         await setDoc(farmRef, {
-          ...granjaSummaryData,
+          ...buildEmptySummary(),
           id: farmId,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: nowISO(),
+          updatedAt: nowISO(),
         });
       }
     } catch (err) {
@@ -109,382 +297,147 @@ export const dbService = {
     }
   },
 
-  // ==========================================
-  // GESTIÓN DE ANIMALES Y LOTES PORCINOS
-  // ==========================================
+  /**
+   * Persiste SOLO los documentos cambiados por una operación de dominio,
+   * en una escritura atómica por lote (writeBatch, troceado en 450) + caché local.
+   */
+  async saveChanges(farmId: string = FARM_ID, changes: FarmChanges): Promise<void> {
+    const c = changes || {};
+    mergeLocal(STORAGE_KEYS.ANIMALS, c.animals || []);
+    mergeLocal(STORAGE_KEYS.LITTERS, c.litters || []);
+    mergeLocal(STORAGE_KEYS.TASKS, c.tasks || []);
+    mergeLocal(STORAGE_KEYS.MOVEMENTS, c.movements || []);
+    mergeLocal(STORAGE_KEYS.WAREHOUSE, c.warehouseItems || [], c.deletedWarehouseItems || []);
+    mergeLocal(STORAGE_KEYS.BATCHES, c.productionBatches || []);
+    mergeLocal(STORAGE_KEYS.SALES, c.sales || []);
 
-  async getAnimals(farmId: string = FARM_ID): Promise<PorcinoAnimal[]> {
+    const ops: BatchOp[] = [
+      ...upsertOps(farmId, COL.animals, c.animals || []),
+      ...upsertOps(farmId, COL.litters, c.litters || []),
+      ...upsertOps(farmId, COL.tasks, c.tasks || []),
+      ...upsertOps(farmId, COL.movements, c.movements || []),
+      ...upsertOps(farmId, COL.warehouse, c.warehouseItems || []),
+      ...upsertOps(farmId, COL.batches, c.productionBatches || []),
+      ...upsertOps(farmId, COL.sales, c.sales || []),
+      ...(c.deletedWarehouseItems || []).map((id) => ({ ref: docRef(farmId, COL.warehouse, id), del: true })),
+    ];
+    if (ops.length === 0) return;
     try {
-      const snapshot = await getDocs(collection(db, 'farms', farmId, 'animals'));
-      if (!snapshot.empty) {
-        const list: PorcinoAnimal[] = [];
-        snapshot.forEach((d) => list.push(d.data() as PorcinoAnimal));
-        writeLocal(STORAGE_KEYS.ANIMALS, list);
-        return list;
-      }
-      writeLocal(STORAGE_KEYS.ANIMALS, []);
-      return [];
+      await commitOps(ops);
     } catch (error) {
-      return readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, []);
+      handleFirestoreError(error, OperationType.WRITE, `farms/${farmId} (batch ${ops.length} docs)`);
     }
-  },
-
-  subscribeAnimals(
-    farmId: string = FARM_ID,
-    onUpdate: (animals: PorcinoAnimal[]) => void
-  ): () => void {
-    const colRef = collection(db, 'farms', farmId, 'animals');
-    try {
-      return onSnapshot(
-        colRef,
-        (snapshot) => {
-          if (!snapshot.empty) {
-            const list: PorcinoAnimal[] = [];
-            snapshot.forEach((d) => list.push(d.data() as PorcinoAnimal));
-            writeLocal(STORAGE_KEYS.ANIMALS, list);
-            onUpdate(list);
-          } else {
-            writeLocal(STORAGE_KEYS.ANIMALS, []);
-            onUpdate([]);
-          }
-        },
-        () => {
-          onUpdate(readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, []));
-        }
-      );
-    } catch {
-      onUpdate(readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, []));
-      return () => {};
-    }
-  },
-
-  async saveAnimal(farmId: string = FARM_ID, animal: PorcinoAnimal): Promise<void> {
-    // Actualizar caché local
-    const current = readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, porcinoAnimalsSample);
-    const idx = current.findIndex((a) => a.id === animal.id || a.code === animal.code);
-    const updated = idx >= 0 ? current.map((a, i) => (i === idx ? animal : a)) : [animal, ...current];
-    writeLocal(STORAGE_KEYS.ANIMALS, updated);
-
-    // Escribir en Firestore
-    try {
-      await setDoc(
-        doc(db, 'farms', farmId, 'animals', animal.id),
-        {
-          ...animal,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `farms/${farmId}/animals/${animal.id}`);
-    }
-
-    this.recalculateAndSyncCounters(farmId).catch(console.warn);
-  },
-
-  async bulkSaveAnimals(farmId: string = FARM_ID, animals: PorcinoAnimal[]): Promise<void> {
-    writeLocal(STORAGE_KEYS.ANIMALS, animals);
-    for (const animal of animals) {
-      try {
-        await setDoc(
-          doc(db, 'farms', farmId, 'animals', animal.id),
-          {
-            ...animal,
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-      } catch (err) {
-        console.warn(`Could not sync animal ${animal.code}:`, err);
-      }
-    }
-    this.recalculateAndSyncCounters(farmId).catch(console.warn);
-  },
-
-  async deleteAnimal(farmId: string = FARM_ID, animalId: string): Promise<void> {
-    const current = readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, porcinoAnimalsSample);
-    writeLocal(STORAGE_KEYS.ANIMALS, current.filter((a) => a.id !== animalId));
-
-    try {
-      await deleteDoc(doc(db, 'farms', farmId, 'animals', animalId));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `farms/${farmId}/animals/${animalId}`);
-    }
-    this.recalculateAndSyncCounters(farmId).catch(console.warn);
   },
 
   // ==========================================
-  // TRAZABILIDAD Y EVENTOS SANITARIOS
+  // ANIMALES PORCINOS
   // ==========================================
+  getAnimals(farmId: string = FARM_ID): Promise<PorcinoAnimal[]> {
+    return getAll<PorcinoAnimal>(farmId, COL.animals, STORAGE_KEYS.ANIMALS);
+  },
+  subscribeAnimals(farmId: string = FARM_ID, onUpdate: (animals: PorcinoAnimal[]) => void): () => void {
+    return subscribeAll<PorcinoAnimal>(farmId, COL.animals, STORAGE_KEYS.ANIMALS, onUpdate);
+  },
+  saveAnimal(farmId: string = FARM_ID, animal: PorcinoAnimal): Promise<void> {
+    return saveOne(farmId, COL.animals, STORAGE_KEYS.ANIMALS, animal);
+  },
+  bulkSaveAnimals(farmId: string = FARM_ID, animals: PorcinoAnimal[]): Promise<void> {
+    return bulkSave(farmId, COL.animals, STORAGE_KEYS.ANIMALS, animals);
+  },
+  deleteAnimal(farmId: string = FARM_ID, animalId: string): Promise<void> {
+    return deleteOne(farmId, COL.animals, STORAGE_KEYS.ANIMALS, animalId);
+  },
 
-  async addTraceabilityEvent(
-    farmId: string = FARM_ID,
-    animalId: string,
-    event: AnimalTraceEvent
-  ): Promise<void> {
-    const current = readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, porcinoAnimalsSample);
+  // ==========================================
+  // TRAZABILIDAD
+  // ==========================================
+  /** @deprecated Usar la acción de dominio addTraceEvent del controlador. */
+  async addTraceabilityEvent(farmId: string = FARM_ID, animalId: string, event: AnimalTraceEvent): Promise<void> {
+    const current = readLocal<PorcinoAnimal[]>(STORAGE_KEYS.ANIMALS, []);
     const animal = current.find((a) => a.id === animalId);
     if (animal) {
-      const tr = [event, ...(animal.traceability || [])];
-      animal.traceability = tr;
-      await this.saveAnimal(farmId, animal);
-    }
-
-    try {
-      await setDoc(doc(db, 'farms', farmId, 'animals', animalId, 'events', event.id), event);
-    } catch (err) {
-      console.warn('Could not save trace event in subcollection:', err);
+      await this.saveAnimal(farmId, { ...animal, traceability: [event, ...(animal.traceability || [])] });
     }
   },
 
   // ==========================================
-  // LIQUIDACIONES DE VENTA Y SALIDA A MATADERO
+  // VENTAS / MATADERO
   // ==========================================
-
-  async recordSaleSlaughter(
-    farmId: string = FARM_ID,
-    sale: UnifiedSaleResult
-  ): Promise<void> {
-    const saleId = `sale_${Date.now()}_${sale.animalCode || 'lote'}`;
-
-    // Caché local de ventas
-    const sales = readLocal<UnifiedSaleResult[]>(STORAGE_KEYS.SALES, []);
-    writeLocal(STORAGE_KEYS.SALES, [sale, ...sales]);
-
-    // Guardar venta en Firestore
-    try {
-      await setDoc(doc(db, 'farms', farmId, 'sales', saleId), {
-        ...sale,
-        id: saleId,
-        createdAt: new Date().toISOString(),
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `farms/${farmId}/sales/${saleId}`);
-    }
+  /** @deprecated Usar registerSaleSlaughter del controlador (guarda la venta en el mismo lote). */
+  async recordSaleSlaughter(farmId: string = FARM_ID, sale: UnifiedSaleResult): Promise<void> {
+    const record = { ...sale, id: newId('sale'), createdAt: nowISO() };
+    await saveOne(farmId, COL.sales, STORAGE_KEYS.SALES, record);
   },
 
   // ==========================================
-  // TAREAS SANITARIAS (CALENDARIO VETERINARIO)
+  // TAREAS SANITARIAS
   // ==========================================
-
-  async getTasks(farmId: string = FARM_ID): Promise<SanitaryTask[]> {
-    try {
-      const snap = await getDocs(collection(db, 'farms', farmId, 'tasks'));
-      if (!snap.empty) {
-        const list: SanitaryTask[] = [];
-        snap.forEach((d) => list.push(d.data() as SanitaryTask));
-        writeLocal(STORAGE_KEYS.TASKS, list);
-        return list;
-      }
-      if (isBlankMode()) {
-        writeLocal(STORAGE_KEYS.TASKS, []);
-        return [];
-      }
-    } catch (err) {
-      console.warn('Using local tasks cache:', err);
-    }
-    return readLocal<SanitaryTask[]>(STORAGE_KEYS.TASKS, isBlankMode() ? [] : sanitaryTasksAugust2026);
+  getTasks(farmId: string = FARM_ID): Promise<SanitaryTask[]> {
+    return getAll<SanitaryTask>(farmId, COL.tasks, STORAGE_KEYS.TASKS);
   },
-
-  subscribeTasks(
-    farmId: string = FARM_ID,
-    onUpdate: (tasks: SanitaryTask[]) => void
-  ): () => void {
-    try {
-      return onSnapshot(
-        collection(db, 'farms', farmId, 'tasks'),
-        (snap) => {
-          if (!snap.empty) {
-            const list: SanitaryTask[] = [];
-            snap.forEach((d) => list.push(d.data() as SanitaryTask));
-            writeLocal(STORAGE_KEYS.TASKS, list);
-            onUpdate(list);
-          } else if (isBlankMode()) {
-            writeLocal(STORAGE_KEYS.TASKS, []);
-            onUpdate([]);
-          }
-        },
-        () => {
-          onUpdate(readLocal<SanitaryTask[]>(STORAGE_KEYS.TASKS, isBlankMode() ? [] : sanitaryTasksAugust2026));
-        }
-      );
-    } catch {
-      onUpdate(readLocal<SanitaryTask[]>(STORAGE_KEYS.TASKS, isBlankMode() ? [] : sanitaryTasksAugust2026));
-      return () => {};
-    }
+  subscribeTasks(farmId: string = FARM_ID, onUpdate: (tasks: SanitaryTask[]) => void): () => void {
+    return subscribeAll<SanitaryTask>(farmId, COL.tasks, STORAGE_KEYS.TASKS, onUpdate);
   },
-
-  async saveTask(farmId: string = FARM_ID, task: SanitaryTask): Promise<void> {
-    const tasks = readLocal<SanitaryTask[]>(STORAGE_KEYS.TASKS, isBlankMode() ? [] : sanitaryTasksAugust2026);
-    const idx = tasks.findIndex((t) => t.id === task.id);
-    const updated = idx >= 0 ? tasks.map((t, i) => (i === idx ? task : t)) : [task, ...tasks];
-    writeLocal(STORAGE_KEYS.TASKS, updated);
-
-    try {
-      await setDoc(doc(db, 'farms', farmId, 'tasks', task.id), task, { merge: true });
-    } catch (err) {
-      console.warn('Could not sync task to Firestore:', err);
-    }
+  saveTask(farmId: string = FARM_ID, task: SanitaryTask): Promise<void> {
+    return saveOne(farmId, COL.tasks, STORAGE_KEYS.TASKS, task);
+  },
+  bulkSaveTasks(farmId: string = FARM_ID, tasks: SanitaryTask[]): Promise<void> {
+    return bulkSave(farmId, COL.tasks, STORAGE_KEYS.TASKS, tasks);
   },
 
   // ==========================================
-  // MOVIMIENTOS FINANCIEROS Y BALANCE
+  // MOVIMIENTOS FINANCIEROS
   // ==========================================
-
-  async getMovements(farmId: string = FARM_ID): Promise<FinancialMovement[]> {
-    try {
-      const snap = await getDocs(collection(db, 'farms', farmId, 'movements'));
-      if (!snap.empty) {
-        const list: FinancialMovement[] = [];
-        snap.forEach((d) => list.push(d.data() as FinancialMovement));
-        writeLocal(STORAGE_KEYS.MOVEMENTS, list);
-        return list;
-      }
-      if (isBlankMode()) {
-        writeLocal(STORAGE_KEYS.MOVEMENTS, []);
-        return [];
-      }
-    } catch (err) {
-      console.warn('Using local financial movements:', err);
-    }
-    return readLocal<FinancialMovement[]>(STORAGE_KEYS.MOVEMENTS, isBlankMode() ? [] : financialMovementsPorcino);
+  getMovements(farmId: string = FARM_ID): Promise<FinancialMovement[]> {
+    return getAll<FinancialMovement>(farmId, COL.movements, STORAGE_KEYS.MOVEMENTS);
   },
-
-  subscribeMovements(
-    farmId: string = FARM_ID,
-    onUpdate: (movements: FinancialMovement[]) => void
-  ): () => void {
-    try {
-      return onSnapshot(
-        collection(db, 'farms', farmId, 'movements'),
-        (snap) => {
-          if (!snap.empty) {
-            const list: FinancialMovement[] = [];
-            snap.forEach((d) => list.push(d.data() as FinancialMovement));
-            writeLocal(STORAGE_KEYS.MOVEMENTS, list);
-            onUpdate(list);
-          } else if (isBlankMode()) {
-            writeLocal(STORAGE_KEYS.MOVEMENTS, []);
-            onUpdate([]);
-          }
-        },
-        () => {
-          onUpdate(readLocal<FinancialMovement[]>(STORAGE_KEYS.MOVEMENTS, isBlankMode() ? [] : financialMovementsPorcino));
-        }
-      );
-    } catch {
-      onUpdate(readLocal<FinancialMovement[]>(STORAGE_KEYS.MOVEMENTS, isBlankMode() ? [] : financialMovementsPorcino));
-      return () => {};
-    }
+  subscribeMovements(farmId: string = FARM_ID, onUpdate: (movements: FinancialMovement[]) => void): () => void {
+    return subscribeAll<FinancialMovement>(farmId, COL.movements, STORAGE_KEYS.MOVEMENTS, onUpdate);
   },
-
-  async saveMovement(farmId: string = FARM_ID, movement: FinancialMovement): Promise<void> {
-    const list = readLocal<FinancialMovement[]>(STORAGE_KEYS.MOVEMENTS, isBlankMode() ? [] : financialMovementsPorcino);
-    const updated = [movement, ...list.filter((m) => m.id !== movement.id)];
-    writeLocal(STORAGE_KEYS.MOVEMENTS, updated);
-
-    try {
-      await setDoc(doc(db, 'farms', farmId, 'movements', movement.id), movement);
-    } catch (err) {
-      console.warn('Could not sync movement to Firestore:', err);
-    }
+  saveMovement(farmId: string = FARM_ID, movement: FinancialMovement): Promise<void> {
+    return saveOne(farmId, COL.movements, STORAGE_KEYS.MOVEMENTS, movement);
   },
-
-  async bulkSaveMovements(farmId: string = FARM_ID, movements: FinancialMovement[]): Promise<void> {
-    writeLocal(STORAGE_KEYS.MOVEMENTS, movements);
-    for (const mov of movements) {
-      try {
-        await setDoc(doc(db, 'farms', farmId, 'movements', mov.id), mov, { merge: true });
-      } catch (err) {
-        console.warn(`Could not sync movement ${mov.id}:`, err);
-      }
-    }
+  bulkSaveMovements(farmId: string = FARM_ID, movements: FinancialMovement[]): Promise<void> {
+    return bulkSave(farmId, COL.movements, STORAGE_KEYS.MOVEMENTS, movements);
   },
 
   // ==========================================
-  // INVENTARIO DE ALMACÉN
+  // ALMACÉN
   // ==========================================
-
-  async getWarehouseItems(farmId: string = FARM_ID): Promise<WarehouseItem[]> {
-    try {
-      const snap = await getDocs(collection(db, 'farms', farmId, 'warehouse'));
-      if (!snap.empty) {
-        const list: WarehouseItem[] = [];
-        snap.forEach((d) => list.push(d.data() as WarehouseItem));
-        writeLocal(STORAGE_KEYS.WAREHOUSE, list);
-        return list;
-      }
-      if (isBlankMode()) {
-        writeLocal(STORAGE_KEYS.WAREHOUSE, []);
-        return [];
-      }
-    } catch (err) {
-      console.warn('Using local warehouse items:', err);
-    }
-    return readLocal<WarehouseItem[]>(STORAGE_KEYS.WAREHOUSE, isBlankMode() ? [] : warehouseItemsData);
+  getWarehouseItems(farmId: string = FARM_ID): Promise<WarehouseItem[]> {
+    return getAll<WarehouseItem>(farmId, COL.warehouse, STORAGE_KEYS.WAREHOUSE);
   },
-
-  subscribeWarehouse(
-    farmId: string = FARM_ID,
-    onUpdate: (items: WarehouseItem[]) => void
-  ): () => void {
-    try {
-      return onSnapshot(
-        collection(db, 'farms', farmId, 'warehouse'),
-        (snap) => {
-          if (!snap.empty) {
-            const list: WarehouseItem[] = [];
-            snap.forEach((d) => list.push(d.data() as WarehouseItem));
-            writeLocal(STORAGE_KEYS.WAREHOUSE, list);
-            onUpdate(list);
-          } else if (isBlankMode()) {
-            writeLocal(STORAGE_KEYS.WAREHOUSE, []);
-            onUpdate([]);
-          }
-        },
-        () => {
-          onUpdate(readLocal<WarehouseItem[]>(STORAGE_KEYS.WAREHOUSE, isBlankMode() ? [] : warehouseItemsData));
-        }
-      );
-    } catch {
-      onUpdate(readLocal<WarehouseItem[]>(STORAGE_KEYS.WAREHOUSE, isBlankMode() ? [] : warehouseItemsData));
-      return () => {};
-    }
+  subscribeWarehouse(farmId: string = FARM_ID, onUpdate: (items: WarehouseItem[]) => void): () => void {
+    return subscribeAll<WarehouseItem>(farmId, COL.warehouse, STORAGE_KEYS.WAREHOUSE, onUpdate);
   },
-
-  async saveWarehouseItem(farmId: string = FARM_ID, item: WarehouseItem): Promise<void> {
-    const items = readLocal<WarehouseItem[]>(STORAGE_KEYS.WAREHOUSE, isBlankMode() ? [] : warehouseItemsData);
-    const idx = items.findIndex((i) => i.id === item.id);
-    const updated = idx >= 0 ? items.map((i, index) => (index === idx ? item : i)) : [item, ...items];
-    writeLocal(STORAGE_KEYS.WAREHOUSE, updated);
-
-    try {
-      await setDoc(doc(db, 'farms', farmId, 'warehouse', item.id), item, { merge: true });
-    } catch (err) {
-      console.warn('Could not sync warehouse item to Firestore:', err);
-    }
+  saveWarehouseItem(farmId: string = FARM_ID, item: WarehouseItem): Promise<void> {
+    return saveOne(farmId, COL.warehouse, STORAGE_KEYS.WAREHOUSE, item);
+  },
+  deleteWarehouseItem(farmId: string = FARM_ID, itemId: string): Promise<void> {
+    return deleteOne(farmId, COL.warehouse, STORAGE_KEYS.WAREHOUSE, itemId);
   },
 
   // ==========================================
-  // RESUMEN GENERAL Y BALANCE DE LA GRANJA
+  // RESUMEN DE LA GRANJA
   // ==========================================
-
   async getFarmSummary(farmId: string = FARM_ID): Promise<FarmSummary> {
     try {
       const snap = await getDoc(doc(db, 'farms', farmId));
       if (snap.exists()) {
-        const raw = snap.data();
+        // Normalizar: un documento incompleto (sin members/finances/counts) no debe dejar la UI en negro.
+        const raw = snap.data() as Partial<FarmSummary>;
+        const base = buildEmptySummary();
         const summary: FarmSummary = {
-          ...granjaSummaryData,
+          ...base,
           ...raw,
-          members: Array.isArray(raw?.members) && raw.members.length > 0 ? raw.members : granjaSummaryData.members,
+          members: Array.isArray(raw?.members) && raw.members.length > 0 ? raw.members : base.members,
           finances: {
-            ...granjaSummaryData.finances,
+            ...base.finances,
             ...(raw?.finances || {}),
-            byRubro: Array.isArray(raw?.finances?.byRubro) && raw.finances.byRubro.length > 0 ? raw.finances.byRubro : granjaSummaryData.finances.byRubro,
+            byRubro: Array.isArray(raw?.finances?.byRubro) ? raw.finances.byRubro : base.finances.byRubro,
           },
           counts: {
-            ...granjaSummaryData.counts,
+            ...base.counts,
             ...(raw?.counts || {}),
           },
         };
@@ -494,139 +447,47 @@ export const dbService = {
     } catch (err) {
       console.warn('Using local farm summary:', err);
     }
-    if (isBlankMode()) {
-      return readLocal<FarmSummary>(STORAGE_KEYS.SUMMARY, {
-        name: 'Granja Arianna',
-        location: 'Sector Pecuario Central',
-        totalMembers: 1,
-        members: granjaSummaryData.members.slice(0, 1),
-        finances: {
-          period: 'Agosto 2026',
-          totalExpenses: 0,
-          totalIncome: 0,
-          netUtility: 0,
-          byRubro: [
-            { rubro: 'Bovina', expenses: 0, income: 0, utility: 0, color: '#3b82f6' },
-            { rubro: 'Porcina', expenses: 0, income: 0, utility: 0, color: '#e11d48' },
-            { rubro: 'Avícola', expenses: 0, income: 0, utility: 0, color: '#eab308' },
-          ],
-        },
-        counts: {
-          avicola: { pollosEngorde: 0 },
-          porcino: { productoras: 0, lechones: 0, verracos: 0, engorde: 0 },
-          bovino: { padrotes: 0, becerros: 0, vacas: 0 },
-        },
-      });
-    }
-    return readLocal<FarmSummary>(STORAGE_KEYS.SUMMARY, granjaSummaryData);
+    return readLocal<FarmSummary>(STORAGE_KEYS.SUMMARY, buildEmptySummary());
   },
 
   async saveFarmSummary(farmId: string = FARM_ID, summary: FarmSummary): Promise<void> {
     writeLocal(STORAGE_KEYS.SUMMARY, summary);
-
     try {
-      await setDoc(
-        doc(db, 'farms', farmId),
-        {
-          ...summary,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      await setDoc(doc(db, 'farms', farmId), stripUndefined({ ...summary, updatedAt: nowISO() }), { merge: true });
     } catch (error) {
       console.warn('Could not sync farm summary to Firestore:', error);
     }
   },
 
   // ==========================================
-  // GESTIÓN DE CAMADAS Y LECHONES LACTANTES
+  // CAMADAS
   // ==========================================
-
-  async getLitters(farmId: string = FARM_ID): Promise<LactatingLitter[]> {
-    try {
-      const snap = await getDocs(collection(db, 'farms', farmId, 'litters'));
-      if (!snap.empty) {
-        const list: LactatingLitter[] = [];
-        snap.forEach((d) => list.push(d.data() as LactatingLitter));
-        writeLocal(STORAGE_KEYS.LITTERS, list);
-        return list;
-      }
-      writeLocal(STORAGE_KEYS.LITTERS, []);
-      return [];
-    } catch (error) {
-      return readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, []);
-    }
+  getLitters(farmId: string = FARM_ID): Promise<LactatingLitter[]> {
+    return getAll<LactatingLitter>(farmId, COL.litters, STORAGE_KEYS.LITTERS);
   },
-
-  subscribeLitters(
-    farmId: string = FARM_ID,
-    onUpdate: (litters: LactatingLitter[]) => void
-  ): () => void {
-    try {
-      return onSnapshot(
-        collection(db, 'farms', farmId, 'litters'),
-        (snapshot) => {
-          if (!snapshot.empty) {
-            const list: LactatingLitter[] = [];
-            snapshot.forEach((d) => list.push(d.data() as LactatingLitter));
-            writeLocal(STORAGE_KEYS.LITTERS, list);
-            onUpdate(list);
-          } else {
-            writeLocal(STORAGE_KEYS.LITTERS, []);
-            onUpdate([]);
-          }
-        },
-        () => {
-          onUpdate(readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, []));
-        }
-      );
-    } catch {
-      onUpdate(readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, []));
-      return () => {};
-    }
+  subscribeLitters(farmId: string = FARM_ID, onUpdate: (litters: LactatingLitter[]) => void): () => void {
+    return subscribeAll<LactatingLitter>(farmId, COL.litters, STORAGE_KEYS.LITTERS, onUpdate);
   },
-
-  async saveLitter(farmId: string = FARM_ID, litter: LactatingLitter): Promise<void> {
-    const current = readLocal<LactatingLitter[]>(STORAGE_KEYS.LITTERS, initialLactatingLitters);
-    const idx = current.findIndex((l) => l.id === litter.id || l.batchCode === litter.batchCode);
-    const updated = idx >= 0 ? current.map((l, i) => (i === idx ? litter : l)) : [litter, ...current];
-    writeLocal(STORAGE_KEYS.LITTERS, updated);
-
-    try {
-      await setDoc(doc(db, 'farms', farmId, 'litters', litter.id), litter, { merge: true });
-    } catch (err) {
-      console.warn(`Could not sync litter ${litter.batchCode}:`, err);
-    }
-    this.recalculateAndSyncCounters(farmId).catch(console.warn);
+  saveLitter(farmId: string = FARM_ID, litter: LactatingLitter): Promise<void> {
+    return saveOne(farmId, COL.litters, STORAGE_KEYS.LITTERS, litter);
   },
-
-  async bulkSaveLitters(farmId: string = FARM_ID, litters: LactatingLitter[]): Promise<void> {
-    writeLocal(STORAGE_KEYS.LITTERS, litters);
-    for (const litter of litters) {
-      try {
-        await setDoc(doc(db, 'farms', farmId, 'litters', litter.id), litter, { merge: true });
-      } catch (err) {
-        console.warn(`Could not sync litter ${litter.batchCode}:`, err);
-      }
-    }
-    this.recalculateAndSyncCounters(farmId).catch(console.warn);
+  bulkSaveLitters(farmId: string = FARM_ID, litters: LactatingLitter[]): Promise<void> {
+    return bulkSave(farmId, COL.litters, STORAGE_KEYS.LITTERS, litters);
   },
-
-  // ==========================================
-  // CÁLCULO Y CONCILIACIÓN DE CONTADORES CON BASE DE DATOS
-  // ==========================================
 
   /**
-   * Recalcula matemáticamente todos los contadores de la sección de gestión porcina
-   * asegurando concordancia absoluta con los registros reales y actualiza la BD.
+   * Recalcula los contadores porcinos desde la BD y los guarda en el resumen.
+   * Ya NO se invoca automáticamente en cada guardado (el controlador deriva los contadores);
+   * se mantiene para la acción manual "Recalcular censo".
    */
   async recalculateAndSyncCounters(farmId: string = FARM_ID): Promise<PorcinoDetailedCounters> {
-    const animals = await this.getAnimals(farmId);
-    const litters = await this.getLitters(farmId);
+    const [animals, litters, summary] = await Promise.all([
+      this.getAnimals(farmId),
+      this.getLitters(farmId),
+      this.getFarmSummary(farmId),
+    ]);
     const calculated = calculatePorcinoCounters(animals, litters);
-
-    const summary = await this.getFarmSummary(farmId);
-    const updatedSummary: FarmSummary = {
+    await this.saveFarmSummary(farmId, {
       ...summary,
       counts: {
         ...summary.counts,
@@ -637,369 +498,125 @@ export const dbService = {
           engorde: calculated.engorde,
         },
       },
-    };
-
-    await this.saveFarmSummary(farmId, updatedSummary);
+    });
     return calculated;
   },
 
   // ==========================================
-  // GESTIÓN DEL HATO BOVINO
+  // BOVINO
   // ==========================================
-  async getBovinoHerd(farmId: string = FARM_ID): Promise<any[]> {
-    try {
-      const snap = await getDocs(collection(db, 'farms', farmId, 'bovino'));
-      if (!snap.empty) {
-        const list: any[] = [];
-        snap.forEach((d) => list.push(d.data()));
-        writeLocal(STORAGE_KEYS.BOVINO, list);
-        return list;
-      }
-      writeLocal(STORAGE_KEYS.BOVINO, []);
-      return [];
-    } catch {
-      return readLocal<any[]>(STORAGE_KEYS.BOVINO, []);
-    }
+  getBovinoHerd(farmId: string = FARM_ID): Promise<any[]> {
+    return getAll<any>(farmId, COL.bovino, STORAGE_KEYS.BOVINO);
   },
-
   subscribeBovinoHerd(farmId: string = FARM_ID, onUpdate: (herd: any[]) => void): () => void {
-    try {
-      return onSnapshot(
-        collection(db, 'farms', farmId, 'bovino'),
-        (snapshot) => {
-          if (!snapshot.empty) {
-            const list: any[] = [];
-            snapshot.forEach((d) => list.push(d.data()));
-            writeLocal(STORAGE_KEYS.BOVINO, list);
-            onUpdate(list);
-          } else {
-            writeLocal(STORAGE_KEYS.BOVINO, []);
-            onUpdate([]);
-          }
-        },
-        () => onUpdate(readLocal<any[]>(STORAGE_KEYS.BOVINO, []))
-      );
-    } catch {
-      onUpdate(readLocal<any[]>(STORAGE_KEYS.BOVINO, []));
-      return () => {};
-    }
+    return subscribeAll<any>(farmId, COL.bovino, STORAGE_KEYS.BOVINO, onUpdate);
   },
-
-  async saveBovinoAnimal(farmId: string = FARM_ID, animal: any): Promise<void> {
-    const current = readLocal<any[]>(STORAGE_KEYS.BOVINO, []);
-    const idx = current.findIndex((a) => a.id === animal.id || a.tag === animal.tag);
-    const updated = idx >= 0 ? current.map((a, i) => (i === idx ? animal : a)) : [animal, ...current];
-    writeLocal(STORAGE_KEYS.BOVINO, updated);
-
-    try {
-      await setDoc(doc(db, 'farms', farmId, 'bovino', animal.id || `bov_${Date.now()}`), animal, { merge: true });
-    } catch (err) {
-      console.warn('Could not sync bovine animal to Firestore:', err);
-    }
+  saveBovinoAnimal(farmId: string = FARM_ID, animal: any): Promise<void> {
+    const a = animal.id ? animal : { ...animal, id: newId('bov') };
+    return saveOne(farmId, COL.bovino, STORAGE_KEYS.BOVINO, a);
   },
-
-  async bulkSaveBovino(farmId: string = FARM_ID, herd: any[]): Promise<void> {
-    writeLocal(STORAGE_KEYS.BOVINO, herd);
-    for (const animal of herd) {
-      try {
-        await setDoc(doc(db, 'farms', farmId, 'bovino', animal.id), animal, { merge: true });
-      } catch (err) {
-        console.warn('Could not sync bovine animal to Firestore:', err);
-      }
-    }
+  bulkSaveBovino(farmId: string = FARM_ID, herd: any[]): Promise<void> {
+    return bulkSave(farmId, COL.bovino, STORAGE_KEYS.BOVINO, herd);
   },
-
-  async deleteBovinoAnimal(farmId: string = FARM_ID, animalId: string): Promise<void> {
-    const current = readLocal<any[]>(STORAGE_KEYS.BOVINO, []);
-    writeLocal(STORAGE_KEYS.BOVINO, current.filter((a) => a.id !== animalId));
-    try {
-      await deleteDoc(doc(db, 'farms', farmId, 'bovino', animalId));
-    } catch (err) {
-      console.warn('Could not delete bovine animal in Firestore:', err);
-    }
+  deleteBovinoAnimal(farmId: string = FARM_ID, animalId: string): Promise<void> {
+    return deleteOne(farmId, COL.bovino, STORAGE_KEYS.BOVINO, animalId);
   },
 
   // ==========================================
-  // GESTIÓN DEL RUBRO AVÍCOLA
+  // AVÍCOLA
   // ==========================================
-  async getAvicolaLots(farmId: string = FARM_ID): Promise<any[]> {
-    try {
-      const snap = await getDocs(collection(db, 'farms', farmId, 'avicola'));
-      if (!snap.empty) {
-        const list: any[] = [];
-        snap.forEach((d) => list.push(d.data()));
-        writeLocal(STORAGE_KEYS.AVICOLA, list);
-        return list;
-      }
-      writeLocal(STORAGE_KEYS.AVICOLA, []);
-      return [];
-    } catch {
-      return readLocal<any[]>(STORAGE_KEYS.AVICOLA, []);
-    }
+  getAvicolaLots(farmId: string = FARM_ID): Promise<any[]> {
+    return getAll<any>(farmId, COL.avicola, STORAGE_KEYS.AVICOLA);
   },
-
   subscribeAvicolaLots(farmId: string = FARM_ID, onUpdate: (lots: any[]) => void): () => void {
-    try {
-      return onSnapshot(
-        collection(db, 'farms', farmId, 'avicola'),
-        (snapshot) => {
-          if (!snapshot.empty) {
-            const list: any[] = [];
-            snapshot.forEach((d) => list.push(d.data()));
-            writeLocal(STORAGE_KEYS.AVICOLA, list);
-            onUpdate(list);
-          } else {
-            writeLocal(STORAGE_KEYS.AVICOLA, []);
-            onUpdate([]);
-          }
-        },
-        () => onUpdate(readLocal<any[]>(STORAGE_KEYS.AVICOLA, []))
-      );
-    } catch {
-      onUpdate(readLocal<any[]>(STORAGE_KEYS.AVICOLA, []));
-      return () => {};
-    }
+    return subscribeAll<any>(farmId, COL.avicola, STORAGE_KEYS.AVICOLA, onUpdate);
   },
-
-  async saveAvicolaLot(farmId: string = FARM_ID, lot: any): Promise<void> {
-    const current = readLocal<any[]>(STORAGE_KEYS.AVICOLA, isBlankMode() ? [] : initialAvicolaLotsSample);
-    const idx = current.findIndex((l) => l.id === lot.id || l.code === lot.code);
-    const updated = idx >= 0 ? current.map((l, i) => (i === idx ? lot : l)) : [lot, ...current];
-    writeLocal(STORAGE_KEYS.AVICOLA, updated);
-
-    try {
-      await setDoc(doc(db, 'farms', farmId, 'avicola', lot.id || `av_${Date.now()}`), lot, { merge: true });
-    } catch (err) {
-      console.warn('Could not sync poultry lot to Firestore:', err);
-    }
+  saveAvicolaLot(farmId: string = FARM_ID, lot: any): Promise<void> {
+    const l = lot.id ? lot : { ...lot, id: newId('av') };
+    return saveOne(farmId, COL.avicola, STORAGE_KEYS.AVICOLA, l);
   },
-
-  async bulkSaveAvicolaLots(farmId: string = FARM_ID, lots: any[]): Promise<void> {
-    writeLocal(STORAGE_KEYS.AVICOLA, lots);
-    for (const lot of lots) {
-      try {
-        await setDoc(doc(db, 'farms', farmId, 'avicola', lot.id), lot, { merge: true });
-      } catch (err) {
-        console.warn('Could not sync poultry lot to Firestore:', err);
-      }
-    }
+  bulkSaveAvicolaLots(farmId: string = FARM_ID, lots: any[]): Promise<void> {
+    return bulkSave(farmId, COL.avicola, STORAGE_KEYS.AVICOLA, lots);
   },
-
-  async deleteAvicolaLot(farmId: string = FARM_ID, lotId: string): Promise<void> {
-    const current = readLocal<any[]>(STORAGE_KEYS.AVICOLA, isBlankMode() ? [] : initialAvicolaLotsSample);
-    writeLocal(STORAGE_KEYS.AVICOLA, current.filter((l) => l.id !== lotId));
-    try {
-      await deleteDoc(doc(db, 'farms', farmId, 'avicola', lotId));
-    } catch (err) {
-      console.warn('Could not delete poultry lot in Firestore:', err);
-    }
+  deleteAvicolaLot(farmId: string = FARM_ID, lotId: string): Promise<void> {
+    return deleteOne(farmId, COL.avicola, STORAGE_KEYS.AVICOLA, lotId);
   },
 
   // ==========================================
-  // PLANES DE ALIMENTACIÓN PORCINA
+  // PLANES DE ALIMENTACIÓN (doc id = productionType)
   // ==========================================
-  async getFeedingPlans(farmId: string = FARM_ID): Promise<any[]> {
-    try {
-      const snap = await getDocs(collection(db, 'farms', farmId, 'feeding_plans'));
-      if (!snap.empty) {
-        const list: any[] = [];
-        snap.forEach((d) => list.push(d.data()));
-        writeLocal(STORAGE_KEYS.FEEDING_PLANS, list);
-        return list;
-      }
-      return readLocal<any[]>(STORAGE_KEYS.FEEDING_PLANS, []);
-    } catch {
-      return readLocal<any[]>(STORAGE_KEYS.FEEDING_PLANS, []);
-    }
+  getFeedingPlans(farmId: string = FARM_ID): Promise<ProductionFeedingPlan[]> {
+    return getAll<ProductionFeedingPlan>(farmId, COL.feedingPlans, STORAGE_KEYS.FEEDING_PLANS);
   },
-
-  async saveFeedingPlans(farmId: string = FARM_ID, plans: any[]): Promise<void> {
-    writeLocal(STORAGE_KEYS.FEEDING_PLANS, plans);
-    for (const plan of plans) {
-      try {
-        await setDoc(doc(db, 'farms', farmId, 'feeding_plans', plan.productionType), plan, { merge: true });
-      } catch (err) {
-        console.warn('Could not sync feeding plan to Firestore:', err);
-      }
-    }
+  saveFeedingPlans(farmId: string = FARM_ID, plans: ProductionFeedingPlan[]): Promise<void> {
+    return bulkSave(farmId, COL.feedingPlans, STORAGE_KEYS.FEEDING_PLANS, plans as any[], (p: any) => p.productionType);
   },
-
-  subscribeFeedingPlans(farmId: string = FARM_ID, onUpdate: (plans: any[]) => void): () => void {
-    try {
-      return onSnapshot(
-        collection(db, 'farms', farmId, 'feeding_plans'),
-        (snapshot) => {
-          if (!snapshot.empty) {
-            const list: any[] = [];
-            snapshot.forEach((d) => list.push(d.data()));
-            writeLocal(STORAGE_KEYS.FEEDING_PLANS, list);
-            onUpdate(list);
-          }
-        },
-        () => onUpdate(readLocal<any[]>(STORAGE_KEYS.FEEDING_PLANS, []))
-      );
-    } catch {
-      onUpdate(readLocal<any[]>(STORAGE_KEYS.FEEDING_PLANS, []));
-      return () => {};
-    }
+  subscribeFeedingPlans(farmId: string = FARM_ID, onUpdate: (plans: ProductionFeedingPlan[]) => void): () => void {
+    return subscribeAll<ProductionFeedingPlan>(farmId, COL.feedingPlans, STORAGE_KEYS.FEEDING_PLANS, onUpdate);
   },
 
   // ==========================================
-  // CONFIGURACIÓN DE PROTOCOLOS Y LOTES PORCINOS
+  // PROTOCOLOS Y LOTES DE PRODUCCIÓN
   // ==========================================
-  async getBatchConfigs(farmId: string = FARM_ID): Promise<any[]> {
-    try {
-      const snap = await getDocs(collection(db, 'farms', farmId, 'batch_configs'));
-      if (!snap.empty) {
-        const list: any[] = [];
-        snap.forEach((d) => list.push(d.data()));
-        writeLocal(STORAGE_KEYS.BATCH_CONFIGS, list);
-        return list;
-      }
-      return readLocal<any[]>(STORAGE_KEYS.BATCH_CONFIGS, []);
-    } catch {
-      return readLocal<any[]>(STORAGE_KEYS.BATCH_CONFIGS, []);
-    }
+  getBatchConfigs(farmId: string = FARM_ID): Promise<BatchProductionConfig[]> {
+    return getAll<BatchProductionConfig>(farmId, COL.batchConfigs, STORAGE_KEYS.BATCH_CONFIGS);
   },
-
-  async saveBatchConfigs(farmId: string = FARM_ID, configs: any[]): Promise<void> {
-    writeLocal(STORAGE_KEYS.BATCH_CONFIGS, configs);
-    for (const cfg of configs) {
-      try {
-        await setDoc(doc(db, 'farms', farmId, 'batch_configs', cfg.id || cfg.productionType), cfg, { merge: true });
-      } catch (err) {
-        console.warn('Could not sync batch config to Firestore:', err);
-      }
-    }
+  saveBatchConfigs(farmId: string = FARM_ID, configs: BatchProductionConfig[]): Promise<void> {
+    return bulkSave(farmId, COL.batchConfigs, STORAGE_KEYS.BATCH_CONFIGS, configs as any[], (c: any) => c.id || c.productionType);
   },
-
-  async getProductionBatches(farmId: string = FARM_ID): Promise<any[]> {
-    try {
-      const snap = await getDocs(collection(db, 'farms', farmId, 'batches'));
-      if (!snap.empty) {
-        const list: any[] = [];
-        snap.forEach((d) => list.push(d.data()));
-        writeLocal(STORAGE_KEYS.BATCHES, list);
-        return list;
-      }
-      return readLocal<any[]>(STORAGE_KEYS.BATCHES, []);
-    } catch {
-      return readLocal<any[]>(STORAGE_KEYS.BATCHES, []);
-    }
+  subscribeBatchConfigs(farmId: string = FARM_ID, onUpdate: (configs: BatchProductionConfig[]) => void): () => void {
+    return subscribeAll<BatchProductionConfig>(farmId, COL.batchConfigs, STORAGE_KEYS.BATCH_CONFIGS, onUpdate);
   },
-
-  async saveProductionBatch(farmId: string = FARM_ID, batch: any): Promise<void> {
-    const current = readLocal<any[]>(STORAGE_KEYS.BATCHES, []);
-    const idx = current.findIndex((b) => b.id === batch.id || b.code === batch.code);
-    const updated = idx >= 0 ? current.map((b, i) => (i === idx ? batch : b)) : [batch, ...current];
-    writeLocal(STORAGE_KEYS.BATCHES, updated);
-
-    try {
-      await setDoc(doc(db, 'farms', farmId, 'batches', batch.id || `batch_${Date.now()}`), batch, { merge: true });
-    } catch (err) {
-      console.warn('Could not sync batch to Firestore:', err);
-    }
+  getProductionBatches(farmId: string = FARM_ID): Promise<ProductionBatch[]> {
+    return getAll<ProductionBatch>(farmId, COL.batches, STORAGE_KEYS.BATCHES);
+  },
+  saveProductionBatch(farmId: string = FARM_ID, batch: ProductionBatch): Promise<void> {
+    const b = batch.id ? batch : { ...batch, id: newId('batch') };
+    return saveOne(farmId, COL.batches, STORAGE_KEYS.BATCHES, b);
+  },
+  subscribeProductionBatches(farmId: string = FARM_ID, onUpdate: (batches: ProductionBatch[]) => void): () => void {
+    return subscribeAll<ProductionBatch>(farmId, COL.batches, STORAGE_KEYS.BATCHES, onUpdate);
   },
 
   // ==========================================
-  // LIMPIEZA DE DATOS Y MODO DE PRUEBAS
+  // LIMPIEZA DE DATOS
   // ==========================================
 
-  /**
-   * Limpia todos los datos de prueba y deja la granja totalmente en blanco (0 animales, 0 tareas, 0 finanzas).
-   * Activa el modo en blanco persistente para evitar que se vuelvan a autogenerar datos de demostración.
-   */
+  /** Deja la granja totalmente en blanco (borrado por lotes en Firestore). */
   async clearAllData(farmId: string = FARM_ID): Promise<void> {
     try {
       localStorage.setItem(BLANK_MODE_KEY, 'true');
     } catch (e) {
       console.warn('Could not set BLANK_MODE_KEY in localStorage:', e);
     }
+    const emptySummary = buildEmptySummary();
+    Object.entries(STORAGE_KEYS).forEach(([k, key]) => writeLocal(key, k === 'SUMMARY' ? emptySummary : []));
 
-    const emptySummary: FarmSummary = {
-      name: 'Granja Arianna',
-      location: 'Sector Pecuario Central',
-      totalMembers: 1,
-      members: granjaSummaryData.members.slice(0, 1),
-      finances: {
-        period: 'Agosto 2026',
-        totalExpenses: 0,
-        totalIncome: 0,
-        netUtility: 0,
-        byRubro: [
-          { rubro: 'Bovina', expenses: 0, income: 0, utility: 0, color: '#3b82f6' },
-          { rubro: 'Porcina', expenses: 0, income: 0, utility: 0, color: '#e11d48' },
-          { rubro: 'Avícola', expenses: 0, income: 0, utility: 0, color: '#eab308' },
-        ],
-      },
-      counts: {
-        avicola: { pollosEngorde: 0 },
-        porcino: { productoras: 0, lechones: 0, verracos: 0, engorde: 0 },
-        bovino: { padrotes: 0, becerros: 0, vacas: 0 },
-      },
-    };
-
-    writeLocal(STORAGE_KEYS.ANIMALS, []);
-    writeLocal(STORAGE_KEYS.TASKS, []);
-    writeLocal(STORAGE_KEYS.MOVEMENTS, []);
-    writeLocal(STORAGE_KEYS.WAREHOUSE, []);
-    writeLocal(STORAGE_KEYS.SALES, []);
-    writeLocal(STORAGE_KEYS.LITTERS, []);
-    writeLocal(STORAGE_KEYS.BOVINO, []);
-    writeLocal(STORAGE_KEYS.AVICOLA, []);
-    writeLocal(STORAGE_KEYS.BATCHES, []);
-    writeLocal(STORAGE_KEYS.BATCH_CONFIGS, []);
-    writeLocal(STORAGE_KEYS.FEEDING_PLANS, []);
-    writeLocal(STORAGE_KEYS.SUMMARY, emptySummary);
-
-    // Intentar vaciar colecciones en Firestore si hay conexión
-    try {
-      const collectionsToClear = ['animals', 'tasks', 'movements', 'warehouse', 'sales', 'litters', 'bovino', 'avicola', 'batches', 'feeding_plans'];
-      for (const col of collectionsToClear) {
-        try {
-          const snap = await getDocs(collection(db, 'farms', farmId, col));
-          for (const d of snap.docs) {
-            await deleteDoc(d.ref);
-          }
-        } catch (colErr) {
-          console.warn(`Could not clear firestore collection ${col}:`, colErr);
-        }
+    for (const col of Object.values(COL)) {
+      try {
+        const snap = await getDocs(collection(db, 'farms', farmId, col));
+        await commitOps(snap.docs.map((d) => ({ ref: d.ref, del: true })));
+      } catch (colErr) {
+        console.warn(`Could not clear firestore collection ${col}:`, colErr);
       }
+    }
+    try {
       await setDoc(doc(db, 'farms', farmId), emptySummary, { merge: true });
     } catch (err) {
-      console.warn('Error clearing Firestore data:', err);
+      console.warn('Error clearing Firestore summary:', err);
     }
   },
 
   /**
-   * Restaura los datos de demostración iniciales (útil para presentaciones o demos).
+   * @deprecated Ya no existen datos de demostración: equivale a dejar la granja en blanco
+   * conservando lo que haya en la BD (solo restablece el resumen si falta).
    */
   async restoreSampleData(farmId: string = FARM_ID): Promise<void> {
     try {
       localStorage.removeItem(BLANK_MODE_KEY);
-    } catch (e) {
-      console.warn('Could not remove BLANK_MODE_KEY:', e);
+    } catch {
+      // ignorar
     }
-
-    writeLocal(STORAGE_KEYS.ANIMALS, porcinoAnimalsSample);
-    writeLocal(STORAGE_KEYS.TASKS, sanitaryTasksAugust2026);
-    writeLocal(STORAGE_KEYS.MOVEMENTS, financialMovementsPorcino);
-    writeLocal(STORAGE_KEYS.WAREHOUSE, warehouseItemsData);
-    writeLocal(STORAGE_KEYS.LITTERS, initialLactatingLitters);
-    writeLocal(STORAGE_KEYS.BOVINO, initialBovinoHerdSample);
-    writeLocal(STORAGE_KEYS.AVICOLA, initialAvicolaLotsSample);
-    writeLocal(STORAGE_KEYS.SUMMARY, granjaSummaryData);
-
-    try {
-      await this.bulkSaveAnimals(farmId, porcinoAnimalsSample);
-      await this.bulkSaveTasks(farmId, sanitaryTasksAugust2026);
-      await this.bulkSaveMovements(farmId, financialMovementsPorcino);
-      await this.bulkSaveLitters(farmId, initialLactatingLitters);
-      await this.bulkSaveBovino(farmId, initialBovinoHerdSample);
-      await this.bulkSaveAvicolaLots(farmId, initialAvicolaLotsSample);
-      await this.saveFarmSummary(farmId, granjaSummaryData);
-    } catch (err) {
-      console.warn('Could not sync sample data restore to Firestore:', err);
-    }
+    await this.initializeDatabase(farmId);
   },
 };

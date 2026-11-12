@@ -1,3 +1,4 @@
+import { newId } from '../../utils/ids';
 import { AnimalDTO, CreateAnimalDTO, RubroType } from '../types';
 
 /**
@@ -12,102 +13,7 @@ class AnimalService {
   }
 
   private seedInitialAnimals() {
-    const seedData: AnimalDTO[] = [
-      {
-        id: 'p-cer-101',
-        code: 'CER-101',
-        name: 'Duquesa (L3)',
-        rubro: 'porcino',
-        category: 'maternidad',
-        breed: 'Landrace x Large White',
-        birthDate: '2024-03-12',
-        currentWeightKg: 215,
-        healthStatus: 'Optimo',
-        stage: 'Lactante (Día 18)',
-        penLocation: 'Maternidad 04',
-        provenance: 'Granja San Antonio',
-        admissionDate: '2024-03-12',
-        admissionWeightKg: 1.4,
-        admissionPriceUsd: 45,
-        accumulatedCostUsd: 380.5,
-        photoUrl: 'https://images.unsplash.com/photo-1516467508483-a7212febe31a?w=400&auto=format&fit=crop&q=80',
-      },
-      {
-        id: 'p-cer-104',
-        code: 'CER-104',
-        name: 'Princesa F1',
-        rubro: 'porcino',
-        category: 'maternidad',
-        breed: 'F1 Camborough',
-        birthDate: '2024-05-20',
-        currentWeightKg: 198,
-        healthStatus: 'Optimo',
-        stage: 'Gestante (Día 98)',
-        penLocation: 'Gestación 02',
-        provenance: 'Genética PIC',
-        admissionDate: '2024-05-20',
-        admissionWeightKg: 1.3,
-        admissionPriceUsd: 55,
-        accumulatedCostUsd: 340.0,
-        photoUrl: 'https://images.unsplash.com/photo-1516467508483-a7212febe31a?w=400&auto=format&fit=crop&q=80',
-      },
-      {
-        id: 'p-ver-001',
-        code: 'VER-001',
-        name: 'Thor Pietrain',
-        rubro: 'porcino',
-        category: 'verracos',
-        breed: 'Pietrain Puro Alemán',
-        birthDate: '2023-11-05',
-        currentWeightKg: 245,
-        healthStatus: 'Optimo',
-        stage: 'Activo / Colecta Seminal',
-        penLocation: 'Verraco 01',
-        provenance: 'Cabaña El Roble',
-        admissionDate: '2024-01-15',
-        admissionWeightKg: 65,
-        admissionPriceUsd: 420,
-        accumulatedCostUsd: 680.0,
-        photoUrl: 'https://images.unsplash.com/photo-1516467508483-a7212febe31a?w=400&auto=format&fit=crop&q=80',
-      },
-      {
-        id: 'p-ver-002',
-        code: 'VER-002',
-        name: 'Titan Duroc',
-        rubro: 'porcino',
-        category: 'verracos',
-        breed: 'Duroc Jersey Línea Terminal',
-        birthDate: '2024-01-18',
-        currentWeightKg: 230,
-        healthStatus: 'Optimo',
-        stage: 'Activo / Monta Natural',
-        penLocation: 'Verraco 02',
-        provenance: 'Genética Porcina del Norte',
-        admissionDate: '2024-03-10',
-        admissionWeightKg: 50,
-        admissionPriceUsd: 390,
-        accumulatedCostUsd: 540.0,
-        photoUrl: 'https://images.unsplash.com/photo-1516467508483-a7212febe31a?w=400&auto=format&fit=crop&q=80',
-      },
-      {
-        id: 'p-eng-001',
-        code: 'ENG-LOT-01',
-        name: 'Lote Engorde Julio-Ceba',
-        rubro: 'porcino',
-        category: 'engorde',
-        breed: 'Híbrido F1 x Pietrain',
-        birthDate: '2026-04-10',
-        currentWeightKg: 85.5,
-        healthStatus: 'Optimo',
-        stage: 'Engorde Fase 2',
-        penLocation: 'Galpón Engorde 1',
-        provenance: 'Nacidos en Granja',
-        batchAnimalCount: 45,
-        accumulatedCostUsd: 3200.0,
-      }
-    ];
-
-    seedData.forEach((animal) => this.inMemoryAnimals.set(animal.id, animal));
+    // Sin datos de ejemplo: el servicio arranca vacío y solo contiene lo que registre el usuario.
   }
 
   public async getAllAnimals(rubro?: RubroType, category?: string): Promise<AnimalDTO[]> {
@@ -131,7 +37,7 @@ class AnimalService {
   }
 
   public async createAnimal(dto: CreateAnimalDTO): Promise<AnimalDTO> {
-    const id = `anim_${Date.now()}_${dto.code.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    const id = newId('anim');
     const newAnimal: AnimalDTO = {
       ...dto,
       id,

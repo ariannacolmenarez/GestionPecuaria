@@ -11,46 +11,10 @@ export const porcinoController = {
   async getCounters(req: Request, res: Response) {
     try {
       const animals = await animalService.getAllAnimals('porcino');
-      const sampleLitters = [
-        {
-          id: 'lit-01',
-          batchCode: 'CAM-CER088-L1',
-          sowCode: 'CER-088',
-          currentCount: 12,
-          initialCount: 12,
-          mortalityCount: 0,
-          weaningStatus: 'en_lactancia',
-        },
-        {
-          id: 'lit-02',
-          batchCode: 'CAM-CER052-P1',
-          sowCode: 'CER-052',
-          currentCount: 14,
-          initialCount: 15,
-          mortalityCount: 1,
-          weaningStatus: 'en_lactancia',
-        },
-        {
-          id: 'lit-03',
-          batchCode: 'CAM-CER112-L3',
-          sowCode: 'CER-112',
-          currentCount: 11,
-          initialCount: 11,
-          mortalityCount: 0,
-          weaningStatus: 'en_lactancia',
-        },
-        {
-          id: 'lit-04',
-          batchCode: 'CAM-CER095-L2',
-          sowCode: 'CER-095',
-          currentCount: 13,
-          initialCount: 14,
-          mortalityCount: 1,
-          weaningStatus: 'en_lactancia',
-        },
-      ];
+      // Sin camadas de ejemplo: el backend en memoria no persiste camadas; se calculan solo con los animales reales.
+      const litters: any[] = [];
 
-      const counters = PorcinoCounterModel.calculate(animals, sampleLitters);
+      const counters = PorcinoCounterModel.calculate(animals, litters);
       res.json({
         success: true,
         data: counters,

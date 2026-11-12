@@ -1,16 +1,12 @@
-import React, { useState } from 'react';
-import {
-  X,
-  Heart,
-  Plus,
-  DollarSign,
-  Calendar,
-  CheckCircle2,
-  ShieldCheck,
-  Activity,
-  Award,
-} from 'lucide-react';
-import { PorcinoAnimal, FinancialMovement, AnimalTraceEvent } from '../../types';
+import React, { useMemo, useState } from 'react';
+import { X, Heart, Plus, Calendar, CheckCircle2, ShieldCheck, Activity } from 'lucide-react';
+import { PorcinoAnimal, FinancialMovement } from '../../types';
+import { isActiveAnimal, sowReproductiveState } from '../../models/porcinoRules';
+import { todayISO, addDays } from '../../utils/dates';
+import { newId } from '../../utils/ids';
+import { ModalActionReturn, runModalAction, toNumber } from './modalResult';
+
+const GESTATION_DAYS = 114;
 
 interface BoarMatingAndNewModalProps {
   initialTab?: 'monta' | 'nuevo';
@@ -18,6 +14,10 @@ interface BoarMatingAndNewModalProps {
   sows?: PorcinoAnimal[];
   animals?: PorcinoAnimal[];
   onClose: () => void;
+  /**
+   * El argumento movement ya no se envía (undefined): el dominio (registerMating) crea el egreso
+   * a partir de externalCostUsd. Puede devolver un DomainResult para mostrar éxito/error real.
+   */
   onRegisterMating: (
     boarCode: string,
     sowCode: string,
@@ -26,8 +26,12 @@ interface BoarMatingAndNewModalProps {
     externalCostUsd: number,
     notes: string,
     movement?: FinancialMovement
-  ) => void;
-  onAddNewBoar: (newBoar: PorcinoAnimal, movement: FinancialMovement) => void;
+  ) => ModalActionReturn;
+  /**
+   * newBoar.admissionPriceUsd = costo de compra (el dominio addNewBoar genera el egreso con él;
+   * el movement se mantiene solo por compatibilidad y debe ignorarse).
+   */
+  onAddNewBoar: (newBoar: PorcinoAnimal, movement: FinancialMovement) => ModalActionReturn;
 }
 
 export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
@@ -39,138 +43,177 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
   onRegisterMating,
   onAddNewBoar,
 }) => {
-  const safeBoars = (boars && boars.length > 0)
-    ? boars
-    : (animals ? animals.filter((a) => a.category === 'verracos') : []);
-  const availableBoars = safeBoars.length > 0 ? safeBoars : (animals || []);
+  const allAnimals = animals || [];
 
-  const safeSows = (sows && sows.length > 0)
-    ? sows
-    : (animals ? animals.filter((a) => a.category === 'maternidad' || a.category === 'cerdas') : []);
-  const availableSows = safeSows.length > 0 ? safeSows : (animals || []);
+  // Verracos activos de la granja
+  const availableBoars = useMemo(() => {
+    const source = boars && boars.length > 0 ? boars : allAnimals;
+    return source.filter((a) => a.category === 'verracos' && isActiveAnimal(a));
+  }, [boars, allAnimals]);
+
+  // Cerdas activas que pueden recibir servicio (no gestantes)
+  const availableSows = useMemo(() => {
+    const source = sows && sows.length > 0 ? sows : allAnimals;
+    return source.filter(
+      (a) => a.category === 'maternidad' && isActiveAnimal(a) && sowReproductiveState(a) !== 'gestante'
+    );
+  }, [sows, allAnimals]);
 
   const [activeTab, setActiveTab] = useState<'monta' | 'nuevo'>(initialTab);
   const [isSuccess, setIsSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Mating form state
-  const [selectedBoar, setSelectedBoar] = useState(availableBoars[0]?.code || 'VER-001');
-  const [selectedSow, setSelectedSow] = useState(availableSows[0]?.code || 'CER-104');
-  const [matingDate, setMatingDate] = useState('2026-08-19');
-  const [isExternalBoar, setIsExternalBoar] = useState(false);
-  const [externalBoarName, setExternalBoarName] = useState('Verraco Externo Cabaña El Roble');
-  const [externalCost, setExternalCost] = useState('45');
+  const [selectedBoar, setSelectedBoar] = useState(availableBoars[0]?.code || '');
+  const [selectedSow, setSelectedSow] = useState(availableSows[0]?.code || '');
+  const [matingDate, setMatingDate] = useState(todayISO());
+  const [isExternalBoar, setIsExternalBoar] = useState(availableBoars.length === 0);
+  const [externalBoarName, setExternalBoarName] = useState('');
+  const [externalCost, setExternalCost] = useState('');
   const [matingType, setMatingType] = useState<'natural' | 'inseminacion'>('natural');
-  const [matingNotes, setMatingNotes] = useState('Servicio matutino con buena aceptación de la cerda.');
+  const [matingNotes, setMatingNotes] = useState('');
 
   // New Boar form state
-  const [newBoarCode, setNewBoarCode] = useState(`VER-00${availableBoars.length + 1}`);
-  const [newBoarBreed, setNewBoarBreed] = useState('Pietrain Alemán');
-  const [newBoarBirthDate, setNewBoarBirthDate] = useState('2025-09-10');
-  const [newBoarWeight, setNewBoarWeight] = useState('175');
-  const [newBoarCost, setNewBoarCost] = useState('650');
-  const [newBoarSupplier, setNewBoarSupplier] = useState('Centro Genético AgroPorc C.A.');
-  const [newBoarDiet, setNewBoarDiet] = useState('Mantenimiento Machos 2.8 kg/día');
+  const [newBoarCode, setNewBoarCode] = useState('');
+  const [newBoarBreed, setNewBoarBreed] = useState('');
+  const [newBoarBirthDate, setNewBoarBirthDate] = useState('');
+  const [newBoarWeight, setNewBoarWeight] = useState('');
+  const [newBoarCost, setNewBoarCost] = useState('');
+  const [newBoarSupplier, setNewBoarSupplier] = useState('');
+  const [newBoarDiet, setNewBoarDiet] = useState('');
 
-  // Cálculo de fecha de parto estimada (+114 días)
-  const calcEstimatedFarrowDate = (dStr: string) => {
-    try {
-      const d = new Date(dStr);
-      d.setDate(d.getDate() + 114);
-      return d.toISOString().split('T')[0];
-    } catch {
-      return '2026-12-11';
-    }
+  const estimatedFarrowDate = matingDate ? addDays(matingDate, GESTATION_DAYS) : '—';
+  const selectedSowAnimal = availableSows.find((s) => s.code === selectedSow);
+
+  const switchTab = (tab: 'monta' | 'nuevo') => {
+    setActiveTab(tab);
+    setError(null);
   };
 
-  const estimatedFarrowDate = calcEstimatedFarrowDate(matingDate);
-
-  const handleMatingSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const costNum = isExternalBoar ? parseFloat(externalCost) || 0 : 0;
-    const finalBoarCode = isExternalBoar ? externalBoarName : selectedBoar;
-
-    let movement: FinancialMovement | undefined;
-    if (isExternalBoar && costNum > 0) {
-      movement = {
-        id: `mov-monta-${Date.now()}`,
-        type: 'egreso',
-        concept: `Servicio de Monta Externa (${externalBoarName}) para Cerda ${selectedSow}`,
-        rubro: 'porcino',
-        amount: costNum,
-        date: matingDate,
-        category: 'Servicios de Reproducción y Genética',
-        details: `Costo de monta externa: $${costNum} USD. Fecha estimada de parto: ${estimatedFarrowDate}.`,
-      };
+  const handleMatingSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setError(null);
+    if (!selectedSowAnimal) {
+      setError('Selecciona una cerda disponible para el servicio.');
+      return;
     }
+    const finalBoarCode = (isExternalBoar ? externalBoarName : selectedBoar).trim();
+    if (!finalBoarCode) {
+      setError(isExternalBoar ? 'Indica el nombre o código del verraco externo.' : 'Selecciona un verraco de la granja.');
+      return;
+    }
+    if (!matingDate || matingDate > todayISO()) {
+      setError('La fecha de la monta no puede ser futura.');
+      return;
+    }
+    const costNum = isExternalBoar ? toNumber(externalCost) : 0;
+    if (costNum < 0) {
+      setError('El costo del servicio no puede ser negativo.');
+      return;
+    }
+    const typeLabel = matingType === 'inseminacion' ? 'Inseminación artificial' : 'Monta natural';
+    const notes = [typeLabel, matingNotes.trim()].filter(Boolean).join('. ');
 
-    onRegisterMating(
-      finalBoarCode,
-      selectedSow,
-      matingDate,
-      isExternalBoar,
-      costNum,
-      matingNotes,
-      movement
+    setIsSaving(true);
+    const res = await runModalAction(() =>
+      onRegisterMating(finalBoarCode, selectedSowAnimal.code, matingDate, isExternalBoar, costNum, notes, undefined)
     );
-
+    setIsSaving(false);
+    if (!res.ok) {
+      setError(res.error || 'No se pudo registrar la monta.');
+      return;
+    }
     setSuccessMessage(
-      `Monta registrada entre ${finalBoarCode} y ${selectedSow}. Fecha probable de parto: ${estimatedFarrowDate}.`
+      `Monta registrada entre ${finalBoarCode} y ${selectedSowAnimal.code}. Fecha probable de parto: ${
+        res.meta?.expectedFarrowingDate || estimatedFarrowDate
+      }. Se programaron las tareas de diagnóstico, vacunación preparto y parto.`
     );
     setIsSuccess(true);
-    setTimeout(() => onClose(), 2200);
   };
 
-  const handleNewBoarSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const costNum = parseFloat(newBoarCost) || 0;
-    const weightNum = parseFloat(newBoarWeight) || 160;
+  const handleNewBoarSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setError(null);
+    const code = newBoarCode.trim().toUpperCase();
+    if (!code) {
+      setError('Indica el código o arete del verraco.');
+      return;
+    }
+    if (allAnimals.some((a) => (a.code || '').toUpperCase() === code) || availableBoars.some((b) => b.code.toUpperCase() === code)) {
+      setError(`El código ${code} ya está en uso.`);
+      return;
+    }
+    const costNum = toNumber(newBoarCost);
+    const weightNum = toNumber(newBoarWeight);
+    if (costNum < 0) {
+      setError('El costo de compra no puede ser negativo.');
+      return;
+    }
+    if (weightNum <= 0 || weightNum > 600) {
+      setError('Indica un peso inicial válido (entre 1 y 600 kg).');
+      return;
+    }
+    if (newBoarBirthDate && newBoarBirthDate > todayISO()) {
+      setError('La fecha de nacimiento no puede ser futura.');
+      return;
+    }
+    const today = todayISO();
+    const supplier = newBoarSupplier.trim();
+    const breed = newBoarBreed.trim();
 
     const newAnimal: PorcinoAnimal = {
-      id: `boar-${Date.now()}`,
-      code: newBoarCode.trim().toUpperCase(),
+      id: newId('pig'),
+      code,
       category: 'verracos',
-      birthDate: newBoarBirthDate,
+      birthDate: newBoarBirthDate || today,
       currentWeightKg: weightNum,
       healthStatus: 'Optimo',
       stage: 'Semental Reproductor en Adaptación',
-      breed: newBoarBreed,
-      accumulatedCostUsd: costNum,
-      lastVaccine: 'Parvovirus / Leptospira',
-      dietPlan: newBoarDiet,
-      photoUrl:
-        'https://images.unsplash.com/photo-1545468800-856f6620f779?w=300&auto=format&fit=crop&q=80',
-      traceability: [
-        {
-          id: `tr-${Date.now()}`,
-          date: '2026-08-19',
-          type: 'observacion',
-          title: `Ingreso por Compra a Granja (${newBoarSupplier})`,
-          description: `Semental ${newBoarCode} raza ${newBoarBreed} adquirido por $${costNum} USD con ${weightNum} kg.`,
-          responsible: 'Ing. Carlos Mendoza',
-          costUsd: costNum,
-        },
-      ],
+      breed: breed || undefined,
+      accumulatedCostUsd: 0,
+      dietPlan: newBoarDiet.trim() || undefined,
+      photoUrl: 'https://images.unsplash.com/photo-1545468800-856f6620f779?w=300&auto=format&fit=crop&q=80',
+      origin: 'comprado',
+      provenance: supplier || undefined,
+      admissionDate: today,
+      admissionWeightKg: weightNum,
+      admissionPriceUsd: costNum,
+      batchAnimalCount: 1,
+      traceability: [],
     };
 
+    // Solo por compatibilidad de firma: el dominio genera el egreso real desde admissionPriceUsd.
     const movement: FinancialMovement = {
-      id: `mov-boar-${Date.now()}`,
+      id: newId('mov'),
       type: 'egreso',
-      concept: `Compra de Nuevo Verraco Reproductor ${newAnimal.code} (${newBoarBreed})`,
+      concept: `Compra de verraco ${code}${breed ? ` (${breed})` : ''}`,
       rubro: 'porcino',
       amount: costNum,
-      date: '2026-08-19',
-      category: 'Compra de Reproductores',
-      details: `Proveedor: ${newBoarSupplier}. Peso ingreso: ${weightNum} kg. Costo registrado en balance.`,
+      date: today,
+      category: 'Compra de animales',
+      details: supplier ? `Proveedor ${supplier}` : undefined,
     };
 
-    onAddNewBoar(newAnimal, movement);
+    setIsSaving(true);
+    const res = await runModalAction(() => onAddNewBoar(newAnimal, movement));
+    setIsSaving(false);
+    if (!res.ok) {
+      setError(res.error || 'No se pudo registrar el verraco.');
+      return;
+    }
     setSuccessMessage(
-      `Nuevo semental ${newAnimal.code} incorporado al rebaño y egreso de $${costNum} USD registrado en el balance.`
+      costNum > 0
+        ? `Nuevo semental ${code} incorporado al rebaño y egreso de $${costNum.toFixed(2)} USD registrado en el balance.`
+        : `Nuevo semental ${code} incorporado al rebaño.`
     );
     setIsSuccess(true);
-    setTimeout(() => onClose(), 2200);
   };
+
+  const errorBox = error && (
+    <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-[11px] font-bold text-rose-800">{error}</div>
+  );
 
   return (
     <div
@@ -208,7 +251,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
         <div className="flex border-b border-slate-200 bg-slate-50 shrink-0">
           <button
             type="button"
-            onClick={() => setActiveTab('monta')}
+            onClick={() => switchTab('monta')}
             className={`flex-1 py-2.5 text-xs font-bold text-center border-b-2 transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'monta'
                 ? 'border-blue-600 text-blue-900 bg-white'
@@ -219,7 +262,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('nuevo')}
+            onClick={() => switchTab('nuevo')}
             className={`flex-1 py-2.5 text-xs font-bold text-center border-b-2 transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'nuevo'
                 ? 'border-emerald-600 text-emerald-900 bg-white'
@@ -237,6 +280,27 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
             </div>
             <h4 className="font-bold text-slate-800 text-base">¡Operación Registrada!</h4>
             <p className="text-xs text-slate-600 leading-relaxed">{successMessage}</p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-2 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+        ) : activeTab === 'monta' && availableSows.length === 0 ? (
+          <div className="p-8 text-center space-y-3 text-xs">
+            <p className="font-bold text-slate-800 text-sm">No hay cerdas disponibles para servicio</p>
+            <p className="text-slate-500">
+              Solo se listan cerdas de maternidad activas que no estén gestantes. Registra una nueva madre o espera el destete.
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-bold cursor-pointer"
+            >
+              Cerrar
+            </button>
           </div>
         ) : activeTab === 'monta' ? (
           /* FORM: REGISTRAR MONTA */
@@ -255,6 +319,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
                 <input
                   type="checkbox"
                   checked={isExternalBoar}
+                  disabled={availableBoars.length === 0}
                   onChange={(e) => setIsExternalBoar(e.target.checked)}
                   className="sr-only peer"
                 />
@@ -303,7 +368,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
                 >
                   {availableSows.map((s) => (
                     <option key={s.id} value={s.code}>
-                      {s.code} - {s.stage || s.healthStatus}
+                      {s.code} - {sowReproductiveState(s) === 'lactante' ? 'Lactante (requiere destete)' : s.stage || 'Vacía'}
                     </option>
                   ))}
                 </select>
@@ -321,7 +386,9 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
                   <input
                     type="number"
                     step="any"
+                    min="0"
                     required
+                    placeholder="0.00"
                     value={externalCost}
                     onChange={(e) => setExternalCost(e.target.value)}
                     className="w-full pl-7 pr-3 py-1.5 bg-white border border-amber-300 rounded-xl text-amber-950 font-black text-sm"
@@ -343,6 +410,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
                 <input
                   type="date"
                   required
+                  max={todayISO()}
                   value={matingDate}
                   onChange={(e) => setMatingDate(e.target.value)}
                   className="w-full px-2.5 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
@@ -386,10 +454,13 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
               <textarea
                 rows={2}
                 value={matingNotes}
+                placeholder="Ej. Servicio matutino con buena aceptación de la cerda"
                 onChange={(e) => setMatingNotes(e.target.value)}
                 className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl text-slate-900 bg-white"
               />
             </div>
+
+            {errorBox}
 
             <div className="flex gap-2 pt-2">
               <button
@@ -401,9 +472,10 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
+                disabled={isSaving}
+                className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
               >
-                Registrar Monta
+                {isSaving ? 'Guardando...' : 'Registrar Monta'}
               </button>
             </div>
           </form>
@@ -419,6 +491,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
                   type="text"
                   required
                   value={newBoarCode}
+                  placeholder="Ej. VER-001"
                   onChange={(e) => setNewBoarCode(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono font-bold text-slate-900 bg-white"
                 />
@@ -446,6 +519,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
                 </label>
                 <input
                   type="date"
+                  max={todayISO()}
                   value={newBoarBirthDate}
                   onChange={(e) => setNewBoarBirthDate(e.target.value)}
                   className="w-full px-2 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
@@ -459,7 +533,10 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
                 <input
                   type="number"
                   step="0.5"
+                  min="1"
+                  max="600"
                   required
+                  placeholder="Ej. 175"
                   value={newBoarWeight}
                   onChange={(e) => setNewBoarWeight(e.target.value)}
                   className="w-full px-2 py-2 border border-slate-300 rounded-xl font-black text-slate-900 bg-white"
@@ -473,7 +550,9 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
                 <input
                   type="number"
                   step="any"
+                  min="0"
                   required
+                  placeholder="0.00"
                   value={newBoarCost}
                   onChange={(e) => setNewBoarCost(e.target.value)}
                   className="w-full px-2 py-2 border border-emerald-300 rounded-xl font-black text-emerald-950 bg-emerald-50"
@@ -487,7 +566,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
               </label>
               <input
                 type="text"
-                required
+                placeholder="Ej. Centro genético / granja proveedora"
                 value={newBoarSupplier}
                 onChange={(e) => setNewBoarSupplier(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
@@ -501,6 +580,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
               <input
                 type="text"
                 value={newBoarDiet}
+                placeholder="Ej. Mantenimiento machos 2.8 kg/día"
                 onChange={(e) => setNewBoarDiet(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-900 bg-white"
               />
@@ -512,9 +592,11 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
               </span>
               <p>
                 El verraco ingresará a la lista de animales de la granja con historial de trazabilidad inicial,
-                y el costo de <strong>${newBoarCost} USD</strong> se computará como egreso de inversión en el Balance.
+                y el costo de <strong>${toNumber(newBoarCost).toFixed(2)} USD</strong> se computará como egreso de inversión en el Balance.
               </p>
             </div>
+
+            {errorBox}
 
             <div className="flex gap-2 pt-2">
               <button
@@ -526,9 +608,10 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="flex-1 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
+                disabled={isSaving}
+                className="flex-1 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
               >
-                Comprar e Incorporar Verraco
+                {isSaving ? 'Guardando...' : 'Comprar e Incorporar Verraco'}
               </button>
             </div>
           </form>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Bell,
   X,
@@ -14,6 +14,19 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { SanitaryTask, WarehouseItem } from '../../types';
+import { evaluateWarehouseReplenishment } from '../../models/PorcinoCalculations';
+import { MONTH_NAMES_ES, MONTH_NAMES_SHORT_ES, formatShortDate, parseISODate, todayISO } from '../../utils/dates';
+
+const WEEKDAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+/** 'Miércoles 11 de Noviembre de 2026' a partir de YYYY-MM-DD. */
+function longDateEs(iso: string): string {
+  const d = parseISODate(iso);
+  if (!d) return iso;
+  return `${WEEKDAYS_ES[d.getDay()]} ${d.getDate()} de ${MONTH_NAMES_ES[d.getMonth()]} de ${d.getFullYear()}`;
+}
+
+const isOpenTask = (t: SanitaryTask) => t.status === 'pendiente' || t.status === 'retrasada';
 
 interface AlertsCenterModalProps {
   tasks: SanitaryTask[];
@@ -30,7 +43,7 @@ interface AlertsCenterModalProps {
 export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
   tasks,
   warehouseItems,
-  currentDate = '2026-08-19',
+  currentDate: currentDateProp,
   onClose,
   onToggleTaskStatus,
   onCompleteTask,
@@ -58,13 +71,29 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
     }
   };
 
-  // Tasks for today
-  const todayTasks = tasks.filter((t) => t.date === currentDate);
-  const pendingCount = todayTasks.filter((t) => t.status === 'pendiente').length;
+  const currentDate = currentDateProp || todayISO();
+  const todayDate = parseISODate(currentDate);
+  const todayLong = longDateEs(currentDate);
+  const todayShort = todayDate
+    ? `${todayDate.getDate()} ${MONTH_NAMES_SHORT_ES[todayDate.getMonth()]} ${todayDate.getFullYear()}`
+    : currentDate;
 
-  // Warehouse items with critical supply (< 2.0 months)
-  const criticalWarehouseItems = warehouseItems.filter(
-    (item) => item.quantity / item.monthlyConsumptionRate < 2.0
+  // Tareas de hoy (sin canceladas) + tareas vencidas aún abiertas (mismo criterio que el badge/banner)
+  const overdueTasks = useMemo(
+    () => (tasks || []).filter((t) => isOpenTask(t) && t.date < currentDate).sort((a, b) => a.date.localeCompare(b.date)),
+    [tasks, currentDate]
+  );
+  const todayOnly = useMemo(
+    () => (tasks || []).filter((t) => t.date === currentDate && t.status !== 'cancelada'),
+    [tasks, currentDate]
+  );
+  const todayTasks = useMemo(() => [...overdueTasks, ...todayOnly], [overdueTasks, todayOnly]);
+  const pendingCount = todayTasks.filter(isOpenTask).length;
+
+  // Insumos críticos: mismo cálculo que el badge de almacén (sin divisiones por 0)
+  const criticalWarehouseItems = useMemo(
+    () => evaluateWarehouseReplenishment(warehouseItems || []).filter((i) => i.isCritical),
+    [warehouseItems]
   );
 
   return (
@@ -110,7 +139,7 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
             }`}
           >
             <Calendar className="w-3.5 h-3.5 text-amber-600" />
-            <span>Tareas de Hoy ({todayTasks.length})</span>
+            <span>Hoy y vencidas ({todayTasks.length})</span>
             {pendingCount > 0 && (
               <span className="w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
                 {pendingCount}
@@ -140,7 +169,7 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-1.5 font-bold text-amber-900">
                     <Clock className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Día en Curso: Miércoles 19 de Agosto de 2026</span>
+                    <span>Día en Curso: {todayLong}</span>
                   </div>
                   <p className="text-[11px] text-amber-800 leading-snug">
                     Estas actividades fueron programadas en el Plan Sanitario y alertan al
@@ -167,12 +196,13 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                 <div className="text-center py-8 text-slate-400 space-y-2">
                   <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500/50" />
                   <p className="text-xs font-medium">
-                    No hay actividades sanitarias pendientes para hoy 19 de Agosto.
+                    No hay actividades sanitarias pendientes para hoy ({formatShortDate(currentDate)}).
                   </p>
                 </div>
               ) : (
                 todayTasks.map((task) => {
                   const isCompleted = task.status === 'completada';
+                  const isOverdue = isOpenTask(task) && task.date < currentDate;
                   return (
                     <div
                       key={task.id}
@@ -192,7 +222,7 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                                   : 'bg-amber-100 text-amber-800 border border-amber-200'
                               }`}
                             >
-                              {isCompleted ? '✓ Completada' : '⏳ Pendiente'}
+                              {isCompleted ? '✓ Completada' : isOverdue ? '⚠ Vencida' : '⏳ Pendiente'}
                             </span>
                             {task.batchCode && (
                               <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
@@ -200,7 +230,7 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                               </span>
                             )}
                             <span className="text-[10px] font-medium text-slate-500">
-                              Hoy • 19 Ago 2026
+                              {isOverdue ? `Programada • ${formatShortDate(task.date)}` : `Hoy • ${todayShort}`}
                             </span>
                           </div>
 
@@ -273,6 +303,16 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                   );
                 })
               )}
+
+              {onNavigateToCalendar && (
+                <button
+                  onClick={onNavigateToCalendar}
+                  className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Calendar className="w-3.5 h-3.5 text-amber-600" /> Ver calendario sanitario
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           )}
 
@@ -290,7 +330,10 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
               </div>
 
               {criticalWarehouseItems.map((item) => {
-                const monthsLeft = (item.quantity / item.monthlyConsumptionRate).toFixed(1);
+                const hasRate = Number(item.monthlyConsumptionRate) > 0;
+                const coverageLabel = hasRate
+                  ? `${item.monthsOfSupply.toFixed(1)} meses restantes`
+                  : 'Bajo umbral mínimo';
                 return (
                   <div
                     key={item.id}
@@ -304,7 +347,7 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                         <h5 className="font-bold text-xs text-slate-900">{item.name}</h5>
                       </div>
                       <span className="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-md text-[10px] font-black">
-                        {monthsLeft} meses restantes
+                        {coverageLabel}
                       </span>
                     </div>
 
@@ -312,19 +355,36 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                       <div>
                         <span className="text-[10px] text-slate-500 block">Stock Actual</span>
                         <strong className="text-slate-900">
-                          {item.quantity.toLocaleString()} {item.unit}
+                          {Number(item.quantity).toLocaleString()} {item.unit}
                         </strong>
                       </div>
                       <div>
                         <span className="text-[10px] text-slate-500 block">Consumo Mensual</span>
                         <strong className="text-slate-900">
-                          {item.monthlyConsumptionRate.toLocaleString()} {item.unit}/mes
+                          {hasRate ? `${Number(item.monthlyConsumptionRate).toLocaleString()} ${item.unit}/mes` : 'Sin consumo registrado'}
                         </strong>
                       </div>
                     </div>
                   </div>
                 );
               })}
+
+              {criticalWarehouseItems.length === 0 && (
+                <div className="text-center py-6 text-slate-400 space-y-2">
+                  <Package className="w-10 h-10 mx-auto text-emerald-500/50" />
+                  <p className="text-xs font-medium">No hay insumos en nivel crítico.</p>
+                </div>
+              )}
+
+              {onNavigateToWarehouse && (
+                <button
+                  onClick={onNavigateToWarehouse}
+                  className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Package className="w-3.5 h-3.5 text-rose-600" /> Abrir almacén
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           )}
         </div>

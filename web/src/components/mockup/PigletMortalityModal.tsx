@@ -1,18 +1,22 @@
-import React, { useState } from 'react';
-import { X, AlertTriangle, Skull, CheckCircle2, ShieldCheck } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { X, AlertTriangle, Skull, CheckCircle2 } from 'lucide-react';
 import { LactatingLitter } from '../../types';
+import { isActiveLitter } from '../../models/porcinoRules';
+import { todayISO } from '../../utils/dates';
+import { ModalActionReturn, runModalAction } from './modalResult';
 
 interface PigletMortalityModalProps {
   litters: LactatingLitter[];
   preselectedLitterId?: string;
   onClose: () => void;
+  /** Puede devolver un DomainResult ({ok, error}) para mostrar éxito/error real. */
   onRegisterMortality: (
     litterId: string,
     deadCount: number,
     cause: string,
     date: string,
     notes?: string
-  ) => void;
+  ) => ModalActionReturn;
 }
 
 export const PigletMortalityModal: React.FC<PigletMortalityModalProps> = ({
@@ -21,30 +25,63 @@ export const PigletMortalityModal: React.FC<PigletMortalityModalProps> = ({
   onClose,
   onRegisterMortality,
 }) => {
-  const safeLitters = litters || [];
-  const [selectedLitterId, setSelectedLitterId] = useState<string>(
-    preselectedLitterId || safeLitters[0]?.id || ''
+  // Solo camadas en lactancia (no destetadas) con lechones vivos
+  const activeLitters = useMemo(
+    () => (litters || []).filter((l) => isActiveLitter(l) && (l.currentCount || 0) > 0),
+    [litters]
   );
+  const [selectedLitterId, setSelectedLitterId] = useState<string>(() => {
+    const pre = activeLitters.find((l) => l.id === preselectedLitterId);
+    return pre?.id || activeLitters[0]?.id || '';
+  });
   const [deadCount, setDeadCount] = useState('1');
   const [cause, setCause] = useState('Aplastamiento por la cerda madre');
-  const [date, setDate] = useState('2026-08-19');
-  const [notes, setNotes] = useState('Baja detectada durante la revisión matutina de corrales.');
+  const [date, setDate] = useState(todayISO());
+  const [notes, setNotes] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [registered, setRegistered] = useState<{ count: number; batchCode: string; sowCode: string } | null>(null);
 
-  const selectedLitter = safeLitters.find((l) => l.id === selectedLitterId) || safeLitters[0];
+  const selectedLitter = activeLitters.find((l) => l.id === selectedLitterId);
+  const maxDead = selectedLitter?.currentCount || 0;
+  const countNum = parseInt(deadCount, 10);
+  const safeCount = Number.isFinite(countNum) ? countNum : 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedLitter) return;
-
-    const countNum = parseInt(deadCount, 10);
-    if (isNaN(countNum) || countNum <= 0) return;
-
-    onRegisterMortality(selectedLitter.id, countNum, cause, date, notes);
+    setError(null);
+    if (!selectedLitter) {
+      setError('Selecciona una camada en lactancia.');
+      return;
+    }
+    if (!Number.isFinite(countNum) || countNum <= 0) {
+      setError('La cantidad de fallecidos debe ser mayor a 0.');
+      return;
+    }
+    if (countNum > maxDead) {
+      setError(`La camada solo tiene ${maxDead} lechón(es) vivos.`);
+      return;
+    }
+    if (!date || date > todayISO()) {
+      setError('La fecha de la baja no puede ser futura.');
+      return;
+    }
+    if (!cause.trim()) {
+      setError('Indica la causa de la muerte.');
+      return;
+    }
+    setIsSaving(true);
+    const res = await runModalAction(() =>
+      onRegisterMortality(selectedLitter.id, countNum, cause, date, notes.trim() || undefined)
+    );
+    setIsSaving(false);
+    if (!res.ok) {
+      setError(res.error || 'No se pudo registrar la baja.');
+      return;
+    }
+    setRegistered({ count: countNum, batchCode: selectedLitter.batchCode, sowCode: selectedLitter.sowCode });
     setIsSuccess(true);
-    setTimeout(() => {
-      onClose();
-    }, 2000);
   };
 
   return (
@@ -86,9 +123,28 @@ export const PigletMortalityModal: React.FC<PigletMortalityModalProps> = ({
             </div>
             <h4 className="font-bold text-slate-800 text-base">¡Baja Registrada Correctamente!</h4>
             <p className="text-xs text-slate-600">
-              Se descontaron <strong>{deadCount} lechón(es)</strong> del lote{' '}
-              <strong>{selectedLitter?.batchCode}</strong> (Cerda {selectedLitter?.sowCode}).
+              Se descontaron <strong>{registered?.count} lechón(es)</strong> del lote{' '}
+              <strong>{registered?.batchCode}</strong> (Cerda {registered?.sowCode}).
             </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-2 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+        ) : activeLitters.length === 0 ? (
+          <div className="p-8 text-center space-y-3 text-xs">
+            <p className="font-bold text-slate-800 text-sm">No hay camadas en lactancia</p>
+            <p className="text-slate-500">Registra un parto para poder reportar bajas de lechones.</p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-bold cursor-pointer"
+            >
+              Cerrar
+            </button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-4 space-y-3.5 text-xs">
@@ -102,7 +158,7 @@ export const PigletMortalityModal: React.FC<PigletMortalityModalProps> = ({
                 onChange={(e) => setSelectedLitterId(e.target.value)}
                 className="w-full px-2.5 py-2 border border-slate-300 rounded-xl font-bold text-slate-900 bg-white"
               >
-                {safeLitters.map((l) => (
+                {activeLitters.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.batchCode} (Cerda {l.sowCode}) - {l.currentCount} lechones vivos
                   </option>
@@ -119,7 +175,7 @@ export const PigletMortalityModal: React.FC<PigletMortalityModalProps> = ({
                 <input
                   type="number"
                   min="1"
-                  max={selectedLitter?.currentCount || 20}
+                  max={maxDead || undefined}
                   required
                   value={deadCount}
                   onChange={(e) => setDeadCount(e.target.value)}
@@ -134,6 +190,7 @@ export const PigletMortalityModal: React.FC<PigletMortalityModalProps> = ({
                 <input
                   type="date"
                   required
+                  max={todayISO()}
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                   className="w-full px-2.5 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
@@ -170,6 +227,7 @@ export const PigletMortalityModal: React.FC<PigletMortalityModalProps> = ({
                 rows={2}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+                placeholder="Ej. Baja detectada durante la revisión matutina de corrales"
                 className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl text-slate-900 bg-white"
               />
             </div>
@@ -180,11 +238,17 @@ export const PigletMortalityModal: React.FC<PigletMortalityModalProps> = ({
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-600" /> Impacto en el Censo Porcino
               </span>
               <p>
-                Al confirmar, se restará la cantidad del total de lechones en lactancia ({selectedLitter?.currentCount} →{' '}
-                {Math.max(0, (selectedLitter?.currentCount || 0) - (parseInt(deadCount, 10) || 0))}) y se registrará
-                en la trazabilidad de la camada y de la madre.
+                Al confirmar, se restará la cantidad del total de lechones en lactancia ({maxDead} →{' '}
+                {Math.max(0, maxDead - safeCount)}) y se registrará en la trazabilidad de la camada y de la madre.
+                {safeCount >= maxDead && maxDead > 0 && ' La camada quedará cerrada sin lechones vivos.'}
               </p>
             </div>
+
+            {error && (
+              <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-[11px] font-bold text-rose-800">
+                {error}
+              </div>
+            )}
 
             <div className="flex gap-2 pt-2">
               <button
@@ -196,9 +260,10 @@ export const PigletMortalityModal: React.FC<PigletMortalityModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="flex-1 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
+                disabled={isSaving}
+                className="flex-1 py-2 bg-rose-700 hover:bg-rose-800 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
               >
-                Confirmar Registro
+                {isSaving ? 'Guardando...' : 'Confirmar Registro'}
               </button>
             </div>
           </form>

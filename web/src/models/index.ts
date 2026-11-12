@@ -7,3 +7,4 @@
 export * from './FarmModel';
 export * from './PorcinoCalculations';
 export * from './InitialData';
+export * from './porcinoDomain';

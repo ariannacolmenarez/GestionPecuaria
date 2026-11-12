@@ -1,3 +1,4 @@
+import { newId } from '../../utils/ids';
 import { FinancialMovementDTO, FinancialBalanceDTO, RubroType } from '../types';
 
 /**
@@ -13,76 +14,7 @@ class FinancialService {
   }
 
   private seedFinancialMovements() {
-    this.movements = [
-      {
-        id: 'fm-001',
-        type: 'ingreso',
-        concept: 'Venta 25 cerdos engorde a Frigorífico Central',
-        rubro: 'porcino',
-        amount: 4750.0,
-        date: '2026-08-10',
-        category: 'Venta de cerdos',
-        details: '2,625 kg en pie a $1.81/kg. Pago contra entrega.',
-      },
-      {
-        id: 'fm-002',
-        type: 'ingreso',
-        concept: 'Venta de leche fresca enfriada (Quincena 1 Agosto)',
-        rubro: 'bovino',
-        amount: 2840.0,
-        date: '2026-08-15',
-        category: 'Venta de leche',
-        details: '7,100 litros a $0.40/litro a Planta Láctea San Simón.',
-      },
-      {
-        id: 'fm-003',
-        type: 'ingreso',
-        concept: 'Liquidación Lote 3 Pollos de Engorde (850 aves)',
-        rubro: 'avicola',
-        amount: 3230.0,
-        date: '2026-08-08',
-        category: 'Venta de aves',
-        details: '1,900 kg canal eviscerada a $1.70/kg.',
-      },
-      {
-        id: 'fm-004',
-        type: 'egreso',
-        concept: 'Compra 4 Toneladas Alimento Balanceado Engorde',
-        rubro: 'porcino',
-        amount: 1520.0,
-        date: '2026-08-05',
-        category: 'Alimento Balanceado',
-        details: 'Proveedor NutriPig. 80 sacos de 50kg.',
-      },
-      {
-        id: 'fm-005',
-        type: 'egreso',
-        concept: 'Mano de obra y jornales veterinarios 1ra quincena',
-        rubro: 'porcino',
-        amount: 650.0,
-        date: '2026-08-15',
-        category: 'Mano de obra',
-        details: 'Pago a 2 operarios de granja y visita técnica.',
-      },
-      {
-        id: 'fm-006',
-        type: 'egreso',
-        concept: 'Vacunas y desparasitantes bovinos (Fiebre Aftosa)',
-        rubro: 'bovino',
-        amount: 310.0,
-        date: '2026-08-12',
-        category: 'Sanidad & Veterinaria',
-      },
-      {
-        id: 'fm-007',
-        type: 'egreso',
-        concept: 'Sacos de alimento inicio y cascarilla de arroz galpón',
-        rubro: 'avicola',
-        amount: 480.0,
-        date: '2026-08-03',
-        category: 'Insumos de Crianza',
-      },
-    ];
+    // Sin datos de ejemplo: el servicio arranca vacío y solo contiene lo que registre el usuario.
   }
 
   public async getMovements(filters?: {
@@ -104,7 +36,7 @@ class FinancialService {
   }
 
   public async createMovement(dto: Omit<FinancialMovementDTO, 'id'>): Promise<FinancialMovementDTO> {
-    const id = `fm_${Date.now()}`;
+    const id = newId('fm');
     const newMov: FinancialMovementDTO = {
       ...dto,
       id,

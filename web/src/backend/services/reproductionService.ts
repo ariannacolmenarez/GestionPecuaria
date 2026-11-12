@@ -1,3 +1,4 @@
+import { newId } from '../../utils/ids';
 import { MatingEventDTO, FarrowingRecordDTO, WeaningCalculationDTO } from '../types';
 
 /**
@@ -14,57 +15,7 @@ class ReproductionService {
   }
 
   private seedReproductionData() {
-    const seedMatings: MatingEventDTO[] = [
-      {
-        id: 'mat-001',
-        boarCode: 'VER-001',
-        sowCode: 'CER-104',
-        date: '2026-05-03',
-        matingType: 'natural',
-        isExternalBoar: false,
-        expectedReturnToHeatDate: '2026-05-24',
-        expectedUltrasoundDate: '2026-06-07',
-        expectedFarrowingDate: '2026-08-25',
-        confirmedPregnant: true,
-        notes: 'Monta matutina vigorosa. Cerda tranquila y receptiva.',
-      },
-      {
-        id: 'mat-002',
-        boarCode: 'VER-002',
-        sowCode: 'CER-108',
-        date: '2026-07-28',
-        matingType: 'inseminacion',
-        isExternalBoar: true,
-        externalBoarName: 'Duroc PIC terminal 410',
-        externalCostUsd: 45,
-        expectedReturnToHeatDate: '2026-08-18',
-        expectedUltrasoundDate: '2026-09-01',
-        expectedFarrowingDate: '2026-11-19',
-        confirmedPregnant: false,
-        notes: 'Inseminación post-cervical con dosis seminal refrigerada a 17°C.',
-      },
-    ];
-
-    seedMatings.forEach((m) => this.matings.set(m.id, m));
-
-    const seedFarrowings: FarrowingRecordDTO[] = [
-      {
-        id: 'far-001',
-        sowCode: 'CER-101',
-        farrowingDate: '2026-08-01',
-        liveBorn: 12,
-        stillborn: 1,
-        mummified: 0,
-        totalBorn: 13,
-        averageBirthWeightKg: 1.45,
-        lactatingPigletsCount: 12,
-        penMaternity: 'Maternidad 04',
-        assignedBoarCode: 'VER-001',
-        notes: 'Parto distócico leve asistido sin complicaciones.',
-      },
-    ];
-
-    seedFarrowings.forEach((f) => this.farrowings.set(f.id, f));
+    // Sin datos de ejemplo: el servicio arranca vacío y solo contiene lo que registre el usuario.
   }
 
   /**
@@ -103,7 +54,7 @@ class ReproductionService {
     notes?: string;
   }): Promise<MatingEventDTO> {
     const milestones = this.calculateReproductiveMilestones(data.date);
-    const id = `mat_${Date.now()}`;
+    const id = newId('mat');
 
     const newMating: MatingEventDTO = {
       id,
@@ -144,7 +95,7 @@ class ReproductionService {
     assignedBoarCode?: string;
     notes?: string;
   }): Promise<FarrowingRecordDTO> {
-    const id = `far_${Date.now()}`;
+    const id = newId('far');
     const totalBorn = dto.liveBorn + dto.stillborn + dto.mummified;
     const record: FarrowingRecordDTO = {
       id,

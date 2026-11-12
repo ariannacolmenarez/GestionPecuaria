@@ -12,6 +12,8 @@ import {
   ProductionFeedingPhase,
   ProductionType,
 } from '../types';
+import { ageInDays, addDays, currentPeriodLabel, todayISO } from '../utils/dates';
+import { newId } from '../utils/ids';
 
 export const granjaSummaryData: FarmSummary = {
   name: 'Granja Arianna',
@@ -27,7 +29,7 @@ export const granjaSummaryData: FarmSummary = {
     },
   ],
   finances: {
-    period: 'Agosto 2026',
+    period: currentPeriodLabel(),
     totalExpenses: 0,
     totalIncome: 0,
     netUtility: 0,
@@ -83,20 +85,8 @@ export const sanitaryTasksAugust2026: SanitaryTask[] = [];
 
 export const financialMovementsPorcino: FinancialMovement[] = [];
 
-export const monthlyFinancialHistory = [
-  { month: 'Ene', income: 7200, expenses: 4300, utility: 2900 },
-  { month: 'Feb', income: 6800, expenses: 4100, utility: 2700 },
-  { month: 'Mar', income: 8400, expenses: 5100, utility: 3300 },
-  { month: 'Abr', income: 7900, expenses: 4600, utility: 3300 },
-  { month: 'May', income: 9100, expenses: 5200, utility: 3900 },
-  { month: 'Jun', income: 8200, expenses: 4800, utility: 3400 },
-  { month: 'Jul', income: 8500, expenses: 4900, utility: 3600 },
-  { month: 'Ago', income: 8800, expenses: 4950, utility: 3850 },
-  { month: 'Sep', income: 8300, expenses: 4700, utility: 3600 },
-  { month: 'Oct', income: 8700, expenses: 4850, utility: 3850 },
-  { month: 'Nov', income: 9400, expenses: 5300, utility: 4100 },
-  { month: 'Dic', income: 11200, expenses: 5900, utility: 5300 },
-];
+/** @deprecated Histórico inventado eliminado: usar calculateBalanceByPeriod(movements, ...).monthlyTrend. */
+export const monthlyFinancialHistory: { month: string; income: number; expenses: number; utility: number }[] = [];
 
 export const feedingPhasesData: FeedingPhaseData[] = [
   {
@@ -598,23 +588,17 @@ export const productionFeedingPlansDefault: ProductionFeedingPlan[] = [
 export function getAnimalFeedingAndGrowthInfo(
   animal: PorcinoAnimal,
   feedingPlans: ProductionFeedingPlan[] = productionFeedingPlansDefault,
-  referenceDate = '2026-08-19'
+  referenceDate: string = todayISO()
 ) {
-  let ageDays = 60;
-  try {
-    const birth = new Date(animal.birthDate);
-    const ref = new Date(referenceDate);
-    const diffTime = ref.getTime() - birth.getTime();
-    ageDays = Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
-  } catch {
-    ageDays = 60;
-  }
+  // Edad real calculada contra la fecha del sistema (o la referencia indicada)
+  const ageDays = Math.max(0, ageInDays(animal.birthDate, referenceDate));
 
   const ageWeeks = (ageDays / 7).toFixed(1);
   const ageMonths = (ageDays / 30.4).toFixed(1);
   const ageText = `${ageDays} días (${ageWeeks} sem / ${ageMonths} meses)`;
 
-  const plan = feedingPlans.find((p) => p.productionType === animal.category) || feedingPlans[0];
+  const plans = feedingPlans && feedingPlans.length > 0 ? feedingPlans : productionFeedingPlansDefault;
+  const plan = plans.find((p) => p.productionType === animal.category) || plans[0];
 
   let matchedPhase = plan.phases.find(
     (ph) => animal.currentWeightKg >= ph.minWeightKg && animal.currentWeightKg <= ph.maxWeightKg
@@ -659,24 +643,10 @@ export function generateSanitaryTasksForBatch(
   if (!config || !config.activities) return [];
 
   return config.activities.map((act) => {
-    let scheduledDate = startDateStr;
-    try {
-      const parts = startDateStr.split('-');
-      const year = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1;
-      const day = parseInt(parts[2], 10);
-      const d = new Date(year, month, day);
-      d.setDate(d.getDate() + (act.dayOffset - 1));
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const dayNum = String(d.getDate()).padStart(2, '0');
-      scheduledDate = `${y}-${m}-${dayNum}`;
-    } catch {
-      scheduledDate = startDateStr;
-    }
+    const scheduledDate = addDays(startDateStr || todayISO(), act.dayOffset - 1);
 
     return {
-      id: `st-auto-${Date.now()}-${act.id}-${Math.random().toString(36).substring(2, 6)}`,
+      id: newId('st-auto'),
       title: `[${batchOrAnimalCode}] ${act.title}`,
       date: scheduledDate,
       targetRubro: 'porcino',
@@ -686,10 +656,10 @@ export function generateSanitaryTasksForBatch(
       procedure: act.procedure,
       medicamentUsed: act.medicament,
       dosage: act.dosage,
-      responsible: act.responsibleRole.includes('Veterinario')
-        ? 'Dr. Carlos Mendoza (Vet)'
-        : 'José Gregorio Silva',
+      responsible: act.responsibleRole,
       status: 'pendiente',
+      sourceEvent: 'protocolo',
+      protocolKey: act.id,
     };
   });
 }

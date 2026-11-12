@@ -114,6 +114,18 @@ export interface LactatingLitter {
     notes?: string;
   }[];
   weaningStatus: 'en_lactancia' | 'destetado';
+  /** Id de la cerda madre (preferido sobre sowCode para relacionar). */
+  sowId?: string;
+  /** Id del registro de parto que originó la camada. */
+  farrowingRecordId?: string;
+  /** Costos imputados directamente a la camada (medicamentos, alimento pre-iniciador...). */
+  accumulatedCostUsd?: number;
+  /** Total de lechones ya destetados de esta camada (destetes parciales acumulan). */
+  weanedCount?: number;
+  /** Fecha del destete total. */
+  weanedAt?: string;
+  /** Motivo de cierre si la camada se cerró sin destete (ej. 'mortalidad_total'). */
+  closedReason?: string;
 }
 
 export interface SlaughterDispatchData {
@@ -155,6 +167,20 @@ export interface PorcinoAnimal {
   isSoldToSlaughter?: boolean;
   slaughterData?: SlaughterDispatchData;
   batchAnimalCount?: number;
+  /** Cabezas ya vendidas/sacrificadas de este registro (ventas parciales acumulan). */
+  soldHeadCount?: number;
+  /** Costo del ciclo reproductivo en curso (cerdas): se transfiere a los lechones al destete. */
+  cycleCostUsd?: number;
+  /** Fecha del último servicio/monta (cerdas). */
+  lastServiceDate?: string;
+  /** Verraco del último servicio (cerdas). */
+  lastServiceBoarCode?: string;
+  /** Fecha probable de parto = servicio + 114 días (cerdas). */
+  expectedFarrowingDate?: string;
+  /** Fecha del último parto (cerdas). */
+  lastFarrowingDate?: string;
+  /** Número de partos (cerdas). */
+  parity?: number;
 }
 
 export interface UnifiedSaleResult {
@@ -196,6 +222,8 @@ export interface WarehouseItem {
   monthlyConsumptionRate: number; // Consumo mensual estimado del hato
   expirationDate?: string;
   supplier?: string;
+  /** true si la compra se registró como egreso al dar de alta: el consumo posterior solo imputa costo (no crea otro egreso). */
+  expensedOnPurchase?: boolean;
 }
 
 export interface SanitaryTask {
@@ -210,7 +238,37 @@ export interface SanitaryTask {
   medicamentUsed?: string;
   dosage?: string;
   responsible: string;
-  status: 'completada' | 'pendiente' | 'retrasada';
+  status: 'completada' | 'pendiente' | 'retrasada' | 'cancelada';
+  /** Animal/lote destino (id): permite imputar costo y trazabilidad al completar. */
+  animalId?: string;
+  /** Camada destino (id). */
+  litterId?: string;
+  /** Insumo de almacén a descontar al completar la tarea. */
+  warehouseItemId?: string;
+  /** Cantidad del insumo a descontar (en la unidad del insumo). */
+  warehouseQuantity?: number;
+  /**
+   * Consumo de almacén ya aplicado al completar la tarea (stock descontado, egreso y costo imputado).
+   * Se conserva al reabrir para no volver a descontar el stock al completarla de nuevo.
+   */
+  stockApplied?: {
+    itemId: string;
+    quantity: number;
+    costUsd: number;
+    date: string;
+    /** Egreso generado al completar (se anula si la tarea se reabre). */
+    movementId?: string;
+    /** Dónde se imputó el costo (para revertirlo al reabrir). */
+    costTarget?: { kind: 'animal' | 'litter'; id: string; cycle?: boolean };
+  };
+  /** Evento de dominio que generó la tarea ('monta' | 'parto' | 'destete' | 'protocolo' | 'manual'...). */
+  sourceEvent?: string;
+  /** Clave del paso de protocolo (ej. 'parto_probable', 'hierro_d3'). */
+  protocolKey?: string;
+  /** Fecha/hora real de cierre de la tarea. */
+  completedAt?: string;
+  /** Motivo de cancelación (ej. lote vendido). */
+  cancelReason?: string;
 }
 
 export type ProductionType = 'engorde' | 'lechones' | 'maternidad' | 'verracos';

@@ -1,28 +1,26 @@
-import React, { useState } from 'react';
-import {
-  X,
-  Settings,
-  Plus,
-  Trash2,
-  Utensils,
-  Layers,
-  Heart,
-  Baby,
-  Activity,
-  ShieldCheck,
-  Scale,
-  Clock,
-  Info,
-  CheckCircle2,
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { X, Plus, Trash2, Utensils, Layers, Heart, Baby, Activity, ShieldCheck, Info, Save } from 'lucide-react';
 import { ProductionFeedingPlan, ProductionFeedingPhase, ProductionType } from '../../types';
+import { newId } from '../../utils/ids';
+import { round2 } from '../../models/porcinoRules';
+import { toNumber } from './modalResult';
 
 interface FeedingPlanConfigModalProps {
   plans: ProductionFeedingPlan[];
   initialType?: ProductionType;
   onClose: () => void;
-  onUpdatePlans: (updated: ProductionFeedingPlan[]) => void;
+  /** Se llama SOLO al pulsar "Guardar cambios" (no en cada tecla). */
+  onUpdatePlans: (updated: ProductionFeedingPlan[]) => void | Promise<void>;
 }
+
+/** Renumera las fases (1..n) y recalcula totales/etiquetas derivadas. */
+const normalizePhases = (phases: ProductionFeedingPhase[]): ProductionFeedingPhase[] =>
+  phases.map((ph, idx) => ({
+    ...ph,
+    phaseNumber: idx + 1,
+    totalFeedKg: round2(toNumber(ph.dailyConsumptionKg) * toNumber(ph.durationDays)),
+    weightRangeKg: `${toNumber(ph.minWeightKg)} kg - ${toNumber(ph.maxWeightKg)} kg`,
+  }));
 
 export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
   plans,
@@ -31,110 +29,138 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
   onUpdatePlans,
 }) => {
   const [selectedType, setSelectedType] = useState<ProductionType>(initialType);
-  const [localPlans, setLocalPlans] = useState<ProductionFeedingPlan[]>(plans);
+  // Edición en estado local: solo se persiste al pulsar "Guardar cambios"
+  const [localPlans, setLocalPlans] = useState<ProductionFeedingPlan[]>(() =>
+    (plans || []).map((p) => ({ ...p, phases: [...(p.phases || [])] }))
+  );
+  const [isDirty, setIsDirty] = useState(false);
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
   const [showNewPhaseForm, setShowNewPhaseForm] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // New Phase Form State
   const [newStageName, setNewStageName] = useState('');
   const [newFeedName, setNewFeedName] = useState('');
-  const [newMinWeight, setNewMinWeight] = useState<number>(20);
-  const [newMaxWeight, setNewMaxWeight] = useState<number>(40);
-  const [newDaysRange, setNewDaysRange] = useState('Días 30 - 60 (30 días)');
-  const [newDurationDays, setNewDurationDays] = useState<number>(30);
-  const [newDailyKg, setNewDailyKg] = useState<number>(1.5);
-  const [newAnimalState, setNewAnimalState] = useState('Crecimiento Activo');
+  const [newMinWeight, setNewMinWeight] = useState('');
+  const [newMaxWeight, setNewMaxWeight] = useState('');
+  const [newDaysRange, setNewDaysRange] = useState('');
+  const [newDurationDays, setNewDurationDays] = useState('');
+  const [newDailyKg, setNewDailyKg] = useState('');
+  const [newAnimalState, setNewAnimalState] = useState('');
   const [newDescription, setNewDescription] = useState('');
 
-  const currentPlan =
-    localPlans.find((p) => p.productionType === selectedType) || localPlans[0];
+  const currentPlan = useMemo(
+    () => localPlans.find((p) => p.productionType === selectedType) || localPlans[0],
+    [localPlans, selectedType]
+  );
+  const currentPhases = currentPlan?.phases || [];
+
+  const updateCurrentPlanPhases = (fn: (phases: ProductionFeedingPhase[]) => ProductionFeedingPhase[]) => {
+    if (!currentPlan) return;
+    setLocalPlans((prev) =>
+      prev.map((plan) =>
+        plan.productionType === currentPlan.productionType ? { ...plan, phases: normalizePhases(fn(plan.phases || [])) } : plan
+      )
+    );
+    setIsDirty(true);
+    setSavedNotice(false);
+  };
 
   const handleUpdatePhase = (phaseId: string, updates: Partial<ProductionFeedingPhase>) => {
-    const updatedPlans = localPlans.map((plan) => {
-      if (plan.productionType === selectedType) {
-        return {
-          ...plan,
-          phases: plan.phases.map((ph) => {
-            if (ph.id === phaseId) {
-              const updated = { ...ph, ...updates };
-              // auto-recalc total if daily or duration changes
-              if (updates.dailyConsumptionKg !== undefined || updates.durationDays !== undefined) {
-                const daily = updates.dailyConsumptionKg ?? ph.dailyConsumptionKg;
-                const dur = updates.durationDays ?? ph.durationDays;
-                updated.totalFeedKg = Math.round(daily * dur * 100) / 100;
-              }
-              if (updates.minWeightKg !== undefined || updates.maxWeightKg !== undefined) {
-                const min = updates.minWeightKg ?? ph.minWeightKg;
-                const max = updates.maxWeightKg ?? ph.maxWeightKg;
-                updated.weightRangeKg = `${min} kg - ${max} kg`;
-              }
-              return updated;
-            }
-            return ph;
-          }),
-        };
-      }
-      return plan;
-    });
-
-    setLocalPlans(updatedPlans);
-    onUpdatePlans(updatedPlans);
+    updateCurrentPlanPhases((phases) => phases.map((ph) => (ph.id === phaseId ? { ...ph, ...updates } : ph)));
   };
 
   const handleDeletePhase = (phaseId: string) => {
-    const updatedPlans = localPlans.map((plan) => {
-      if (plan.productionType === selectedType) {
-        return {
-          ...plan,
-          phases: plan.phases.filter((ph) => ph.id !== phaseId),
-        };
-      }
-      return plan;
-    });
-
-    setLocalPlans(updatedPlans);
-    onUpdatePlans(updatedPlans);
+    if (editingPhaseId === phaseId) setEditingPhaseId(null);
+    updateCurrentPlanPhases((phases) => phases.filter((ph) => ph.id !== phaseId));
   };
 
-  const handleAddPhase = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newStageName.trim() || !newFeedName.trim()) return;
+  const handleAddPhase = (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setFormError(null);
+    if (!currentPlan) return;
+    if (!newStageName.trim() || !newFeedName.trim()) {
+      setFormError('Indica el nombre de la etapa y el alimento.');
+      return;
+    }
+    const min = toNumber(newMinWeight);
+    const max = toNumber(newMaxWeight);
+    const duration = Math.max(1, Math.round(toNumber(newDurationDays, 1)));
+    const daily = toNumber(newDailyKg);
+    if (min < 0 || max <= 0 || min > max) {
+      setFormError('El peso mínimo debe ser menor o igual al máximo (y ambos positivos).');
+      return;
+    }
+    if (daily <= 0) {
+      setFormError('El consumo diario debe ser mayor a 0.');
+      return;
+    }
 
-    const totalKg = Math.round(newDailyKg * newDurationDays * 100) / 100;
     const newPhase: ProductionFeedingPhase = {
-      id: `phase-${Date.now()}`,
-      phaseNumber: currentPlan.phases.length + 1,
+      id: newId('phase'),
+      phaseNumber: currentPhases.length + 1,
       stageName: newStageName.trim(),
       feedName: newFeedName.trim(),
-      weightRangeKg: `${newMinWeight} kg - ${newMaxWeight} kg`,
-      minWeightKg: Number(newMinWeight),
-      maxWeightKg: Number(newMaxWeight),
-      daysRange: newDaysRange.trim() || `Días 1 - ${newDurationDays}`,
-      durationDays: Number(newDurationDays) || 30,
-      dailyConsumptionKg: Number(newDailyKg),
-      totalFeedKg: totalKg,
+      weightRangeKg: `${min} kg - ${max} kg`,
+      minWeightKg: min,
+      maxWeightKg: max,
+      daysRange: newDaysRange.trim() || `${duration} días`,
+      durationDays: duration,
+      dailyConsumptionKg: daily,
+      totalFeedKg: round2(daily * duration),
       animalState: newAnimalState.trim() || 'Desarrollo Productivo',
-      description: newDescription.trim() || 'Nutrición programada para esta etapa.',
+      description: newDescription.trim() || undefined,
     };
 
-    const updatedPlans = localPlans.map((plan) => {
-      if (plan.productionType === selectedType) {
-        return {
-          ...plan,
-          phases: [...plan.phases, newPhase],
-        };
-      }
-      return plan;
-    });
-
-    setLocalPlans(updatedPlans);
-    onUpdatePlans(updatedPlans);
+    updateCurrentPlanPhases((phases) => [...phases, newPhase]);
     setShowNewPhaseForm(false);
     setNewStageName('');
     setNewFeedName('');
+    setNewMinWeight('');
+    setNewMaxWeight('');
+    setNewDaysRange('');
+    setNewDurationDays('');
+    setNewDailyKg('');
+    setNewAnimalState('');
     setNewDescription('');
   };
+
+  const invalidPhase = useMemo(
+    () =>
+      localPlans
+        .flatMap((p) => (p.phases || []).map((ph) => ({ plan: p, ph })))
+        .find(({ ph }) => toNumber(ph.minWeightKg) > toNumber(ph.maxWeightKg) || toNumber(ph.durationDays) < 1),
+    [localPlans]
+  );
+
+  const handleSave = async () => {
+    setFormError(null);
+    if (invalidPhase) {
+      setFormError(
+        `Revisa la etapa "${invalidPhase.ph.stageName}" de ${invalidPhase.plan.typeName}: peso mínimo mayor al máximo o duración inválida.`
+      );
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await onUpdatePlans(localPlans.map((p) => ({ ...p, phases: normalizePhases(p.phases || []) })));
+      setIsDirty(false);
+      setSavedNotice(true);
+    } catch (err: any) {
+      setFormError(err?.message || 'No se pudo guardar la configuración.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleClose = () => {
+    if (isDirty && !window.confirm('Hay cambios sin guardar. ¿Deseas descartarlos?')) return;
+    onClose();
+  };
+
+  const numInput = (v: string) => toNumber(v);
 
   const getProductionBadge = (type: ProductionType) => {
     switch (type) {
@@ -174,7 +200,7 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -185,9 +211,10 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
         <div className="p-3 bg-amber-50 border-b border-amber-200 flex items-start gap-2.5 text-amber-950 shrink-0">
           <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
           <p className="text-[11px] leading-relaxed">
-            <strong>Parámetros Nutricionales Oficiales:</strong> Las etapas aquí configuradas determinan
+            <strong>Parámetros Nutricionales:</strong> Las etapas aquí configuradas determinan
             automáticamente la ración diaria (kg/día), el alimento correspondiente y el peso esperado
-            que se mostrará en la trazabilidad individual de cada animal.
+            que se mostrará en la trazabilidad individual de cada animal. Los cambios se aplican al pulsar
+            <strong> Guardar cambios</strong>.
           </p>
         </div>
 
@@ -199,7 +226,7 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
             const isSelected = selectedType === p.productionType;
             return (
               <button
-                key={p.id}
+                key={p.productionType}
                 onClick={() => {
                   setSelectedType(p.productionType);
                   setShowNewPhaseForm(false);
@@ -219,7 +246,17 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
         </div>
 
         {/* Scrollable Phase List */}
+        {!currentPlan ? (
+          <div className="flex-1 p-8 text-center text-xs text-slate-500">
+            No hay planes de alimentación configurados.
+          </div>
+        ) : (
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+          {formError && (
+            <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-[11px] font-bold text-rose-800">
+              {formError}
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <div>
               <h4 className="font-black text-sm text-slate-900">{currentPlan.typeName}</h4>
@@ -284,9 +321,11 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                   <input
                     type="number"
                     step="0.5"
+                    min="0"
                     required
+                    placeholder="Ej. 20"
                     value={newMinWeight}
-                    onChange={(e) => setNewMinWeight(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => setNewMinWeight(e.target.value)}
                     className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold font-mono"
                   />
                 </div>
@@ -298,9 +337,11 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                   <input
                     type="number"
                     step="0.5"
+                    min="0"
                     required
+                    placeholder="Ej. 40"
                     value={newMaxWeight}
-                    onChange={(e) => setNewMaxWeight(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => setNewMaxWeight(e.target.value)}
                     className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold font-mono"
                   />
                 </div>
@@ -313,8 +354,9 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                     type="number"
                     min="1"
                     required
+                    placeholder="Ej. 30"
                     value={newDurationDays}
-                    onChange={(e) => setNewDurationDays(parseInt(e.target.value, 10) || 1)}
+                    onChange={(e) => setNewDurationDays(e.target.value)}
                     className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold font-mono"
                   />
                 </div>
@@ -326,9 +368,11 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                   <input
                     type="number"
                     step="0.05"
+                    min="0"
                     required
+                    placeholder="Ej. 1.5"
                     value={newDailyKg}
-                    onChange={(e) => setNewDailyKg(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => setNewDailyKg(e.target.value)}
                     className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold font-mono"
                   />
                 </div>
@@ -388,7 +432,7 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                   type="submit"
                   className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
                 >
-                  Guardar Etapa
+                  Añadir Etapa
                 </button>
               </div>
             </form>
@@ -396,7 +440,12 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
 
           {/* Phases list */}
           <div className="space-y-3">
-            {currentPlan.phases.map((phase) => (
+            {currentPhases.length === 0 && (
+              <div className="p-6 text-center text-slate-500 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                Este plan no tiene etapas. Añade la primera etapa nutricional.
+              </div>
+            )}
+            {currentPhases.map((phase) => (
               <div
                 key={phase.id}
                 className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-all space-y-3"
@@ -404,6 +453,9 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] font-black text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                        Fase {phase.phaseNumber}
+                      </span>
                       <span className="font-mono text-[10px] font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
                         {phase.daysRange}
                       </span>
@@ -470,7 +522,8 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                           type="number"
                           step="0.5"
                           value={phase.minWeightKg}
-                          onChange={(e) => handleUpdatePhase(phase.id, { minWeightKg: parseFloat(e.target.value) || 0 })}
+                          min="0"
+                          onChange={(e) => handleUpdatePhase(phase.id, { minWeightKg: numInput(e.target.value) })}
                           className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
                         />
                       </div>
@@ -482,7 +535,8 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                           type="number"
                           step="0.5"
                           value={phase.maxWeightKg}
-                          onChange={(e) => handleUpdatePhase(phase.id, { maxWeightKg: parseFloat(e.target.value) || 0 })}
+                          min="0"
+                          onChange={(e) => handleUpdatePhase(phase.id, { maxWeightKg: numInput(e.target.value) })}
                           className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
                         />
                       </div>
@@ -494,7 +548,7 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                           type="number"
                           min="1"
                           value={phase.durationDays}
-                          onChange={(e) => handleUpdatePhase(phase.id, { durationDays: parseInt(e.target.value, 10) || 1 })}
+                          onChange={(e) => handleUpdatePhase(phase.id, { durationDays: Math.max(1, Math.round(numInput(e.target.value))) })}
                           className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
                         />
                       </div>
@@ -506,7 +560,8 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
                           type="number"
                           step="0.05"
                           value={phase.dailyConsumptionKg}
-                          onChange={(e) => handleUpdatePhase(phase.id, { dailyConsumptionKg: parseFloat(e.target.value) || 0 })}
+                          min="0"
+                          onChange={(e) => handleUpdatePhase(phase.id, { dailyConsumptionKg: Math.max(0, numInput(e.target.value)) })}
                           className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
                         />
                       </div>
@@ -555,18 +610,35 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
           </div>
         </div>
 
+        )}
+
         {/* Footer */}
-        <div className="bg-slate-50 p-3.5 border-t border-slate-200 flex items-center justify-between text-xs shrink-0">
+        <div className="bg-slate-50 p-3.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
           <div className="flex items-center gap-1.5 text-slate-600 text-[11px]">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Configuración sincronizada con el módulo de alimentación y trazabilidad</span>
+            <ShieldCheck className={`w-4 h-4 ${isDirty ? 'text-amber-600' : 'text-emerald-600'}`} />
+            <span>
+              {isDirty
+                ? 'Cambios sin guardar'
+                : savedNotice
+                ? 'Configuración guardada'
+                : 'Configuración sincronizada con alimentación y trazabilidad'}
+            </span>
           </div>
-          <button
-            onClick={onClose}
-            className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-colors cursor-pointer"
-          >
-            Listo / Cerrar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleClose}
+              className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl font-bold transition-colors cursor-pointer"
+            >
+              {isDirty ? 'Cancelar' : 'Cerrar'}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!isDirty || isSaving}
+              className="px-5 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <Save className="w-4 h-4" /> {isSaving ? 'Guardando...' : 'Guardar cambios'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

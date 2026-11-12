@@ -1,25 +1,21 @@
-import React, { useState } from 'react';
-import {
-  X,
-  Scale,
-  TrendingUp,
-  DollarSign,
-  CheckCircle2,
-  Truck,
-  ShieldCheck,
-  FileText,
-  Layers,
-  AlertCircle,
-  HelpCircle,
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { X, Scale, TrendingUp, CheckCircle2, Truck } from 'lucide-react';
 import { PorcinoAnimal, UnifiedSaleResult } from '../../types';
+import { isActiveAnimal, headCount, num, round2 } from '../../models/porcinoRules';
+import { todayISO } from '../../utils/dates';
+import { ModalActionReturn, runModalAction, toNumber } from './modalResult';
 
 interface UnifiedSaleSlaughterModalProps {
   animals?: PorcinoAnimal[];
   preselectedAnimalCode?: string;
   initialCategory?: string;
   onClose: () => void;
-  onConfirmSaleSlaughter: (result: UnifiedSaleResult) => void;
+  /**
+   * result.animalId/animalCode = registro seleccionado (obligatorio), result.animalsCount puede ser
+   * menor que las cabezas del lote (venta parcial). result.accumulatedCostUsd es el costo PROPORCIONAL
+   * informativo (el dominio lo recalcula). Puede devolver un DomainResult.
+   */
+  onConfirmSaleSlaughter: (result: UnifiedSaleResult) => ModalActionReturn;
 }
 
 export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps> = ({
@@ -29,146 +25,134 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
   onClose,
   onConfirmSaleSlaughter,
 }) => {
-  // Preselected animal check or safe filter
-  const preselected = animals.find((a) => a.code === preselectedAnimalCode);
-  const filterCandidates = animals.filter(
-    (a) => a.healthStatus !== 'Matadero' && !a.isSoldToSlaughter
-  );
-  const safeList =
-    preselected && !filterCandidates.some((a) => a.id === preselected.id)
-      ? [preselected, ...filterCandidates]
-      : filterCandidates.length > 0
-      ? filterCandidates
-      : animals;
+  // Solo animales/lotes activos (no se puede revender lo ya vendido o en matadero)
+  const candidates = useMemo(() => (animals || []).filter(isActiveAnimal), [animals]);
 
-  // Selected animal ID
   const initialSelected =
-    (preselectedAnimalCode ? safeList.find((a) => a.code === preselectedAnimalCode) : null) ||
-    (initialCategory ? safeList.find((a) => a.category === initialCategory) : null) ||
-    safeList[0];
+    (preselectedAnimalCode ? candidates.find((a) => a.code === preselectedAnimalCode) : undefined) ||
+    (initialCategory ? candidates.find((a) => a.category === initialCategory) : undefined) ||
+    candidates[0];
   const [selectedAnimalId, setSelectedAnimalId] = useState<string>(initialSelected?.id || '');
-
-  const currentAnimal = safeList.find((a) => a.id === selectedAnimalId) || initialSelected;
+  const currentAnimal = candidates.find((a) => a.id === selectedAnimalId);
+  const availableHeads = currentAnimal ? headCount(currentAnimal) : 0;
 
   // Mode: En Pie vs En Canal
   const [saleMode, setSaleMode] = useState<'pie' | 'canal'>('pie');
 
   // Basic Details
-  const [date, setDate] = useState('2026-08-19');
-  const [customLotCode, setCustomLotCode] = useState(currentAnimal?.code || 'ENG-302');
-  const [buyer, setBuyer] = useState('Frigorífico Industrial Porcino C.A.');
-  const [sanitaryDocNumber, setSanitaryDocNumber] = useState('GUIA-SANI-2026-8921');
+  const [date, setDate] = useState(todayISO());
+  const [buyer, setBuyer] = useState('');
+  const [sanitaryDocNumber, setSanitaryDocNumber] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'Contado' | 'Transferencia' | 'Crédito 15 días'>('Transferencia');
 
-  // Quantity of animals
-  const defaultQuantity = currentAnimal?.batchAnimalCount || (currentAnimal?.category === 'verracos' ? 1 : 20);
-  const [animalsCount, setAnimalsCount] = useState<string>(defaultQuantity.toString());
-
-  // Weights
-  // If batch, total weight = count * avg weight, or individual weight
-  const initialWeight = currentAnimal?.currentWeightKg || 105;
-  const initialTotalWeight = (defaultQuantity > 1 ? defaultQuantity * initialWeight : initialWeight);
-  const [totalLiveWeightKg, setTotalLiveWeightKg] = useState<string>(initialTotalWeight.toString());
-  const [shrinkagePercent, setShrinkagePercent] = useState<string>('0'); // % merma de desbaste por transporte/ayuno (0 a 5%)
+  // Cantidad y pesos (por defecto: todo el lote)
+  const initialHeads = initialSelected ? headCount(initialSelected) : 0;
+  const [animalsCount, setAnimalsCount] = useState<string>(initialHeads ? String(initialHeads) : '');
+  const [totalLiveWeightKg, setTotalLiveWeightKg] = useState<string>(
+    initialSelected?.currentWeightKg ? String(round2(initialHeads * initialSelected.currentWeightKg)) : ''
+  );
+  const [shrinkagePercent, setShrinkagePercent] = useState<string>('0'); // % merma de desbaste
 
   // Canal specific
-  const [carcassYieldPercent, setCarcassYieldPercent] = useState<string>('78'); // % rendimiento en canal frigorífico
-  const [slaughterFeePerAnimal, setSlaughterFeePerAnimal] = useState<string>('4.50'); // Tasa de faenado/matadero por cabeza ($)
+  const [carcassYieldPercent, setCarcassYieldPercent] = useState<string>('78');
+  const [slaughterFeePerAnimal, setSlaughterFeePerAnimal] = useState<string>('');
 
-  // Prices
-  const [pricePerKg, setPricePerKg] = useState<string>('2.20'); // $/kg vivo (o $/kg canal)
+  // Prices & expenses
+  const [pricePerKg, setPricePerKg] = useState<string>('');
+  const [transportFeeTotal, setTransportFeeTotal] = useState<string>('');
 
-  // Additional expenses
-  const [transportFeeTotal, setTransportFeeTotal] = useState<string>('25'); // Flete / transporte ($)
-
-  // Production Cost
-  const defaultCost = currentAnimal?.accumulatedCostUsd || 115;
-  const initialTotalCost = (defaultQuantity > 1 && defaultCost < 300 ? defaultCost * defaultQuantity : defaultCost);
-  const [accumulatedCost, setAccumulatedCost] = useState<string>(initialTotalCost.toString());
-
-  // Life-cycle
-  const [markAsSlaughtered, setMarkAsSlaughtered] = useState<boolean>(true);
   const [notes, setNotes] = useState<string>('');
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<{ count: number; code: string; netRevenue: number; netProfit: number; margin: number; remaining: number } | null>(null);
 
-  // When animal selection changes
   const handleAnimalSelect = (animalId: string) => {
     setSelectedAnimalId(animalId);
-    const chosen = safeList.find((a) => a.id === animalId);
+    setError(null);
+    const chosen = candidates.find((a) => a.id === animalId);
     if (!chosen) return;
-
-    setCustomLotCode(chosen.code);
-    const count = chosen.batchAnimalCount || (chosen.category === 'verracos' ? 1 : 20);
-    setAnimalsCount(count.toString());
-
-    const totalWeight = count > 1 ? count * chosen.currentWeightKg : chosen.currentWeightKg;
-    setTotalLiveWeightKg(totalWeight.toString());
-
-    const costUnit = chosen.accumulatedCostUsd || 110;
-    const totalCost = count > 1 && costUnit < 300 ? costUnit * count : costUnit;
-    setAccumulatedCost(totalCost.toString());
+    const count = headCount(chosen);
+    setAnimalsCount(String(count));
+    setTotalLiveWeightKg(chosen.currentWeightKg ? String(round2(count * chosen.currentWeightKg)) : '');
   };
 
-  // Numerical Calculations
-  const countNum = Math.max(1, parseInt(animalsCount, 10) || 1);
-  const liveWeightNum = Math.max(0, parseFloat(totalLiveWeightKg) || 0);
+  // Cálculos numéricos (sin NaN ni divisiones por cero)
+  const parsedCount = parseInt(animalsCount, 10);
+  const countNum = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 0;
+  const exceedsHeads = countNum > availableHeads;
+  const liveWeightNum = Math.max(0, toNumber(totalLiveWeightKg));
   const avgWeight = countNum > 0 ? liveWeightNum / countNum : 0;
-  const shrinkageNum = Math.max(0, parseFloat(shrinkagePercent) || 0);
-  const priceNum = Math.max(0, parseFloat(pricePerKg) || 0);
-  const yieldNum = Math.max(1, parseFloat(carcassYieldPercent) || 78);
-  const slaughterFeeUnit = Math.max(0, parseFloat(slaughterFeePerAnimal) || 0);
-  const transportNum = Math.max(0, parseFloat(transportFeeTotal) || 0);
-  const costNum = Math.max(0, parseFloat(accumulatedCost) || 0);
+  const shrinkageNum = Math.min(15, Math.max(0, toNumber(shrinkagePercent)));
+  const priceNum = Math.max(0, toNumber(pricePerKg));
+  const yieldNum = Math.min(100, Math.max(1, toNumber(carcassYieldPercent, 78)));
+  const slaughterFeeUnit = Math.max(0, toNumber(slaughterFeePerAnimal));
+  const transportNum = Math.max(0, toNumber(transportFeeTotal));
 
-  // Effective live weight after shrinkage
+  // accumulatedCostUsd es el costo TOTAL del registro: costo vendido = proporción de cabezas
+  const lotCost = num(currentAnimal?.accumulatedCostUsd);
+  const costNum = availableHeads > 0 ? round2(lotCost * (Math.min(countNum, availableHeads) / availableHeads)) : 0;
+
   const netLiveWeightKg = liveWeightNum * (1 - shrinkageNum / 100);
-
-  // Carcass weight if applicable
   const carcassWeightKg = netLiveWeightKg * (yieldNum / 100);
-
-  // Effective commercial weight depending on mode
   const effectiveCommercialWeightKg = saleMode === 'pie' ? netLiveWeightKg : carcassWeightKg;
-
-  // Gross Revenue
-  const grossRevenue = effectiveCommercialWeightKg * priceNum;
-
-  // Deductions: slaughter fee (if canal) + transport
-  const totalSlaughterFee = saleMode === 'canal' ? slaughterFeeUnit * countNum : 0;
-  const totalDeductions = totalSlaughterFee + transportNum;
-
-  // Net Revenue received by farm
-  const netRevenue = Math.max(0, grossRevenue - totalDeductions);
-
-  // Net Profit & Margin
-  const netProfit = netRevenue - costNum;
+  const grossRevenue = round2(effectiveCommercialWeightKg * priceNum);
+  const totalSlaughterFee = saleMode === 'canal' ? round2(slaughterFeeUnit * countNum) : 0;
+  const totalDeductions = round2(totalSlaughterFee + transportNum);
+  const netRevenue = Math.max(0, round2(grossRevenue - totalDeductions));
+  const netProfit = round2(netRevenue - costNum);
   const profitMarginPercent = netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0;
   const profitPerAnimal = countNum > 0 ? netProfit / countNum : 0;
   const netPerKgLive = liveWeightNum > 0 ? netRevenue / liveWeightNum : 0;
+  const isTotalSale = countNum > 0 && countNum === availableHeads;
 
-  // Mode change handler
   const handleModeChange = (newMode: 'pie' | 'canal') => {
     setSaleMode(newMode);
-    if (newMode === 'pie') {
-      setPricePerKg('2.20');
-    } else {
-      setPricePerKg('3.05');
-    }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setError(null);
+    if (!currentAnimal) {
+      setError('Selecciona un animal o lote del rebaño.');
+      return;
+    }
+    if (countNum <= 0) {
+      setError('La cantidad de animales debe ser mayor a 0.');
+      return;
+    }
+    if (exceedsHeads) {
+      setError(`El lote ${currentAnimal.code} solo tiene ${availableHeads} animal(es).`);
+      return;
+    }
+    if (liveWeightNum <= 0) {
+      setError('Indica el peso vivo total.');
+      return;
+    }
+    if (priceNum <= 0) {
+      setError('Indica el precio por kg.');
+      return;
+    }
+    if (!buyer.trim()) {
+      setError('Indica el comprador o frigorífico.');
+      return;
+    }
+    if (!date || date > todayISO()) {
+      setError('La fecha de venta no puede ser futura.');
+      return;
+    }
 
     const result: UnifiedSaleResult = {
-      animalId: currentAnimal?.id,
-      animalCode: customLotCode.trim() || currentAnimal?.code || 'LOTE-PORCINO',
-      category: currentAnimal?.category || 'engorde',
+      animalId: currentAnimal.id,
+      animalCode: currentAnimal.code,
+      category: currentAnimal.category,
       saleMode,
       date,
       animalsCount: countNum,
-      totalLiveWeightKg: liveWeightNum,
-      averageLiveWeightKg: avgWeight,
+      totalLiveWeightKg: round2(liveWeightNum),
+      averageLiveWeightKg: round2(avgWeight),
       carcassYieldPercent: saleMode === 'canal' ? yieldNum : undefined,
-      carcassWeightKg: saleMode === 'canal' ? carcassWeightKg : undefined,
+      carcassWeightKg: saleMode === 'canal' ? round2(carcassWeightKg) : undefined,
       pricePerKg: priceNum,
       slaughterFeeUsd: totalSlaughterFee,
       transportFeeUsd: transportNum,
@@ -177,19 +161,31 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
       netRevenueUsd: netRevenue,
       accumulatedCostUsd: costNum,
       netProfitUsd: netProfit,
-      profitMarginPercent,
-      buyer,
-      sanitaryDocNumber,
+      profitMarginPercent: round2(profitMarginPercent),
+      buyer: buyer.trim(),
+      sanitaryDocNumber: sanitaryDocNumber.trim() || undefined,
       paymentMethod,
-      markAsSlaughtered,
-      notes,
+      markAsSlaughtered: isTotalSale,
+      notes: notes.trim() || undefined,
     };
 
-    onConfirmSaleSlaughter(result);
+    setIsSaving(true);
+    const res = await runModalAction(() => onConfirmSaleSlaughter(result));
+    setIsSaving(false);
+    if (!res.ok) {
+      setError(res.error || 'No se pudo registrar la venta.');
+      return;
+    }
+    const finalProfit = typeof res.meta?.netProfitUsd === 'number' ? res.meta.netProfitUsd : netProfit;
+    setSaved({
+      count: countNum,
+      code: currentAnimal.code,
+      netRevenue,
+      netProfit: finalProfit,
+      margin: netRevenue > 0 ? (finalProfit / netRevenue) * 100 : 0,
+      remaining: typeof res.meta?.remainingHeads === 'number' ? res.meta.remainingHeads : availableHeads - countNum,
+    });
     setIsSuccess(true);
-    setTimeout(() => {
-      onClose();
-    }, 2000);
   };
 
   return (
@@ -238,10 +234,35 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
               ¡Liquidación y Venta Registrada con Éxito!
             </h4>
             <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
-              Se asentó la venta de <strong>{countNum} animal/es</strong> ({customLotCode}) por un ingreso neto liquidado de{' '}
-              <strong className="text-emerald-700">${netRevenue.toFixed(2)} USD</strong> con utilidad neta de{' '}
-              <strong className="text-emerald-700">+${netProfit.toFixed(2)} USD</strong> ({profitMarginPercent.toFixed(1)}% margen) en el Balance de la Granja.
+              Se asentó la venta de <strong>{saved?.count} animal/es</strong> ({saved?.code}) por un ingreso neto liquidado de{' '}
+              <strong className="text-emerald-700">${(saved?.netRevenue ?? 0).toFixed(2)} USD</strong> con utilidad neta de{' '}
+              <strong className={(saved?.netProfit ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                {(saved?.netProfit ?? 0) >= 0 ? '+' : ''}${(saved?.netProfit ?? 0).toFixed(2)} USD
+              </strong>{' '}
+              ({(saved?.margin ?? 0).toFixed(1)}% margen) en el Balance de la Granja.
+              {saved && saved.remaining > 0
+                ? ` Quedan ${saved.remaining} animal(es) activos en el lote.`
+                : ' El lote quedó cerrado y sus tareas pendientes canceladas.'}
             </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+        ) : candidates.length === 0 ? (
+          <div className="p-8 text-center space-y-3 text-xs">
+            <p className="font-bold text-slate-800 text-sm">No hay animales activos para vender</p>
+            <p className="text-slate-500">Registra animales o lotes en el rebaño porcino para poder liquidar una venta.</p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-bold cursor-pointer"
+            >
+              Cerrar
+            </button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4 overflow-y-auto text-xs flex-1">
@@ -295,37 +316,23 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                 Origen del Ganado & Lote de Salida
               </span>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">
-                    Seleccionar Animal o Lote del Rebaño:
-                  </label>
-                  <select
-                    value={selectedAnimalId}
-                    onChange={(e) => handleAnimalSelect(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl font-bold text-slate-900 bg-white"
-                  >
-                    {safeList.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} ({a.category.toUpperCase()}) - {a.batchAnimalCount || 1} cerdos - {a.currentWeightKg}kg {a.penLocation ? `[${a.penLocation}]` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">
-                    Código Identificador / Lote:
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={customLotCode}
-                    onChange={(e) => setCustomLotCode(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl font-mono font-bold text-slate-900 bg-white"
-                    placeholder="Ej: ENG-302 o LOTE-ENG-14"
-                  />
-                </div>
+              <div>
+                <label className="block text-slate-600 font-semibold mb-1">
+                  Seleccionar Animal o Lote del Rebaño: <span className="text-rose-600">*</span>
+                </label>
+                <select
+                  value={selectedAnimalId}
+                  onChange={(e) => handleAnimalSelect(e.target.value)}
+                  required
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl font-bold text-slate-900 bg-white"
+                >
+                  {!currentAnimal && <option value="">Selecciona...</option>}
+                  {candidates.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} ({a.category.toUpperCase()}) - {headCount(a)} {headCount(a) === 1 ? 'cerdo' : 'cerdos'} - {a.currentWeightKg}kg {a.penLocation ? `[${a.penLocation}]` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {currentAnimal && (
@@ -334,6 +341,8 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                   <span>Raza: <strong className="text-slate-800">{currentAnimal.breed || 'Comercial'}</strong></span>
                   <span>Ubicación: <strong className="text-slate-800">{currentAnimal.penLocation || 'Engorde'}</strong></span>
                   <span>Origen: <strong className="text-slate-800">{currentAnimal.origin === 'comprado' ? 'Comprado' : 'Destetado'}</strong></span>
+                  <span>Cabezas disponibles: <strong className="text-slate-800">{availableHeads}</strong></span>
+                  <span>Costo acumulado del lote: <strong className="text-slate-800">${lotCost.toFixed(2)}</strong></span>
                 </div>
               )}
             </div>
@@ -352,19 +361,22 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                   <input
                     type="number"
                     min="1"
+                    max={availableHeads || undefined}
                     required
                     value={animalsCount}
                     onChange={(e) => {
                       const val = e.target.value;
                       setAnimalsCount(val);
-                      const c = parseInt(val, 10) || 1;
-                      if (currentAnimal?.currentWeightKg) {
-                        setTotalLiveWeightKg((c * currentAnimal.currentWeightKg).toString());
+                      const c = parseInt(val, 10);
+                      if (Number.isFinite(c) && c > 0 && currentAnimal?.currentWeightKg) {
+                        setTotalLiveWeightKg(String(round2(c * currentAnimal.currentWeightKg)));
                       }
                     }}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl font-mono font-bold text-slate-900"
+                    className={`w-full px-2.5 py-1.5 border rounded-xl font-mono font-bold text-slate-900 ${exceedsHeads ? 'border-rose-500 bg-rose-50' : 'border-slate-300'}`}
                   />
-                  <span className="text-[10px] text-slate-400 block mt-0.5">cerdos a despachar</span>
+                  <span className={`text-[10px] block mt-0.5 ${exceedsHeads ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
+                    {exceedsHeads ? `Máx. ${availableHeads}` : isTotalSale ? 'venta total del lote' : 'venta parcial'}
+                  </span>
                 </div>
 
                 <div>
@@ -394,6 +406,7 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                     step="any"
                     min="0"
                     required
+                    placeholder={saleMode === 'pie' ? 'Ej. 2.20' : 'Ej. 3.05'}
                     value={pricePerKg}
                     onChange={(e) => setPricePerKg(e.target.value)}
                     className="w-full px-2.5 py-1.5 border border-emerald-300 rounded-xl font-mono font-bold text-emerald-950 bg-emerald-50/40"
@@ -405,17 +418,13 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
 
                 <div>
                   <label className="block text-slate-600 font-semibold mb-1">
-                    Costo Total Prod. ($):
+                    Costo de lo Vendido ($):
                   </label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={accumulatedCost}
-                    onChange={(e) => setAccumulatedCost(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl font-mono font-semibold text-slate-800"
-                  />
+                  <div className="w-full px-2.5 py-1.5 border border-slate-200 bg-slate-50 rounded-xl font-mono font-semibold text-slate-800">
+                    {costNum.toFixed(2)}
+                  </div>
                   <span className="text-[10px] text-slate-400 block mt-0.5">
-                    ${(costNum / countNum).toFixed(1)} / cabeza
+                    {countNum > 0 ? `$${(costNum / countNum).toFixed(2)} / cabeza` : '—'} (proporcional)
                   </span>
                 </div>
               </div>
@@ -466,7 +475,8 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                         type="number"
                         step="any"
                         min="0"
-                        value={slaughterFeePerAnimal}
+                        placeholder="0.00"
+                      value={slaughterFeePerAnimal}
                         onChange={(e) => setSlaughterFeePerAnimal(e.target.value)}
                         className="w-full px-2 py-1 border border-slate-300 rounded-lg font-semibold text-slate-900 bg-white"
                       />
@@ -479,7 +489,7 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                         {carcassWeightKg.toFixed(1)} kg
                       </strong>
                       <span className="text-[9px] text-slate-400">
-                        ({(carcassWeightKg / countNum).toFixed(1)} kg / canal)
+                        ({countNum > 0 ? (carcassWeightKg / countNum).toFixed(1) : '0.0'} kg / canal)
                       </span>
                     </div>
                   </div>
@@ -494,6 +504,8 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                   <input
                     type="number"
                     step="any"
+                    min="0"
+                    placeholder="0.00"
                     value={transportFeeTotal}
                     onChange={(e) => setTransportFeeTotal(e.target.value)}
                     className="w-20 px-2 py-0.5 border border-slate-300 rounded-lg text-center font-bold text-slate-900 bg-white"
@@ -577,7 +589,7 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                     value={sanitaryDocNumber}
                     onChange={(e) => setSanitaryDocNumber(e.target.value)}
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl font-mono text-slate-900"
-                    placeholder="Ej: GUIA-2026-8921"
+                    placeholder="Ej: N° de guía o factura"
                   />
                 </div>
 
@@ -588,6 +600,7 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                   <input
                     type="date"
                     required
+                    max={todayISO()}
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl text-slate-900 font-bold"
@@ -625,26 +638,33 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
                 </div>
               </div>
 
-              {/* Checkbox para dar de baja / salida por matadero en rebaño */}
-              <div className="pt-2 border-t border-slate-100">
-                <label className="flex items-start gap-2 cursor-pointer p-2 rounded-xl hover:bg-slate-50 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={markAsSlaughtered}
-                    onChange={(e) => setMarkAsSlaughtered(e.target.checked)}
-                    className="mt-0.5 rounded-sm border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                  />
-                  <div className="text-[11px] text-slate-700">
-                    <span className="font-bold block text-slate-900">
-                      Dar salida por matadero / venta y cerrar ciclo del lote en el rebaño
-                    </span>
+              {/* Efecto en el rebaño (lo decide la cantidad vendida) */}
+              <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-700 p-2 rounded-xl bg-slate-50">
+                {isTotalSale ? (
+                  <>
+                    <span className="font-bold block text-slate-900">Venta total: se cierra el ciclo del lote</span>
                     <span className="text-slate-500">
-                      Actualiza el estado zoosanitario a "Matadero", asienta el evento de trazabilidad y descuenta los animales del conteo activo.
+                      El registro pasa a "Matadero", se asienta el evento de trazabilidad, se descuenta del conteo activo y
+                      se cancelan sus tareas sanitarias pendientes.
                     </span>
-                  </div>
-                </label>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-bold block text-slate-900">Venta parcial</span>
+                    <span className="text-slate-500">
+                      Se descuentan {countNum} cabeza(s) y su costo proporcional; el lote sigue activo con{' '}
+                      {Math.max(0, availableHeads - countNum)} animal(es).
+                    </span>
+                  </>
+                )}
               </div>
             </div>
+
+            {error && (
+              <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-[11px] font-bold text-rose-800">
+                {error}
+              </div>
+            )}
 
             {/* Footer Buttons */}
             <div className="flex gap-2 pt-2 border-t border-slate-200 shrink-0">
@@ -657,9 +677,10 @@ export const UnifiedSaleSlaughterModal: React.FC<UnifiedSaleSlaughterModalProps>
               </button>
               <button
                 type="submit"
-                className="flex-1 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                disabled={isSaving || !currentAnimal}
+                className="flex-1 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
               >
-                <CheckCircle2 className="w-4 h-4" /> Asentar Venta & Liquidación
+                <CheckCircle2 className="w-4 h-4" /> {isSaving ? 'Guardando...' : 'Asentar Venta & Liquidación'}
               </button>
             </div>
           </form>

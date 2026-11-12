@@ -11,6 +11,7 @@
  */
 
 import { PorcinoAnimal, LactatingLitter, FarrowingRecord, UnifiedSaleResult } from '../models/FarmModel';
+import { newId } from '../utils/ids';
 import { calculateWeaningProrating } from '../models/PorcinoCalculations';
 
 export const PorcinoController = {
@@ -33,7 +34,7 @@ export const PorcinoController = {
           traceability: [
             ...(animal.traceability || []),
             {
-              id: `parto-${Date.now()}`,
+              id: newId('parto'),
               date: record.date,
               type: 'parto' as const,
               title: `Parto Registrado: Camada ${record.litterBatchCode}`,
@@ -47,7 +48,7 @@ export const PorcinoController = {
     });
 
     const newLitter: LactatingLitter = {
-      id: `litter-${Date.now()}`,
+      id: newId('litter'),
       batchCode: record.litterBatchCode,
       sowCode: record.sowCode,
       birthDate: record.date,
@@ -104,7 +105,7 @@ export const PorcinoController = {
           traceability: [
             ...(a.traceability || []),
             {
-              id: `destete-${Date.now()}`,
+              id: newId('destete'),
               date: new Date().toISOString().split('T')[0],
               type: 'traslado' as const,
               title: `Destete completado - Camada ${params.batchCode}`,
@@ -118,7 +119,7 @@ export const PorcinoController = {
 
     // Nuevo lote de engorde
     const newEngordeBatch: PorcinoAnimal = {
-      id: `engorde-batch-${Date.now()}`,
+      id: newId('engorde-batch'),
       code: params.batchCode,
       name: `Lote Destetado ${params.batchCode}`,
       category: 'engorde',
@@ -133,7 +134,7 @@ export const PorcinoController = {
       batchAnimalCount: params.weanedPigletsCount,
       traceability: [
         {
-          id: `init-${Date.now()}`,
+          id: newId('init'),
           date: new Date().toISOString().split('T')[0],
           type: 'traslado',
           title: 'Ingreso al área de ceba tras destete',
@@ -177,7 +178,7 @@ export const PorcinoController = {
           traceability: [
             ...(animal.traceability || []),
             {
-              id: `sale-${Date.now()}`,
+              id: newId('sale'),
               date: saleResult.date,
               type: 'matadero' as const,
               title: `Despacho a Matadero / Venta: ${saleResult.buyer}`,

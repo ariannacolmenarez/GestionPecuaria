@@ -1,26 +1,15 @@
-import React, { useState } from 'react';
-import {
-  X,
-  Binary,
-  CheckCircle2,
-  RefreshCw,
-  Layers,
-  Database,
-  Search,
-  Scale,
-  ShieldCheck,
-  ChevronRight,
-  TrendingUp,
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { X, Binary, CheckCircle2, RefreshCw, Layers, Search, ShieldCheck } from 'lucide-react';
 import { PorcinoAnimal, LactatingLitter } from '../../types';
-import { calculatePorcinoCounters, PorcinoDetailedCounters } from '../../utils/porcinoCounters';
-import { dbService, FARM_ID } from '../../services/dbService';
+import { calculatePorcinoCounters, PorcinoDetailedCounters } from '../../models/PorcinoCalculations';
+import { isActiveAnimal, headCount } from '../../models/porcinoRules';
 
 interface PorcinoCensusModalProps {
   animals: PorcinoAnimal[];
   litters: LactatingLitter[];
   onClose: () => void;
-  onRefresh?: () => void;
+  /** Opcional: recarga los datos desde el controlador (los contadores ya se derivan en tiempo real). */
+  onRefresh?: () => void | Promise<void>;
 }
 
 export const PorcinoCensusModal: React.FC<PorcinoCensusModalProps> = ({
@@ -34,35 +23,45 @@ export const PorcinoCensusModal: React.FC<PorcinoCensusModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'engorde' | 'maternidad' | 'verracos' | 'lechones'>('all');
 
-  const counters: PorcinoDetailedCounters = calculatePorcinoCounters(animals, litters);
+  // Contadores derivados directamente de los registros (sin escrituras a la base de datos)
+  const counters: PorcinoDetailedCounters = useMemo(
+    () => calculatePorcinoCounters(animals || [], litters || []),
+    [animals, litters]
+  );
 
-  const handleSyncWithDatabase = async () => {
+  const handleRefresh = async () => {
+    if (!onRefresh) return;
     setIsSyncing(true);
     try {
-      await dbService.recalculateAndSyncCounters(FARM_ID);
+      await onRefresh();
       setSyncSuccess(true);
-      if (onRefresh) onRefresh();
       setTimeout(() => setSyncSuccess(false), 3000);
     } catch (err) {
-      console.warn('Sync error:', err);
+      console.warn('Error al actualizar el censo:', err);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  const activeAnimals = animals.filter(
-    (a) => !a.isSoldToSlaughter && a.healthStatus !== 'Matadero' && a.healthStatus !== 'Baja'
-  );
+  // Criterio único de animal activo (excluye vendidos, matadero y descarte)
+  const activeAnimals = useMemo(() => (animals || []).filter(isActiveAnimal), [animals]);
 
-  const filteredAnimals = activeAnimals.filter((a) => {
-    const matchesFilter = selectedFilter === 'all' || a.category === selectedFilter;
-    const matchesSearch =
-      a.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (a.penLocation && a.penLocation.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (a.breed && a.breed.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (a.stage && a.stage.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesFilter && matchesSearch;
-  });
+  const filteredAnimals = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return activeAnimals.filter((a) => {
+      const matchesFilter = selectedFilter === 'all' || a.category === selectedFilter;
+      if (!matchesFilter) return false;
+      if (!q) return true;
+      return (
+        (a.code || '').toLowerCase().includes(q) ||
+        (a.penLocation || '').toLowerCase().includes(q) ||
+        (a.breed || '').toLowerCase().includes(q) ||
+        (a.stage || '').toLowerCase().includes(q)
+      );
+    });
+  }, [activeAnimals, selectedFilter, searchQuery]);
+
+  const penEntries = Object.entries(counters.censoPorUbicacion || {});
 
   return (
     <div
@@ -97,24 +96,26 @@ export const PorcinoCensusModal: React.FC<PorcinoCensusModalProps> = ({
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
             <span className="font-semibold text-slate-700">Base de Datos:</span>
             <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-bold">
-              Conectada (Firebase / Cache)
+              Contadores en tiempo real
             </span>
           </div>
 
-          <button
-            onClick={handleSyncWithDatabase}
-            disabled={isSyncing}
-            className="flex items-center gap-1.5 text-xs font-bold bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 px-2.5 py-1 rounded-xl shadow-xs transition-all cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-rose-600 ${isSyncing ? 'animate-spin' : ''}`} />
-            {isSyncing ? 'Recalculando...' : 'Sincronizar'}
-          </button>
+          {onRefresh && (
+            <button
+              onClick={handleRefresh}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 text-xs font-bold bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 px-2.5 py-1 rounded-xl shadow-xs transition-all cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-rose-600 ${isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing ? 'Actualizando...' : 'Actualizar'}
+            </button>
+          )}
         </div>
 
         {syncSuccess && (
           <div className="bg-emerald-50 text-emerald-800 px-4 py-1.5 text-[11px] font-bold border-b border-emerald-200 flex items-center gap-1.5 animate-in fade-in">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            Contadores conciliados y actualizados con éxito en la base de datos.
+            Datos actualizados. Los contadores se calculan en tiempo real desde los registros.
           </div>
         )}
 
@@ -173,7 +174,10 @@ export const PorcinoCensusModal: React.FC<PorcinoCensusModalProps> = ({
             </h4>
 
             <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden shadow-xs">
-              {Object.entries(counters.censoPorUbicacion).map(([pen, count]) => (
+              {penEntries.length === 0 && (
+                <div className="p-3 text-center text-[11px] text-slate-500">Sin animales registrados.</div>
+              )}
+              {penEntries.map(([pen, count]) => (
                 <div key={pen} className="p-2.5 flex items-center justify-between text-xs hover:bg-slate-50">
                   <span className="font-semibold text-slate-700">{pen}</span>
                   <span className="font-black text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md">
@@ -189,7 +193,7 @@ export const PorcinoCensusModal: React.FC<PorcinoCensusModalProps> = ({
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold text-slate-800">Inspección de Registros ({filteredAnimals.length})</h4>
               <div className="flex gap-1">
-                {(['all', 'maternidad', 'engorde', 'verracos'] as const).map((tab) => (
+                {(['all', 'maternidad', 'engorde', 'verracos', 'lechones'] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setSelectedFilter(tab)}
@@ -217,6 +221,9 @@ export const PorcinoCensusModal: React.FC<PorcinoCensusModalProps> = ({
             </div>
 
             <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {filteredAnimals.length === 0 && (
+                <div className="p-3 text-center text-[11px] text-slate-500">No hay registros que coincidan.</div>
+              )}
               {filteredAnimals.map((a) => (
                 <div
                   key={a.id}
@@ -228,14 +235,14 @@ export const PorcinoCensusModal: React.FC<PorcinoCensusModalProps> = ({
                       <span className="text-[10px] uppercase font-semibold text-slate-500 bg-slate-200 px-1 rounded">
                         {a.category}
                       </span>
-                      {a.batchAnimalCount && (
+                      {headCount(a) > 1 && (
                         <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-1 rounded">
-                          {a.batchAnimalCount} cerdos
+                          {headCount(a)} cerdos
                         </span>
                       )}
                     </div>
                     <p className="text-[10px] text-slate-500 mt-0.5">
-                      {a.penLocation || 'Sin corral'} • {a.stage}
+                      {a.penLocation || 'Sin corral'}{a.stage ? ` • ${a.stage}` : ''}
                     </p>
                   </div>
                   <div className="text-right">

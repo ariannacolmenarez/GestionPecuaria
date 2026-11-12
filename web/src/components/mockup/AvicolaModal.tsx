@@ -1,3 +1,4 @@
+import { newId } from '../../utils/ids';
 import React, { useState } from 'react';
 import {
   X,
@@ -146,7 +147,7 @@ export const AvicolaModal: React.FC<AvicolaModalProps> = ({
       await apiClient.avicola.liquidateLotSale(selectedLotForSale, price, buyerName);
 
       const movement: FinancialMovement = {
-        id: `fm-avi-sale-${Date.now()}`,
+        id: newId('fm-avi-sale'),
         type: 'ingreso',
         concept: `Liquidación Lote Avícola ${lot.code} (${lot.current} aves a ${buyerName})`,
         rubro: 'avicola',
@@ -180,7 +181,7 @@ export const AvicolaModal: React.FC<AvicolaModalProps> = ({
     const chicks = parseInt(newInitialCount, 10) || 700;
 
     const newLotObj = {
-      id: `av_lot_${Date.now()}`,
+      id: newId('av_lot'),
       code: newBatchCode,
       shed: newShed,
       breed: newLineBreed,

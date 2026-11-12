@@ -9,6 +9,7 @@
  */
 
 import { BovinoAnimal, FinancialMovement } from '../models/FarmModel';
+import { newId } from '../utils/ids';
 import { calculateBovinoCounters } from '../models/PorcinoCalculations';
 
 export const BovinoController = {
@@ -29,7 +30,7 @@ export const BovinoController = {
 
     const totalIncome = Math.round(liters * pricePerLiter * 100) / 100;
     const movement: FinancialMovement = {
-      id: `fm-bov-milk-${Date.now()}`,
+      id: newId('fm-bov-milk'),
       type: 'ingreso',
       concept: `Venta de leche ordeño diario: Vaca ${cowTag} (${liters} L)`,
       rubro: 'bovino',
@@ -48,7 +49,7 @@ export const BovinoController = {
   ): BovinoAnimal[] {
     const newAnimal: BovinoAnimal = {
       ...animalData,
-      id: `bov_${Date.now()}`,
+      id: newId('bov'),
     };
     return [newAnimal, ...herd];
   },

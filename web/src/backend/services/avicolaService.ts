@@ -1,3 +1,5 @@
+import { newId } from '../../utils/ids';
+import { todayISO, daysBetween } from '../../utils/dates';
 import { AvicolaLotDTO } from '../types';
 import { financialService } from './financialService';
 import { dbService, FARM_ID } from '../../services/dbService';
@@ -15,67 +17,37 @@ class AvicolaService {
   }
 
   private seedAvicolaLots() {
-    const seed: AvicolaLotDTO[] = [
-      {
-        id: 'avi-001',
-        batchCode: 'LOTE-ENG-04',
-        shedNumber: 'Galpón 2 (Sección Norte)',
-        lineBreed: 'Cobb 500 Fast Growth',
-        initialChicks: 650,
-        currentBirds: 632,
-        entryDate: '2026-07-10',
-        currentAgeDays: 40,
-        currentAverageWeightGrams: 2350,
-        totalFeedConsumedKg: 2850,
-        feedConversionRatio: 1.92, // kg alimento / kg ave
-        accumulatedMortalityCount: 18,
-        mortalityRatePercent: 2.77,
-        targetSlaughterAgeDays: 42,
-        status: 'listo_faena',
-      },
-      {
-        id: 'avi-002',
-        batchCode: 'LOTE-ENG-05',
-        shedNumber: 'Galpón 2 (Sección Sur)',
-        lineBreed: 'Ross 308 Plus',
-        initialChicks: 650,
-        currentBirds: 618,
-        entryDate: '2026-07-25',
-        currentAgeDays: 25,
-        currentAverageWeightGrams: 1280,
-        totalFeedConsumedKg: 1350,
-        feedConversionRatio: 1.71,
-        accumulatedMortalityCount: 32,
-        mortalityRatePercent: 4.92,
-        targetSlaughterAgeDays: 42,
-        status: 'crecimiento',
-      },
-    ];
-
-    seed.forEach((lot) => this.lots.set(lot.id, lot));
+    // Sin datos de ejemplo: el servicio arranca vacío y solo contiene lo que registre el usuario.
   }
 
   public async getAllLots(): Promise<AvicolaLotDTO[]> {
     try {
       const dbLots = await dbService.getAvicolaLots(FARM_ID);
       if (dbLots && dbLots.length > 0) {
-        return dbLots.map((l) => ({
-          id: l.id,
-          batchCode: l.code || l.batchCode,
-          shedNumber: l.shed || l.shedNumber,
-          lineBreed: l.breed || l.lineBreed,
-          initialChicks: l.initial || l.initialChicks,
-          currentBirds: l.current || l.currentBirds,
-          entryDate: l.startDate || l.entryDate || '2026-07-15',
-          currentAgeDays: l.age || l.currentAgeDays || 30,
-          currentAverageWeightGrams: l.avgWeightGrams || l.currentAverageWeightGrams || 2000,
-          totalFeedConsumedKg: l.feedTotalKg || l.totalFeedConsumedKg || 1000,
-          feedConversionRatio: l.fcr || l.feedConversionRatio || 1.8,
-          accumulatedMortalityCount: (l.initial || l.initialChicks || 650) - (l.current || l.currentBirds || 630),
-          mortalityRatePercent: 2.5,
-          targetSlaughterAgeDays: 42,
-          status: l.status === 'Liquidado' ? 'liquidado' : l.status === 'Listo para Faena' ? 'listo_faena' : 'crecimiento',
-        })) as AvicolaLotDTO[];
+        // Sin valores inventados: todo se deriva del registro real (0 si falta el dato).
+        return dbLots.map((l) => {
+          const initial = l.initial || l.initialChicks || 0;
+          const current = l.current ?? l.currentBirds ?? initial;
+          const entryDate = l.startDate || l.entryDate || todayISO();
+          const dead = Math.max(0, initial - current);
+          return {
+            id: l.id,
+            batchCode: l.code || l.batchCode,
+            shedNumber: l.shed || l.shedNumber,
+            lineBreed: l.breed || l.lineBreed,
+            initialChicks: initial,
+            currentBirds: current,
+            entryDate,
+            currentAgeDays: l.age || l.currentAgeDays || Math.max(0, daysBetween(entryDate, todayISO())),
+            currentAverageWeightGrams: l.avgWeightGrams || l.currentAverageWeightGrams || 0,
+            totalFeedConsumedKg: l.feedTotalKg || l.totalFeedConsumedKg || 0,
+            feedConversionRatio: l.fcr || l.feedConversionRatio || 0,
+            accumulatedMortalityCount: dead,
+            mortalityRatePercent: initial > 0 ? Math.round((dead / initial) * 1000) / 10 : 0,
+            targetSlaughterAgeDays: 42,
+            status: l.status === 'Liquidado' ? 'liquidado' : l.status === 'Listo para Faena' ? 'listo_faena' : 'crecimiento',
+          };
+        }) as AvicolaLotDTO[];
       }
     } catch (e) {
       console.warn('avicolaService fallback to in-memory:', e);
@@ -95,7 +67,7 @@ class AvicolaService {
     initialChicks: number;
     entryDate: string;
   }): Promise<AvicolaLotDTO> {
-    const id = `avi_${Date.now()}`;
+    const id = newId('avi');
     const newLot: AvicolaLotDTO = {
       id,
       batchCode: dto.batchCode,

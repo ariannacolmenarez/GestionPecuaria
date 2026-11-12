@@ -1,6 +1,20 @@
 import React, { useState } from 'react';
 import { X, UserPlus, Shield, Check, Mail } from 'lucide-react';
 import { FarmMember } from '../../types';
+import { newId } from '../../utils/ids';
+
+/** Avatar con iniciales (SVG en data URI): evita URLs aleatorias que pueden no existir. */
+function initialsAvatar(name: string): string {
+  const initials =
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => (w[0] || '').toUpperCase())
+      .join('') || '?';
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><rect width='120' height='120' fill='#10b981'/><text x='50%' y='50%' dy='.35em' text-anchor='middle' font-family='sans-serif' font-size='48' fill='#ffffff'>${initials}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
 
 interface MembersModalProps {
   members: FarmMember[];
@@ -24,11 +38,11 @@ export const MembersModal: React.FC<MembersModalProps> = ({
     if (!name || !email) return;
 
     const newMember: FarmMember = {
-      id: 'm-' + Date.now(),
+      id: newId('m'),
       name,
       email,
       role,
-      avatar: `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 9999999)}?w=120&auto=format&fit=crop&q=80`,
+      avatar: initialsAvatar(name),
     };
 
     onInviteMember(newMember);

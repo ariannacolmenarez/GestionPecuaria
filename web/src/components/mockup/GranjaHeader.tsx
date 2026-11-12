@@ -12,13 +12,20 @@ interface GranjaHeaderProps {
 }
 
 export const GranjaHeader: React.FC<GranjaHeaderProps> = ({
-  title = 'Granja Arianna',
+  title = 'Mi Granja',
   members,
   onOpenMembers,
   onOpenSettings,
   showBack = false,
   onBack,
 }) => {
+  const initials =
+    title
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? '')
+      .join('') || 'G';
   return (
     <header
       id="granja-app-header"
@@ -37,7 +44,7 @@ export const GranjaHeader: React.FC<GranjaHeaderProps> = ({
             </button>
           ) : (
             <div className="w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-black text-xs shadow-sm">
-              GA
+              {initials}
             </div>
           )}
           <div>

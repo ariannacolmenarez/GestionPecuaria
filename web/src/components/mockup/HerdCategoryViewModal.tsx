@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   X,
   Search,
   Scale,
-  Calendar,
   DollarSign,
   ChevronRight,
   Plus,
@@ -14,14 +13,15 @@ import {
   Activity,
   Layers,
   ShieldCheck,
-  CheckCircle2,
-  AlertTriangle,
   MapPin,
-  Tag,
-  Info,
   Users,
 } from 'lucide-react';
 import { PorcinoAnimal, LactatingLitter, PorcinoCategory } from '../../types';
+import { isActiveAnimal, isActiveLitter, headCount, num, round2 } from '../../models/porcinoRules';
+import { ageInDays } from '../../utils/dates';
+import { ModalActionReturn } from './modalResult';
+import { AddPigsForm, NewPigsData } from './herd/AddPigsForm';
+import { AddMotherForm, NewMotherData } from './herd/AddMotherForm';
 
 interface HerdCategoryViewModalProps {
   category: PorcinoCategory | 'lechones';
@@ -37,26 +37,13 @@ interface HerdCategoryViewModalProps {
   onOpenBoarMatingModal?: (tab?: 'monta' | 'nuevo') => void;
   onOpenMortalityModal?: (litterId?: string) => void;
   onOpenPigletMortalityModal?: (litterId?: string) => void;
-  onRegisterNewPigs?: (pigsData: {
-    penLocation: string;
-    quantity: number;
-    ageWeeks: number;
-    admissionWeightKg: number;
-    admissionDate: string;
-    provenance: string;
-    admissionPriceUsd: number;
-  }) => void;
-  onRegisterNewMother?: (motherData: {
-    code?: string;
-    breed: string;
-    ageWeeks: number;
-    currentWeightKg: number;
-    teatsCount: number;
-    admissionPriceUsd: number;
-    penLocation: string;
-    provenance: string;
-  }) => void;
+  /** Conectar a porcinoActions.registerNewPigs(d). admissionPriceUsd es UNITARIO. */
+  onRegisterNewPigs?: (pigsData: NewPigsData) => ModalActionReturn;
+  /** Conectar a porcinoActions.registerNewMother(d). */
+  onRegisterNewMother?: (motherData: NewMotherData) => ModalActionReturn;
 }
+
+const INACTIVE_FILTER = '__inactivos__';
 
 export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
   category,
@@ -99,60 +86,66 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
   const [statusFilter, setStatusFilter] = useState('all');
   const [originFilter, setOriginFilter] = useState<'all' | 'destetado' | 'comprado'>('all');
   const [pigletViewTab, setPigletViewTab] = useState<'lotes' | 'individuales'>('lotes');
-
-  // Modal State for Registering New Pigs in Engorde (Requisito 2)
   const [showAddPigsModal, setShowAddPigsModal] = useState(false);
-  const [pigsPenLocation, setPigsPenLocation] = useState('Galpón Engorde 2 - Corral 5');
-  const [pigsQuantity, setPigsQuantity] = useState(20);
-  const [pigsAgeWeeks, setPigsAgeWeeks] = useState(10);
-  const [pigsAdmissionWeightKg, setPigsAdmissionWeightKg] = useState(28);
-  const [pigsAdmissionDate, setPigsAdmissionDate] = useState('2026-08-19');
-  const [pigsProvenance, setPigsProvenance] = useState('Granja Porcina AgroSur');
-  const [pigsAdmissionPriceUsd, setPigsAdmissionPriceUsd] = useState(75);
-
-  // Modal State for Registering New Mother in Maternidad (Requisito 5)
   const [showAddMotherModal, setShowAddMotherModal] = useState(false);
-  const [motherBreed, setMotherBreed] = useState('F1 Landrace x Yorkshire');
-  const [motherAgeWeeks, setMotherAgeWeeks] = useState(28);
-  const [motherWeight, setMotherWeight] = useState(165);
-  const [motherTeats, setMotherTeats] = useState(14);
-  const [motherPrice, setMotherPrice] = useState(450);
-  const [motherPen, setMotherPen] = useState('Galpón Gestación Sala 2');
-  const [motherProvenance, setMotherProvenance] = useState('Cabaña Genética El Rosal');
 
-  // Filter category animals
-  const categoryAnimals = animals.filter((a) => a.category === category);
-
-  const filteredAnimals = categoryAnimals.filter((a) => {
-    const matchesStatus = statusFilter === 'all' || a.healthStatus === statusFilter;
-    const matchesOrigin = originFilter === 'all' || a.origin === originFilter;
-    const matchesSearch =
-      a.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (a.breed && a.breed.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (a.stage && a.stage.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (a.penLocation && a.penLocation.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (a.provenance && a.provenance.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesStatus && matchesOrigin && matchesSearch;
-  });
-
-  // Calculate sum of all lactating piglets
-  const totalLactatingPiglets = litters.reduce((acc, curr) => acc + curr.currentCount, 0);
-  const totalInitialPiglets = litters.reduce((acc, curr) => acc + curr.initialCount, 0);
-  const totalAccumulatedMortality = litters.reduce((acc, curr) => acc + curr.mortalityCount, 0);
-
-  // Requirement 1: Calculate total head count for categories
-  const totalEngordeHeadCount = categoryAnimals.reduce(
-    (acc, curr) => acc + (curr.batchAnimalCount || 1),
-    0
+  // Todos los registros de la categoría (incluye vendidos solo para el filtro "Vendidos / Bajas")
+  const allCategoryAnimals = useMemo(
+    () => (animals || []).filter((a) => a.category === category),
+    [animals, category]
   );
-  const totalMaternidadHeadCount = categoryAnimals.reduce(
-    (acc, curr) => acc + (curr.batchAnimalCount || 1),
-    0
+  // Criterio único de animal activo: los totales nunca incluyen vendidos ni bajas
+  const categoryAnimals = useMemo(() => allCategoryAnimals.filter(isActiveAnimal), [allCategoryAnimals]);
+  const inactiveCount = allCategoryAnimals.length - categoryAnimals.length;
+
+  const filteredAnimals = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const base =
+      statusFilter === INACTIVE_FILTER
+        ? allCategoryAnimals.filter((a) => !isActiveAnimal(a))
+        : categoryAnimals.filter((a) => statusFilter === 'all' || a.healthStatus === statusFilter);
+    return base.filter((a) => {
+      if (originFilter !== 'all' && a.origin !== originFilter) return false;
+      if (!q) return true;
+      return [a.code, a.breed, a.stage, a.penLocation, a.provenance].some((f) => (f || '').toLowerCase().includes(q));
+    });
+  }, [allCategoryAnimals, categoryAnimals, statusFilter, originFilter, searchQuery]);
+
+  // Solo camadas en lactancia (no destetadas) cuentan en los totales
+  const activeLitters = useMemo(() => (litters || []).filter(isActiveLitter), [litters]);
+  const { totalLactatingPiglets, totalInitialPiglets, totalAccumulatedMortality } = useMemo(
+    () =>
+      activeLitters.reduce(
+        (acc, l) => ({
+          totalLactatingPiglets: acc.totalLactatingPiglets + num(l.currentCount),
+          totalInitialPiglets: acc.totalInitialPiglets + num(l.initialCount),
+          totalAccumulatedMortality: acc.totalAccumulatedMortality + num(l.mortalityCount),
+        }),
+        { totalLactatingPiglets: 0, totalInitialPiglets: 0, totalAccumulatedMortality: 0 }
+      ),
+    [activeLitters]
   );
-  const totalVerracosHeadCount = categoryAnimals.reduce(
-    (acc, curr) => acc + (curr.batchAnimalCount || 1),
-    0
-  );
+  const viabilityPercent = totalInitialPiglets > 0 ? (totalLactatingPiglets / totalInitialPiglets) * 100 : null;
+
+  // Cabezas reales (batchAnimalCount) y peso promedio ponderado por número de animales
+  const { totalHeadCount, weightedAvgWeight } = useMemo(() => {
+    let heads = 0;
+    let weightSum = 0;
+    let weightedHeads = 0;
+    categoryAnimals.forEach((a) => {
+      const h = headCount(a);
+      heads += h;
+      if (num(a.currentWeightKg) > 0) {
+        weightSum += num(a.currentWeightKg) * h;
+        weightedHeads += h;
+      }
+    });
+    return { totalHeadCount: heads, weightedAvgWeight: weightedHeads > 0 ? round2(weightSum / weightedHeads) : 0 };
+  }, [categoryAnimals]);
+  const totalEngordeHeadCount = totalHeadCount;
+  const totalMaternidadHeadCount = totalHeadCount;
+  const totalVerracosHeadCount = totalHeadCount;
+  const existingCodes = useMemo(() => (animals || []).map((a) => a.code), [animals]);
 
   // Category Configuration
   const getCategoryConfig = () => {
@@ -196,40 +189,6 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
   const config = getCategoryConfig();
   const IconHeader = config.icon;
 
-  // Submit handler for new pigs in engorde (Requisito 2)
-  const handleSaveNewPigs = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (onRegisterNewPigs) {
-      onRegisterNewPigs({
-        penLocation: pigsPenLocation.trim() || 'Galpón Engorde',
-        quantity: Number(pigsQuantity) || 1,
-        ageWeeks: Number(pigsAgeWeeks) || 8,
-        admissionWeightKg: Number(pigsAdmissionWeightKg) || 25,
-        admissionDate: pigsAdmissionDate,
-        provenance: pigsProvenance.trim() || 'Compra Externa',
-        admissionPriceUsd: Number(pigsAdmissionPriceUsd) || 0,
-      });
-    }
-    setShowAddPigsModal(false);
-  };
-
-  // Submit handler for new mother in maternidad (Requisito 5)
-  const handleSaveNewMother = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (onRegisterNewMother) {
-      onRegisterNewMother({
-        breed: motherBreed.trim(),
-        ageWeeks: Number(motherAgeWeeks) || 26,
-        currentWeightKg: Number(motherWeight) || 160,
-        teatsCount: Number(motherTeats) || 14,
-        admissionPriceUsd: Number(motherPrice) || 0,
-        penLocation: motherPen.trim() || 'Galpón Gestación',
-        provenance: motherProvenance.trim() || 'Compra Externa',
-      });
-    }
-    setShowAddMotherModal(false);
-  };
-
   return (
     <div
       id="herd-category-modal-overlay"
@@ -269,6 +228,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAddMotherModal(true)}
+                  disabled={!onRegisterNewMother}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" /> Registrar Nueva Madre
@@ -306,11 +266,9 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    const firstBoar = categoryAnimals[0];
-                    handleOpenSlaughter(firstBoar?.code);
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
+                  onClick={() => handleOpenSlaughter(undefined)}
+                  disabled={categoryAnimals.length === 0}
+                  className="flex items-center gap-1 px-2.5 py-1.5 disabled:opacity-50 bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
                 >
                   <Truck className="w-3 h-3" /> A Matadero / Venta
                 </button>
@@ -329,7 +287,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Lotes por Cerda ({litters.length})
+                  Lotes por Cerda ({activeLitters.length})
                 </button>
                 <button
                   onClick={() => setPigletViewTab('individuales')}
@@ -363,17 +321,16 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAddPigsModal(true)}
+                  disabled={!onRegisterNewPigs}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" /> Agregar Nuevos Cerdos
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    const firstAnimal = categoryAnimals[0];
-                    handleOpenSlaughter(firstAnimal?.code);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs cursor-pointer"
+                  onClick={() => handleOpenSlaughter(undefined)}
+                  disabled={categoryAnimals.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs cursor-pointer"
                 >
                   <Truck className="w-3.5 h-3.5" /> Salida a Matadero / Venta
                 </button>
@@ -407,7 +364,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
             <div className="text-right text-xs space-y-0.5">
               <span className="text-slate-300 block text-[10px]">Peso Promedio</span>
               <span className="font-bold text-emerald-300">
-                {(categoryAnimals.reduce((acc, a) => acc + a.currentWeightKg, 0) / (categoryAnimals.length || 1)).toFixed(1)} kg / cerdo
+                {weightedAvgWeight > 0 ? `${weightedAvgWeight.toFixed(1)} kg / cerdo` : '—'}
               </span>
               <span className="text-[10px] text-slate-300 block">
                 Acabado y ceba comercial
@@ -432,7 +389,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                     {totalLactatingPiglets} lechones
                   </strong>
                   <span className="text-xs text-amber-200">
-                    en {litters.length} camadas activas
+                    en {activeLitters.length} camadas activas
                   </span>
                 </div>
               </div>
@@ -441,7 +398,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
             <div className="text-right text-xs space-y-0.5">
               <span className="text-slate-300 block text-[10px]">Supervivencia / Bajas</span>
               <span className="font-bold text-emerald-300">
-                {(((totalLactatingPiglets) / (totalInitialPiglets || 1)) * 100).toFixed(1)}% viabilidad
+                {viabilityPercent === null ? '—' : `${viabilityPercent.toFixed(1)}% viabilidad`}
               </span>
               <span className="text-[10px] text-rose-300 block">
                 ({totalAccumulatedMortality} bajas registradas)
@@ -466,7 +423,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
           {/* Origin filter (Requisito 6) */}
           <select
             value={originFilter}
-            onChange={(e) => setOriginFilter(e.target.value as any)}
+            onChange={(e) => setOriginFilter(e.target.value as 'all' | 'destetado' | 'comprado')}
             className="py-1.5 px-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 text-slate-700 font-semibold"
           >
             <option value="all">Origen: Todos</option>
@@ -479,12 +436,13 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
             onChange={(e) => setStatusFilter(e.target.value)}
             className="py-1.5 px-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 text-slate-700 font-semibold"
           >
-            <option value="all">Todos los estados</option>
+            <option value="all">Activos: todos los estados</option>
             <option value="Optimo">Óptimo</option>
             <option value="Gestante">Gestante</option>
             <option value="Lactante">Lactante</option>
+            <option value="Tratamiento">Tratamiento</option>
             <option value="En Observación">En Observación</option>
-            <option value="Matadero">Matadero</option>
+            <option value={INACTIVE_FILTER}>Vendidos / Bajas ({inactiveCount})</option>
           </select>
         </div>
 
@@ -497,12 +455,12 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                 <span className="text-amber-700 font-bold">Total: {totalLactatingPiglets} crías</span>
               </div>
 
-              {litters.length === 0 ? (
+              {activeLitters.length === 0 ? (
                 <div className="text-center py-10 text-slate-400 text-xs">
-                  No hay camadas registradas en este momento.
+                  No hay camadas en lactancia en este momento.
                 </div>
               ) : (
-                litters.map((litter) => (
+                activeLitters.map((litter) => (
                   <div
                     key={litter.id}
                     className="p-3.5 bg-white rounded-2xl border border-amber-200/80 shadow-xs hover:border-amber-400 transition-all space-y-2.5"
@@ -521,8 +479,8 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 mt-1">
-                          Fecha Nacimiento: <strong>{litter.birthDate}</strong> • Nacidos iniciales:{' '}
-                          {litter.initialCount}
+                          Fecha Nacimiento: <strong>{litter.birthDate}</strong> ({ageInDays(litter.birthDate)} días) •
+                          Nacidos iniciales: {litter.initialCount}
                         </p>
                       </div>
 
@@ -620,7 +578,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                           {animal.category === 'engorde' && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-950 border border-emerald-300 flex items-center gap-1 shadow-2xs">
                               <Users className="w-3 h-3 text-emerald-700" />
-                              {animal.batchAnimalCount || 25} animales en el lote
+                              {headCount(animal)} animales en el lote
                             </span>
                           )}
 
@@ -652,7 +610,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500">
                           {animal.category === 'engorde' && (
                             <span className="font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200 flex items-center gap-1">
-                              <Users className="w-3 h-3 text-emerald-600" /> Lote: {animal.batchAnimalCount || 25} cerdos
+                              <Users className="w-3 h-3 text-emerald-600" /> Lote: {headCount(animal)} cerdos
                             </span>
                           )}
 
@@ -667,7 +625,7 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
                           )}
 
                           <span className="flex items-center gap-1">
-                            <DollarSign className="w-3 h-3 text-slate-400" /> ${animal.accumulatedCostUsd}
+                            <DollarSign className="w-3 h-3 text-slate-400" /> ${round2(animal.accumulatedCostUsd).toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -706,326 +664,16 @@ export const HerdCategoryViewModal: React.FC<HerdCategoryViewModalProps> = ({
         </div>
       </div>
 
-      {/* =========================================================================
-          MODAL REQUISITO 2: AGREGAR NUEVOS CERDOS EN ENGORDE
-      ========================================================================= */}
-      {showAddPigsModal && (
-        <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl p-5 max-w-md w-full shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
-                  <Layers className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-sm text-slate-900">Ingreso de Cerdos de Engorde</h4>
-                  <p className="text-[11px] text-slate-500">Registrar nuevo lote o grupo de ceba</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowAddPigsModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveNewPigs} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Corral / Galpón *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: Galpón 2 - Corral 5"
-                    value={pigsPenLocation}
-                    onChange={(e) => setPigsPenLocation(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Número de Cerdos *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={pigsQuantity}
-                    onChange={(e) => setPigsQuantity(parseInt(e.target.value, 10) || 1)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Edad al Ingresar (Semanas) *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.5"
-                    required
-                    value={pigsAgeWeeks}
-                    onChange={(e) => setPigsAgeWeeks(parseFloat(e.target.value) || 1)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Peso Promedio (kg) *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.1"
-                    required
-                    value={pigsAdmissionWeightKg}
-                    onChange={(e) => setPigsAdmissionWeightKg(parseFloat(e.target.value) || 1)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Fecha de Ingreso *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={pigsAdmissionDate}
-                    onChange={(e) => setPigsAdmissionDate(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Precio Compra ($ c/u) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    required
-                    value={pigsAdmissionPriceUsd}
-                    onChange={(e) => setPigsAdmissionPriceUsd(parseFloat(e.target.value) || 0)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                  Procedencia / Origen *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Granja Porcina AgroSur / Cabaña San Pedro"
-                  value={pigsProvenance}
-                  onChange={(e) => setPigsProvenance(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900"
-                />
-              </div>
-
-              {/* Cost summary note */}
-              <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between text-[11px]">
-                <span className="text-blue-900 font-medium">Inversión total compra:</span>
-                <strong className="text-blue-950 font-black text-xs">
-                  ${(pigsQuantity * pigsAdmissionPriceUsd).toFixed(2)} USD
-                </strong>
-              </div>
-
-              <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-xl text-[10px] text-emerald-900 leading-tight">
-                🛡️ <strong>Plan Sanitario Automático:</strong> Al guardar, se programarán automáticamente
-                las actividades del plan sanitario configurado para Engorde en el calendario.
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddPigsModal(false)}
-                  className="px-3 py-1.5 text-slate-600 hover:text-slate-800 font-bold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
-                >
-                  Registrar Cerdos
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+{/* Sub-formularios de alta (componentes propios) */}
+      {showAddPigsModal && onRegisterNewPigs && (
+        <AddPigsForm onClose={() => setShowAddPigsModal(false)} onSubmit={onRegisterNewPigs} />
       )}
-
-      {/* =========================================================================
-          MODAL REQUISITO 5: REGISTRAR NUEVA MADRE EN MATERNIDAD
-      ========================================================================= */}
-      {showAddMotherModal && (
-        <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl p-5 max-w-md w-full shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
-                  <Heart className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-sm text-slate-900">Registrar Nueva Madre</h4>
-                  <p className="text-[11px] text-slate-500">Alta de cerda reproductora en maternidad</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowAddMotherModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveNewMother} className="space-y-3 text-xs">
-              <div>
-                <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                  Raza Genética *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: F1 Landrace x Yorkshire / Topigs 20"
-                  value={motherBreed}
-                  onChange={(e) => setMotherBreed(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Edad (Semanas) *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={motherAgeWeeks}
-                    onChange={(e) => setMotherAgeWeeks(parseInt(e.target.value, 10) || 1)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Peso Actual (kg) *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.5"
-                    required
-                    value={motherWeight}
-                    onChange={(e) => setMotherWeight(parseFloat(e.target.value) || 1)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Pezones Funcionales *
-                  </label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="20"
-                    required
-                    placeholder="Ej: 14 o 16"
-                    value={motherTeats}
-                    onChange={(e) => setMotherTeats(parseInt(e.target.value, 10) || 14)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Precio de Compra ($ USD) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    required
-                    value={motherPrice}
-                    onChange={(e) => setMotherPrice(parseFloat(e.target.value) || 0)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Corral / Galpón Asignado *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: Galpón Gestación Sala 2"
-                    value={motherPen}
-                    onChange={(e) => setMotherPen(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Procedencia / Cabaña *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: Cabaña El Rosal"
-                    value={motherProvenance}
-                    onChange={(e) => setMotherProvenance(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="p-2 bg-rose-50 border border-rose-200 rounded-xl text-[10px] text-rose-900 leading-tight">
-                🛡️ <strong>Plan Sanitario Reproductivo:</strong> Se programará automáticamente en el calendario
-                el protocolo de vacunación y sanidad configurado para cerdas reproductoras.
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddMotherModal(false)}
-                  className="px-3 py-1.5 text-slate-600 hover:text-slate-800 font-bold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
-                >
-                  Guardar Madre
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {showAddMotherModal && onRegisterNewMother && (
+        <AddMotherForm
+          existingCodes={existingCodes}
+          onClose={() => setShowAddMotherModal(false)}
+          onSubmit={onRegisterNewMother}
+        />
       )}
     </div>
   );

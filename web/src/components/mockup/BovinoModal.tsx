@@ -13,6 +13,9 @@ import {
 } from 'lucide-react';
 import { apiClient } from '../../services/apiClient';
 import { FinancialMovement, BovinoAnimal } from '../../types';
+import { calculateBovinoCounters } from '../../models/PorcinoCalculations';
+import { todayISO } from '../../utils/dates';
+import { newId } from '../../utils/ids';
 
 interface BovinoModalProps {
   onClose: () => void;
@@ -32,91 +35,17 @@ export const BovinoModal: React.FC<BovinoModalProps> = ({
   onShowToast,
 }) => {
   const [activeTab, setActiveTab] = useState<'hato' | 'ordeno' | 'nuevo'>('hato');
-  const [localHerd, setLocalHerd] = useState([
-    {
-      tag: 'BOV-001',
-      name: 'Sansón',
-      type: 'Padrote',
-      breed: 'Brahman Blanco',
-      weight: 890,
-      status: 'Optimo',
-      paddock: 'Potrero Los Samanes 1',
-    },
-    {
-      tag: 'BOV-002',
-      name: 'Goliat',
-      type: 'Padrote',
-      breed: 'Senepol Puro',
-      weight: 780,
-      status: 'Optimo',
-      paddock: 'Potrero Los Samanes 2',
-    },
-    {
-      tag: 'BOV-003',
-      name: 'Relámpago',
-      type: 'Padrote',
-      breed: 'Girolando 5/8',
-      weight: 740,
-      status: 'Optimo',
-      paddock: 'Potrero El Caobo',
-    },
-    {
-      tag: 'BOV-101',
-      name: 'Mariposa',
-      type: 'Vaca Lactante',
-      breed: 'Girolando F1',
-      weight: 520,
-      dailyLiters: 18.5,
-      status: 'Optimo',
-      paddock: 'Potrero Ordeño A',
-    },
-    {
-      tag: 'BOV-102',
-      name: 'Paloma',
-      type: 'Vaca Lactante',
-      breed: 'Holstein x Brahman',
-      weight: 495,
-      dailyLiters: 16.0,
-      status: 'Optimo',
-      paddock: 'Potrero Ordeño A',
-    },
-    {
-      tag: 'BOV-103',
-      name: 'Esmeralda',
-      type: 'Vaca Seca',
-      breed: 'Girolando',
-      weight: 550,
-      dailyLiters: 0,
-      status: 'Optimo',
-      paddock: 'Potrero Maternidad Bovina',
-    },
-    {
-      tag: 'BOV-201',
-      name: 'Becerro 201',
-      type: 'Becerro Destete',
-      breed: 'Girolando 3/4',
-      weight: 92,
-      status: 'Optimo',
-      paddock: 'Corral de Becerros 1',
-    },
-    {
-      tag: 'BOV-202',
-      name: 'Becerro 202',
-      type: 'Becerro Destete',
-      breed: 'Girolando 3/4',
-      weight: 108,
-      status: 'Optimo',
-      paddock: 'Corral de Becerros 1',
-    },
-  ]);
+  // Sin datos de ejemplo: el hato real llega por props (Firestore); local solo como respaldo sin controlador.
+  const [localHerd, setLocalHerd] = useState<any[]>([]);
 
-  const herd = (externalHerd && externalHerd.length > 0) ? externalHerd : localHerd;
+  const herd: any[] = externalHerd ?? localHerd;
+  const bovCounters = calculateBovinoCounters(herd);
 
   // Form states
   const [selectedCowTag, setSelectedCowTag] = useState('BOV-101');
   const [milkingLiters, setMilkingLiters] = useState('18.5');
   const [milkingPricePerLiter, setMilkingPricePerLiter] = useState('0.42');
-  const [milkingDate, setMilkingDate] = useState('2026-08-19');
+  const [milkingDate, setMilkingDate] = useState(todayISO());
 
   // New animal form
   const [newTag, setNewTag] = useState('BOV-104');
@@ -137,24 +66,23 @@ export const BovinoModal: React.FC<BovinoModalProps> = ({
     const totalAmount = Math.round(liters * price * 100) / 100;
 
     if (onRecordMilking) {
+      // El controlador ya registra el movimiento 'Venta de leche': no se agrega otro aquí.
       onRecordMilking(selectedCowTag, liters, price, milkingDate);
     } else {
       await apiClient.bovino.recordDailyMilking(selectedCowTag, liters);
-    }
-
-    const movement: FinancialMovement = {
-      id: `fm-bov-milk-${Date.now()}`,
-      type: 'ingreso',
-      concept: `Venta de leche ordeño: Vaca ${selectedCowTag} (${liters} Litros)`,
-      rubro: 'bovino',
-      amount: totalAmount,
-      date: milkingDate,
-      category: 'Venta de leche',
-      details: `${liters} L a $${price}/L. Despacho a refrigeración.`,
-    };
-
-    if (onAddFinancialMovement) {
-      onAddFinancialMovement(movement);
+      if (onAddFinancialMovement) {
+        const movement: FinancialMovement = {
+          id: newId('fm-bov-milk'),
+          type: 'ingreso',
+          concept: `Venta de leche ordeño: Vaca ${selectedCowTag} (${liters} Litros)`,
+          rubro: 'bovino',
+          amount: totalAmount,
+          date: milkingDate,
+          category: 'Venta de leche',
+          details: `${liters} L a $${price}/L. Despacho a refrigeración.`,
+        };
+        onAddFinancialMovement(movement);
+      }
     }
 
     setSuccessMsg(`Ordeño de ${liters} Litros registrado para ${selectedCowTag}. Ingreso estimado: +$${totalAmount} USD.`);
@@ -172,7 +100,7 @@ export const BovinoModal: React.FC<BovinoModalProps> = ({
     const weight = parseFloat(newWeight) || 450;
 
     const newAnimalObj = {
-      id: `bov_${Date.now()}`,
+      id: newId('bov'),
       tag: newTag,
       name: newName,
       type: newType === 'vaca_lactante' ? 'Vaca Lactante' : newType === 'padrote' ? 'Padrote' : 'Becerro',
@@ -283,17 +211,17 @@ export const BovinoModal: React.FC<BovinoModalProps> = ({
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200/60 text-center">
                   <span className="text-[10px] text-blue-800 font-bold block">PADROTES</span>
-                  <span className="text-xl font-black text-slate-900">3</span>
+                  <span className="text-xl font-black text-slate-900">{bovCounters.padrotes}</span>
                   <span className="text-[9px] text-blue-600 block font-medium">Toros reproductores</span>
                 </div>
                 <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200/60 text-center">
                   <span className="text-[10px] text-indigo-800 font-bold block">VACAS</span>
-                  <span className="text-xl font-black text-slate-900">54</span>
+                  <span className="text-xl font-black text-slate-900">{bovCounters.vacas}</span>
                   <span className="text-[9px] text-indigo-600 block font-medium">Ordeño & Secas</span>
                 </div>
                 <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200/60 text-center">
                   <span className="text-[10px] text-emerald-800 font-bold block">BECERROS</span>
-                  <span className="text-xl font-black text-slate-900">28</span>
+                  <span className="text-xl font-black text-slate-900">{bovCounters.becerros}</span>
                   <span className="text-[9px] text-emerald-600 block font-medium">Crías y Destete</span>
                 </div>
               </div>

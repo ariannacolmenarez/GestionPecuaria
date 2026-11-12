@@ -10,6 +10,7 @@
  */
 
 import { AvicolaLot, FinancialMovement } from '../models/FarmModel';
+import { newId } from '../utils/ids';
 import { calculateAvicolaCounters } from '../models/PorcinoCalculations';
 
 export const AvicolaController = {
@@ -72,7 +73,7 @@ export const AvicolaController = {
     );
 
     const movement: FinancialMovement = {
-      id: `fm-avi-sale-${Date.now()}`,
+      id: newId('fm-avi-sale'),
       type: 'ingreso',
       concept: `Liquidación Lote Aves ${lotCode} (${lot.current} pollos) a ${buyerName}`,
       rubro: 'avicola',
@@ -91,7 +92,7 @@ export const AvicolaController = {
   ): AvicolaLot[] {
     const newLot: AvicolaLot = {
       ...lotData,
-      id: `av_lot_${Date.now()}`,
+      id: newId('av_lot'),
     };
     return [newLot, ...lots];
   },

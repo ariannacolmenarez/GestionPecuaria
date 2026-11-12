@@ -1,3 +1,5 @@
+import { todayISO } from '../../utils/dates';
+import { newId } from '../../utils/ids';
 import { BovinoAnimalDTO } from '../types';
 import { financialService } from './financialService';
 import { dbService, FARM_ID } from '../../services/dbService';
@@ -15,106 +17,7 @@ class BovinoService {
   }
 
   private seedBovinoHerd() {
-    const seed: BovinoAnimalDTO[] = [
-      {
-        id: 'bov-001',
-        tagNumber: 'BOV-001',
-        name: 'Sansón (Toro Reproductor)',
-        type: 'padrote',
-        breed: 'Brahman Blanco Americano',
-        birthDate: '2022-04-15',
-        currentWeightKg: 890,
-        healthStatus: 'Optimo',
-        paddockLocation: 'Potrero Los Samanes 1',
-      },
-      {
-        id: 'bov-002',
-        tagNumber: 'BOV-002',
-        name: 'Goliat (Padrote Senepol)',
-        type: 'padrote',
-        breed: 'Senepol Puro',
-        birthDate: '2023-01-20',
-        currentWeightKg: 780,
-        healthStatus: 'Optimo',
-        paddockLocation: 'Potrero Los Samanes 2',
-      },
-      {
-        id: 'bov-003',
-        tagNumber: 'BOV-003',
-        name: 'Relámpago',
-        type: 'padrote',
-        breed: 'Girolando 5/8',
-        birthDate: '2023-05-10',
-        currentWeightKg: 740,
-        healthStatus: 'Optimo',
-        paddockLocation: 'Potrero El Caobo',
-      },
-      {
-        id: 'bov-101',
-        tagNumber: 'BOV-101',
-        name: 'Mariposa',
-        type: 'vaca_lactante',
-        breed: 'Girolando F1',
-        birthDate: '2021-08-11',
-        currentWeightKg: 520,
-        dailyMilkProductionLiters: 18.5,
-        lactationDays: 85,
-        healthStatus: 'Optimo',
-        lastMilkingDate: '2026-08-19',
-        paddockLocation: 'Potrero Ordeño A',
-      },
-      {
-        id: 'bov-102',
-        tagNumber: 'BOV-102',
-        name: 'Paloma',
-        type: 'vaca_lactante',
-        breed: 'Holstein x Brahman',
-        birthDate: '2022-02-14',
-        currentWeightKg: 495,
-        dailyMilkProductionLiters: 16.0,
-        lactationDays: 110,
-        healthStatus: 'Optimo',
-        lastMilkingDate: '2026-08-19',
-        paddockLocation: 'Potrero Ordeño A',
-      },
-      {
-        id: 'bov-103',
-        tagNumber: 'BOV-103',
-        name: 'Esmeralda',
-        type: 'vaca_seca',
-        breed: 'Girolando',
-        birthDate: '2020-10-03',
-        currentWeightKg: 550,
-        dailyMilkProductionLiters: 0,
-        lactationDays: 0,
-        healthStatus: 'Optimo',
-        paddockLocation: 'Potrero Maternidad Bovina',
-      },
-      {
-        id: 'bov-201',
-        tagNumber: 'BOV-201',
-        name: 'Becerro 201 (Hijo Mariposa)',
-        type: 'becerro',
-        breed: 'Girolando 3/4',
-        birthDate: '2026-05-25',
-        currentWeightKg: 92,
-        healthStatus: 'Optimo',
-        paddockLocation: 'Corral de Becerros 1',
-      },
-      {
-        id: 'bov-202',
-        tagNumber: 'BOV-202',
-        name: 'Becerro 202 (Hijo Paloma)',
-        type: 'becerro',
-        breed: 'Girolando 3/4',
-        birthDate: '2026-05-01',
-        currentWeightKg: 108,
-        healthStatus: 'Optimo',
-        paddockLocation: 'Corral de Becerros 1',
-      },
-    ];
-
-    seed.forEach((b) => this.animals.set(b.id, b));
+    // Sin datos de ejemplo: el servicio arranca vacío y solo contiene lo que registre el usuario.
   }
 
   public async getHerd(type?: string): Promise<BovinoAnimalDTO[]> {
@@ -162,7 +65,7 @@ class BovinoService {
   }
 
   public async addAnimal(dto: Omit<BovinoAnimalDTO, 'id'>): Promise<BovinoAnimalDTO> {
-    const id = `bov_${Date.now()}`;
+    const id = newId('bov');
     const newAnimal: BovinoAnimalDTO = {
       ...dto,
       id,
@@ -190,7 +93,7 @@ class BovinoService {
       dailyMilkProductionLiters: liters,
       lastMilkingDate: new Date().toISOString().split('T')[0],
     } : {
-      id: `bov_${Date.now()}`,
+      id: newId('bov'),
       tagNumber,
       name: `Vaca ${tagNumber}`,
       type: 'vaca_lactante',

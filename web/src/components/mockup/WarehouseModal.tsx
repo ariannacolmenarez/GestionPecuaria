@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   X,
   Plus,
@@ -9,106 +9,240 @@ import {
   MinusCircle,
   Search,
   Trash2,
-  Edit2,
   Check,
 } from 'lucide-react';
-import { WarehouseItem } from '../../types';
+import { PorcinoAnimal, WarehouseItem } from '../../types';
+import { evaluateWarehouseReplenishment } from '../../models/PorcinoCalculations';
+import { isActiveAnimal, headCount, round2 } from '../../models/porcinoRules';
+import { newId } from '../../utils/ids';
+import { todayISO } from '../../utils/dates';
+import { ModalActionReturn, runModalAction, toNumber } from './modalResult';
+
+export interface AddWarehouseItemOptions {
+  /** true = registrar la compra como egreso (el dominio marca el insumo con expensedOnPurchase). */
+  registerPurchase?: boolean;
+}
 
 interface WarehouseModalProps {
   items: WarehouseItem[];
+  /** Animales/lotes porcinos para elegir el destino del consumo (opcional). */
+  animals?: PorcinoAnimal[];
   onClose: () => void;
-  onConsumeItem: (itemId: string, amount: number, animalCode: string) => void;
-  onAddItem: (newItem: WarehouseItem) => void;
-  onDeleteItem?: (itemId: string) => void;
+  /**
+   * target = código del animal/lote o texto libre; targetAnimalId = id del animal elegido.
+   * Conectar a porcinoActions.consumeWarehouseItem({itemId, amount, targetAnimalId, targetAnimalCode/targetLabel}).
+   */
+  onConsumeItem: (itemId: string, amount: number, target: string, targetAnimalId?: string) => ModalActionReturn;
+  /** options.registerPurchase -> porcinoActions.addWarehouseItem({item, registerPurchase}). */
+  onAddItem: (newItem: WarehouseItem, options?: AddWarehouseItemOptions) => ModalActionReturn;
+  /** Si no se provee, el botón de eliminar no se muestra. */
+  onDeleteItem?: (itemId: string) => ModalActionReturn;
 }
+
+const NO_TARGET = '__general__';
+const FREE_TARGET = '__libre__';
 
 export const WarehouseModal: React.FC<WarehouseModalProps> = ({
   items,
+  animals = [],
   onClose,
   onConsumeItem,
   onAddItem,
   onDeleteItem,
 }) => {
+  const safeItems = items || [];
   const [activeTab, setActiveTab] = useState<'alimentos' | 'medicinas' | 'otros'>('alimentos');
   const [searchQuery, setSearchQuery] = useState('');
   const [showConsumeDialog, setShowConsumeDialog] = useState<WarehouseItem | null>(null);
   const [itemToDelete, setItemToDelete] = useState<WarehouseItem | null>(null);
-  const [consumeAmount, setConsumeAmount] = useState('50');
-  const [consumeTarget, setConsumeTarget] = useState('Lote Gestación L-2');
+  const [consumeAmount, setConsumeAmount] = useState('');
+  const [consumeTargetId, setConsumeTargetId] = useState<string>(NO_TARGET);
+  const [consumeTargetText, setConsumeTargetText] = useState('');
   const [showNewItemModal, setShowNewItemModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const flash = (msg: string) => {
+    setSuccessMessage(msg);
+    setTimeout(() => setSuccessMessage(null), 3500);
+  };
+
+  // Cobertura y criticidad con la regla única del modelo (stock < 2 meses)
+  const evaluated = useMemo(() => evaluateWarehouseReplenishment(safeItems), [safeItems]);
+  const countByCategory = useMemo(() => {
+    const acc = { alimentos: 0, medicinas: 0, otros: 0 } as Record<WarehouseItem['category'], number>;
+    safeItems.forEach((i) => {
+      if (acc[i.category] !== undefined) acc[i.category] += 1;
+    });
+    return acc;
+  }, [safeItems]);
+
+  const activeAnimals = useMemo(() => (animals || []).filter(isActiveAnimal), [animals]);
 
   // Totales de Alimentos (Requisito 3)
-  const foodItems = items.filter((i) => i.category === 'alimentos');
-  const totalKgFoods = foodItems.reduce((acc, curr) => {
-    if (curr.unit === 'kg') return acc + curr.quantity;
-    if (curr.unit === 'bultos (40kg)') return acc + curr.quantity * 40;
-    if (curr.unit === 'g') return acc + curr.quantity / 1000;
-    return acc + curr.quantity;
-  }, 0);
+  const { totalKgFoods, totalValueFoods } = useMemo(() => {
+    const foodItems = safeItems.filter((i) => i.category === 'alimentos');
+    const kg = foodItems.reduce((acc, curr) => {
+      const q = toNumber(curr.quantity);
+      if (curr.unit === 'kg') return acc + q;
+      if (curr.unit === 'bultos (40kg)') return acc + q * 40;
+      if (curr.unit === 'g') return acc + q / 1000;
+      return acc;
+    }, 0);
+    const value = foodItems.reduce((acc, curr) => acc + toNumber(curr.quantity) * toNumber(curr.unitCostUsd), 0);
+    return { totalKgFoods: round2(kg), totalValueFoods: value };
+  }, [safeItems]);
   const totalSacks40kg = Math.round(totalKgFoods / 40);
-  const totalValueFoods = foodItems.reduce((acc, curr) => acc + curr.quantity * curr.unitCostUsd, 0);
 
   // Form states for new item
   const [newItemName, setNewItemName] = useState('');
   const [newItemSubCategory, setNewItemSubCategory] = useState('');
-  const [newItemQty, setNewItemQty] = useState('100');
-  const [newItemUnit, setNewItemUnit] = useState<'kg' | 'g' | 'litros' | 'ml' | 'unidades' | 'bultos (40kg)'>('kg');
-  const [newItemCost, setNewItemCost] = useState('0.45');
-  const [newItemMonthly, setNewItemMonthly] = useState('80');
+  const [newItemQty, setNewItemQty] = useState('');
+  const [newItemUnit, setNewItemUnit] = useState<WarehouseItem['unit']>('kg');
+  const [newItemCost, setNewItemCost] = useState('');
+  const [newItemMonthly, setNewItemMonthly] = useState('');
+  const [newItemSupplier, setNewItemSupplier] = useState('');
+  const [newItemExpiration, setNewItemExpiration] = useState('');
+  const [registerPurchase, setRegisterPurchase] = useState(true);
 
-  const filteredItems = items.filter(
-    (item) =>
-      item.category === activeTab &&
-      (item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.subCategory.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return evaluated.filter(
+      (item) =>
+        item.category === activeTab &&
+        (!q || (item.name || '').toLowerCase().includes(q) || (item.subCategory || '').toLowerCase().includes(q))
+    );
+  }, [evaluated, activeTab, searchQuery]);
 
-  // Handler to delete item from warehouse (Requisito 3)
-  const handleConfirmDelete = () => {
-    if (!itemToDelete) return;
-    if (onDeleteItem) {
-      onDeleteItem(itemToDelete.id);
+  const openConsume = (item: WarehouseItem) => {
+    setShowConsumeDialog(item);
+    setConsumeAmount('');
+    setConsumeTargetId(NO_TARGET);
+    setConsumeTargetText('');
+    setDialogError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!itemToDelete || !onDeleteItem) return;
+    setIsSaving(true);
+    const res = await runModalAction(() => onDeleteItem(itemToDelete.id));
+    setIsSaving(false);
+    if (!res.ok) {
+      setDialogError(res.error || 'No se pudo eliminar el insumo.');
+      return;
     }
-    setSuccessMessage(`Ítem "${itemToDelete.name}" eliminado del inventario.`);
+    flash(`Ítem "${itemToDelete.name}" eliminado del inventario.`);
     setItemToDelete(null);
-    setTimeout(() => setSuccessMessage(null), 3000);
   };
 
-  const handleApplyConsumption = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleApplyConsumption = async (ev: React.FormEvent) => {
+    ev.preventDefault();
     if (!showConsumeDialog) return;
-    const amountNum = parseFloat(consumeAmount);
-    if (isNaN(amountNum) || amountNum <= 0) return;
+    setDialogError(null);
+    const amountNum = toNumber(consumeAmount, NaN);
+    const stock = toNumber(showConsumeDialog.quantity);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      setDialogError('La cantidad debe ser mayor a 0.');
+      return;
+    }
+    if (amountNum > stock) {
+      setDialogError(`Stock insuficiente: solo hay ${stock} ${showConsumeDialog.unit}.`);
+      return;
+    }
+    const targetAnimal = activeAnimals.find((a) => a.id === consumeTargetId);
+    const targetLabel = targetAnimal
+      ? targetAnimal.code
+      : consumeTargetId === FREE_TARGET
+      ? consumeTargetText.trim()
+      : '';
+    if (consumeTargetId === FREE_TARGET && !targetLabel) {
+      setDialogError('Indica el destino del consumo.');
+      return;
+    }
 
-    onConsumeItem(showConsumeDialog.id, amountNum, consumeTarget);
-    setSuccessMessage(`Se descontaron ${amountNum} ${showConsumeDialog.unit} de ${showConsumeDialog.name} e imputaron a ${consumeTarget}.`);
+    setIsSaving(true);
+    const res = await runModalAction(() =>
+      onConsumeItem(showConsumeDialog.id, amountNum, targetLabel, targetAnimal?.id)
+    );
+    setIsSaving(false);
+    if (!res.ok) {
+      setDialogError(res.error || 'No se pudo registrar el consumo.');
+      return;
+    }
+    flash(
+      `Se descontaron ${amountNum} ${showConsumeDialog.unit} de ${showConsumeDialog.name}${
+        targetLabel ? ` e imputaron a ${targetLabel}` : ' (consumo general)'
+      }.`
+    );
     setShowConsumeDialog(null);
-    setTimeout(() => setSuccessMessage(null), 3500);
   };
 
-  const handleCreateNewItem = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newItemName) return;
+  const handleCreateNewItem = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setDialogError(null);
+    const name = newItemName.trim();
+    if (!name) {
+      setDialogError('Indica el nombre del ítem.');
+      return;
+    }
+    const qty = toNumber(newItemQty, NaN);
+    const cost = toNumber(newItemCost);
+    const monthly = toNumber(newItemMonthly);
+    if (!Number.isFinite(qty) || qty < 0) {
+      setDialogError('La cantidad inicial debe ser 0 o mayor.');
+      return;
+    }
+    if (cost < 0 || monthly < 0) {
+      setDialogError('El costo y el consumo mensual no pueden ser negativos.');
+      return;
+    }
+    if (safeItems.some((i) => i.name.trim().toLowerCase() === name.toLowerCase() && i.category === activeTab)) {
+      setDialogError(`Ya existe un ítem llamado "${name}" en ${activeTab}.`);
+      return;
+    }
 
     const created: WarehouseItem = {
-      id: 'wh-' + Date.now(),
-      name: newItemName,
+      id: newId('wh'),
+      name,
       category: activeTab,
-      subCategory: newItemSubCategory || 'Insumo Pecuario',
-      quantity: parseFloat(newItemQty) || 0,
+      subCategory: newItemSubCategory.trim() || 'Insumo Pecuario',
+      quantity: qty,
       unit: newItemUnit,
-      unitCostUsd: parseFloat(newItemCost) || 0,
-      minAlertThreshold: Math.round((parseFloat(newItemMonthly) || 50) * 1.5),
-      monthlyConsumptionRate: parseFloat(newItemMonthly) || 50,
+      unitCostUsd: cost,
+      // Umbral = 2 meses de consumo (misma regla que la alerta de cobertura)
+      minAlertThreshold: round2(monthly * 2),
+      monthlyConsumptionRate: monthly,
+      supplier: newItemSupplier.trim() || undefined,
+      expirationDate: newItemExpiration || undefined,
     };
+    const purchase = registerPurchase && qty > 0 && cost > 0;
 
-    onAddItem(created);
+    setIsSaving(true);
+    const res = await runModalAction(() => onAddItem(created, { registerPurchase: purchase }));
+    setIsSaving(false);
+    if (!res.ok) {
+      setDialogError(res.error || 'No se pudo registrar el ítem.');
+      return;
+    }
     setShowNewItemModal(false);
     setNewItemName('');
-    setSuccessMessage(`Nuevo ítem "${created.name}" registrado en Almacén.`);
-    setTimeout(() => setSuccessMessage(null), 3000);
+    setNewItemSubCategory('');
+    setNewItemQty('');
+    setNewItemCost('');
+    setNewItemMonthly('');
+    setNewItemSupplier('');
+    setNewItemExpiration('');
+    flash(
+      purchase
+        ? `Nuevo ítem "${created.name}" registrado y compra de $${round2(qty * cost).toFixed(2)} asentada como egreso.`
+        : `Nuevo ítem "${created.name}" registrado en Almacén.`
+    );
   };
+
+  const errorBox = dialogError && (
+    <div className="p-2 bg-rose-100 border border-rose-300 rounded-lg text-[11px] font-bold text-rose-800">{dialogError}</div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
@@ -160,7 +294,7 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
               <Package className="w-3.5 h-3.5" />
               Alimentos
               <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded-full">
-                {items.filter((i) => i.category === 'alimentos').length}
+                {countByCategory.alimentos}
               </span>
             </button>
 
@@ -175,7 +309,7 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
               <Pill className="w-3.5 h-3.5" />
               Medicinas
               <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded-full">
-                {items.filter((i) => i.category === 'medicinas').length}
+                {countByCategory.medicinas}
               </span>
             </button>
 
@@ -190,13 +324,16 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
               <Wrench className="w-3.5 h-3.5" />
               Otros / Insumos
               <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded-full">
-                {items.filter((i) => i.category === 'otros').length}
+                {countByCategory.otros}
               </span>
             </button>
           </div>
 
           <button
-            onClick={() => setShowNewItemModal(true)}
+            onClick={() => {
+              setDialogError(null);
+              setShowNewItemModal(true);
+            }}
             className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg transition-colors cursor-pointer shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" /> Nuevo Ítem
@@ -256,17 +393,11 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
             </div>
           ) : (
             filteredItems.map((item) => {
-              // Cálculo de 2 meses de stock (60 días):
-              // Cobertura en meses = cantidad / consumo mensual
-              const monthsOfStock =
-                item.monthlyConsumptionRate > 0
-                  ? item.quantity / item.monthlyConsumptionRate
-                  : 99;
-              const isUnderTwoMonths = monthsOfStock < 2.0;
+              // Cobertura y alerta calculadas por evaluateWarehouseReplenishment
+              const monthsOfStock = item.monthsOfSupply;
+              const isUnderTwoMonths = item.isCritical;
 
               // Cálculo de sacos de 40kg (Requisito 3)
-              const isFoodOrWeight =
-                item.category === 'alimentos' || item.unit === 'kg' || item.unit === 'bultos (40kg)';
               const kgEquivalent =
                 item.unit === 'bultos (40kg)'
                   ? item.quantity * 40
@@ -320,25 +451,38 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                     <div className="text-[11px] text-slate-600">
                       Consumo estimado: <strong>{item.monthlyConsumptionRate} {item.unit}/mes</strong>
                       <span className="text-slate-400 ml-2">
-                        (Cobertura: ~{monthsOfStock.toFixed(1)} meses)
+                        {item.monthlyConsumptionRate > 0
+                          ? `(Cobertura: ~${monthsOfStock.toFixed(1)} meses)`
+                          : '(sin consumo mensual definido)'}
                       </span>
+                      {isUnderTwoMonths && item.requiredPurchaseForTwoMonths > 0 && (
+                        <span className="block text-[10px] text-amber-700 font-semibold">
+                          Comprar ~{round2(item.requiredPurchaseForTwoMonths)} {item.unit} para cubrir 2 meses
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => setShowConsumeDialog(item)}
-                        className="flex items-center gap-1 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                        onClick={() => openConsume(item)}
+                        disabled={toNumber(item.quantity) <= 0}
+                        className="flex items-center gap-1 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
                         title="Descontar consumo y cargarlo al animal/lote"
                       >
                         <MinusCircle className="w-3.5 h-3.5" /> Consumir
                       </button>
-                      <button
-                        onClick={() => setItemToDelete(item)}
-                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                        title="Eliminar insumo del inventario (Requisito 3)"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {onDeleteItem && (
+                        <button
+                          onClick={() => {
+                            setDialogError(null);
+                            setItemToDelete(item);
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="Eliminar insumo del inventario"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -364,7 +508,10 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
               </div>
 
               <p className="text-xs text-slate-500">
-                Ítem: <strong className="text-slate-800">{showConsumeDialog.name}</strong> ({showConsumeDialog.unit})
+                Ítem: <strong className="text-slate-800">{showConsumeDialog.name}</strong> — stock disponible:{' '}
+                <strong className="text-slate-800">
+                  {showConsumeDialog.quantity} {showConsumeDialog.unit}
+                </strong>
               </p>
 
               <form onSubmit={handleApplyConsumption} className="space-y-3 text-xs">
@@ -375,6 +522,9 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                   <input
                     type="number"
                     step="any"
+                    min="0"
+                    max={showConsumeDialog.quantity}
+                    placeholder="0"
                     value={consumeAmount}
                     onChange={(e) => setConsumeAmount(e.target.value)}
                     required
@@ -384,21 +534,43 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
 
                 <div>
                   <label className="block text-slate-600 font-semibold mb-1">
-                    Destino / Lote / Código de Animal:
+                    Destino del Consumo (animal / lote):
                   </label>
-                  <input
-                    type="text"
-                    value={consumeTarget}
-                    onChange={(e) => setConsumeTarget(e.target.value)}
-                    required
-                    placeholder="Ej: Cerda CER-104 o Lote Engorde 12"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-900 focus:ring-2 focus:ring-emerald-500"
-                  />
+                  <select
+                    value={consumeTargetId}
+                    onChange={(e) => setConsumeTargetId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-900 bg-white"
+                  >
+                    <option value={NO_TARGET}>Consumo general de la granja (sin imputar)</option>
+                    {activeAnimals.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.code} ({a.category}{headCount(a) > 1 ? ` · ${headCount(a)} cab.` : ''})
+                      </option>
+                    ))}
+                    <option value={FREE_TARGET}>Otro destino (texto libre)</option>
+                  </select>
+                  {consumeTargetId === FREE_TARGET && (
+                    <input
+                      type="text"
+                      value={consumeTargetText}
+                      onChange={(e) => setConsumeTargetText(e.target.value)}
+                      placeholder="Ej: Lote Engorde 12"
+                      className="w-full mt-1.5 px-3 py-2 border border-slate-300 rounded-xl text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                    />
+                  )}
                 </div>
 
                 <div className="p-2.5 bg-emerald-50 rounded-xl text-emerald-800 text-[11px] leading-relaxed">
-                  Este consumo se descontará automáticamente del stock y se imputará al costo acumulado del animal para el balance financiero.
+                  Se descontará del stock
+                  {consumeTargetId !== NO_TARGET && consumeTargetId !== FREE_TARGET
+                    ? ' y su costo se imputará al costo acumulado del animal/lote seleccionado.'
+                    : '. Si eliges un animal o lote, el costo se imputa a su costo acumulado.'}
+                  {showConsumeDialog.expensedOnPurchase
+                    ? ' La compra ya se registró como egreso, no se crea otro.'
+                    : ' Se registrará el egreso correspondiente en el balance.'}
                 </div>
+
+                {errorBox}
 
                 <div className="flex items-center gap-2 pt-2">
                   <button
@@ -410,9 +582,10 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-xs cursor-pointer"
+                    disabled={isSaving}
+                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer"
                   >
-                    Confirmar Deducción
+                    {isSaving ? 'Guardando...' : 'Confirmar Deducción'}
                   </button>
                 </div>
               </form>
@@ -465,7 +638,10 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                     <label className="block font-semibold text-slate-700">Cantidad Inicial:</label>
                     <input
                       type="number"
+                      step="any"
+                      min="0"
                       required
+                      placeholder="0"
                       value={newItemQty}
                       onChange={(e) => setNewItemQty(e.target.value)}
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
@@ -475,7 +651,7 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                     <label className="block font-semibold text-slate-700">Unidad de Medida:</label>
                     <select
                       value={newItemUnit}
-                      onChange={(e) => setNewItemUnit(e.target.value as any)}
+                      onChange={(e) => setNewItemUnit(e.target.value as WarehouseItem['unit'])}
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900 bg-white"
                     >
                       <option value="kg">Kilogramos (kg)</option>
@@ -494,6 +670,8 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                     <input
                       type="number"
                       step="any"
+                      min="0"
+                      placeholder="0.00"
                       value={newItemCost}
                       onChange={(e) => setNewItemCost(e.target.value)}
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
@@ -503,12 +681,56 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                     <label className="block font-semibold text-slate-700">Consumo Mensual:</label>
                     <input
                       type="number"
+                      step="any"
+                      min="0"
+                      placeholder="0"
                       value={newItemMonthly}
                       onChange={(e) => setNewItemMonthly(e.target.value)}
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
                     />
                   </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-semibold text-slate-700">Proveedor:</label>
+                    <input
+                      type="text"
+                      placeholder="Opcional"
+                      value={newItemSupplier}
+                      onChange={(e) => setNewItemSupplier(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700">Vencimiento:</label>
+                    <input
+                      type="date"
+                      min={todayISO()}
+                      value={newItemExpiration}
+                      onChange={(e) => setNewItemExpiration(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
+                    />
+                  </div>
+                </div>
+
+                <label className="flex items-start gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={registerPurchase}
+                    onChange={(e) => setRegisterPurchase(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-[11px] text-slate-700">
+                    Registrar la compra como egreso en el balance
+                    {toNumber(newItemQty) > 0 && toNumber(newItemCost) > 0 && (
+                      <strong> (${round2(toNumber(newItemQty) * toNumber(newItemCost)).toFixed(2)})</strong>
+                    )}
+                    . Si no, el egreso se registra al consumir.
+                  </span>
+                </label>
+
+                {errorBox}
 
                 <div className="flex gap-2 pt-2">
                   <button
@@ -520,9 +742,10 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold"
+                    disabled={isSaving}
+                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-bold"
                   >
-                    Guardar Ítem
+                    {isSaving ? 'Guardando...' : 'Guardar Ítem'}
                   </button>
                 </div>
               </form>
@@ -545,6 +768,7 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                 <strong className="text-slate-900">{itemToDelete.name}</strong> del
                 almacén? Esta acción no se puede deshacer.
               </p>
+              {errorBox}
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -556,7 +780,8 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
                 <button
                   type="button"
                   onClick={handleConfirmDelete}
-                  className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                  disabled={isSaving}
+                  className="flex-1 py-2 disabled:opacity-60 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs"
                 >
                   Eliminar Ítem
                 </button>
