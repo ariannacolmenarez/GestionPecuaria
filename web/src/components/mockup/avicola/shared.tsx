@@ -116,6 +116,8 @@ export const TONE: Record<Tone, { header: string; solid: string; soft: string; t
 
 export const CARD = 'bg-white rounded-2xl border border-slate-200/90 shadow-xs';
 export const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500';
+/** Foco del modo sol (bovino): anillo sky. */
+export const FOCUS_SOL = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1';
 
 // ---------------------------------------------------------------------------
 // Capa de superposición del teléfono (portal)
@@ -179,7 +181,11 @@ export const FormSheet: React.FC<{
   children: React.ReactNode;
   /** Si hay datos escritos, X / Escape / Atrás piden confirmación antes de descartarlos. */
   dirty?: boolean;
-}> = ({ tone, title, subtitle, question, header, footer, onClose, children, dirty }) => {
+  /** 'sol': alto contraste para campo (módulo bovino): X de 48 px y foco sky. Por defecto, igual que antes. */
+  contrast?: 'sol';
+}> = ({ tone, title, subtitle, question, header, footer, onClose, children, dirty, contrast }) => {
+  const sol = contrast === 'sol';
+  const focus = sol ? FOCUS_SOL : FOCUS;
   const [askDiscard, setAskDiscard] = useState(false);
   const requestClose = () => (dirty ? setAskDiscard(true) : onClose());
   useEscape(requestClose);
@@ -192,6 +198,7 @@ export const FormSheet: React.FC<{
           message="Los datos que escribiste en este formulario se perderán."
           confirmLabel="Descartar"
           danger
+          contrast={contrast}
           onConfirm={() => {
             setAskDiscard(false);
             onClose();
@@ -202,7 +209,7 @@ export const FormSheet: React.FC<{
       <div role="dialog" aria-modal="true" aria-label={title} className="flex flex-col h-full min-h-0">
         <div className={`${t.header} px-4 pt-3 pb-9 shrink-0`}>
           <div className="flex items-center gap-2">
-            <button onClick={requestClose} aria-label="Cerrar" className={`w-10 h-10 -ml-2 rounded-full flex items-center justify-center hover:bg-black/10 ${FOCUS}`}>
+            <button onClick={requestClose} aria-label="Cerrar" className={`${sol ? 'w-12 h-12' : 'w-10 h-10'} -ml-2 rounded-full flex items-center justify-center hover:bg-black/10 ${focus}`}>
               <X className="w-5 h-5" />
             </button>
             <div className="min-w-0">
@@ -232,8 +239,11 @@ export const BottomSheet: React.FC<{
   children: React.ReactNode;
   footer?: React.ReactNode;
   dark?: boolean;
-}> = ({ title, subtitle, icon, iconClass = 'bg-amber-50 text-amber-700', onClose, children, footer, dark }) => {
+  /** 'sol': alto contraste para campo (módulo bovino): subtítulo text-xs slate-700, X de 48 px, foco sky. */
+  contrast?: 'sol';
+}> = ({ title, subtitle, icon, iconClass = 'bg-amber-50 text-amber-700', onClose, children, footer, dark, contrast }) => {
   useEscape(onClose);
+  const sol = contrast === 'sol';
   return (
     <Overlay className="bg-black/60 backdrop-blur-xs flex items-end" onBackdrop={onClose}>
       <div role="dialog" aria-modal="true" aria-label={title} className="bg-white w-full max-h-[88%] rounded-t-3xl flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom-8 duration-200">
@@ -243,9 +253,15 @@ export const BottomSheet: React.FC<{
             {icon && <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${iconClass}`}>{icon}</div>}
             <div className="min-w-0 flex-1">
               <h3 className={`font-bold text-base leading-tight truncate ${dark ? 'text-white' : 'text-slate-900'}`}>{title}</h3>
-              {subtitle && <p className={`text-[11px] truncate ${dark ? 'text-slate-300' : 'text-slate-500'}`}>{subtitle}</p>}
+              {subtitle && (
+                <p className={sol ? `text-xs font-semibold truncate ${dark ? 'text-slate-200' : 'text-slate-700'}` : `text-[11px] truncate ${dark ? 'text-slate-300' : 'text-slate-500'}`}>{subtitle}</p>
+              )}
             </div>
-            <button onClick={onClose} aria-label="Cerrar" className={`w-10 h-10 rounded-full flex items-center justify-center ${dark ? 'text-slate-300 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-100'} ${FOCUS}`}>
+            <button
+              onClick={onClose}
+              aria-label="Cerrar"
+              className={`${sol ? 'w-12 h-12' : 'w-10 h-10'} rounded-full flex items-center justify-center ${dark ? (sol ? 'text-white hover:bg-white/10' : 'text-slate-300 hover:bg-white/10') : sol ? 'text-slate-800 hover:bg-slate-100' : 'text-slate-500 hover:bg-slate-100'} ${sol ? FOCUS_SOL : FOCUS}`}
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -268,8 +284,13 @@ export const ConfirmDialog: React.FC<{
   error?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
-}> = ({ title, message, confirmLabel, danger, icon, requireText, error, onConfirm, onCancel }) => {
+  /** 'sol': alto contraste para campo (módulo bovino): mensaje text-sm slate-900, botones de 48 px, foco sky. */
+  contrast?: 'sol';
+}> = ({ title, message, confirmLabel, danger, icon, requireText, error, onConfirm, onCancel, contrast }) => {
   useEscape(onCancel);
+  const sol = contrast === 'sol';
+  const focus = sol ? FOCUS_SOL : FOCUS;
+  const btnH = sol ? 'h-12 text-base' : 'h-11 text-sm';
   const [typed, setTyped] = useState('');
   const blocked = !!requireText && typed.trim().toLowerCase() !== requireText.trim().toLowerCase();
   return (
@@ -278,25 +299,25 @@ export const ConfirmDialog: React.FC<{
         <div className={`w-12 h-12 rounded-full flex items-center justify-center ${danger ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-700'}`}>
           {icon || <AlertTriangle className="w-6 h-6" />}
         </div>
-        <h3 className="font-bold text-slate-900 text-base">{title}</h3>
-        <div className="text-xs text-slate-600 space-y-2">{message}</div>
+        <h3 className={`text-slate-900 ${sol ? 'font-black text-lg' : 'font-bold text-base'}`}>{title}</h3>
+        <div className={`space-y-2 ${sol ? 'text-sm text-slate-900' : 'text-xs text-slate-600'}`}>{message}</div>
         {requireText && (
           <div>
-            <label className="text-[11px] text-slate-500" htmlFor="confirm-text">
+            <label className={sol ? 'text-xs font-semibold text-slate-700' : 'text-[11px] text-slate-500'} htmlFor="confirm-text">
               Escribe <strong className="text-slate-800">{requireText}</strong> para confirmar
             </label>
-            <input id="confirm-text" value={typed} onChange={(e) => setTyped(e.target.value)} className={`mt-1 w-full h-11 px-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-sm ${FOCUS}`} />
+            <input id="confirm-text" value={typed} onChange={(e) => setTyped(e.target.value)} className={`mt-1 w-full ${sol ? 'h-12 text-base border-slate-300' : 'h-11 text-sm border-slate-200'} px-3 rounded-xl bg-slate-50 border text-slate-900 ${focus}`} />
           </div>
         )}
         <ErrorBox error={error} />
         <div className="grid grid-cols-2 gap-2 pt-1">
-          <button onClick={onCancel} className={`h-11 rounded-xl bg-slate-100 text-slate-700 font-bold text-sm ${FOCUS}`}>
+          <button onClick={onCancel} className={`${btnH} rounded-xl font-bold ${sol ? 'bg-slate-200 text-slate-900' : 'bg-slate-100 text-slate-700'} ${focus}`}>
             Cancelar
           </button>
           <button
             onClick={onConfirm}
             disabled={blocked}
-            className={`h-11 rounded-xl font-bold text-sm disabled:opacity-50 ${danger ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'} ${FOCUS}`}
+            className={`${btnH} rounded-xl font-bold disabled:opacity-50 ${danger ? 'bg-rose-600 text-white' : sol ? 'bg-sky-600 text-white' : 'bg-slate-900 text-white'} ${focus}`}
           >
             {confirmLabel}
           </button>

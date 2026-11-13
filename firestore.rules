@@ -20,9 +20,131 @@ service cloud.firestore {
         allow read, write: if true;
       }
 
-      // Subcolección de hato bovino
+      // ---------------------------------------------------------------
+      // ACCESO: miembros e invitaciones. El rol del miembro decide los permisos (bovinos y
+      // de la app), así que nadie puede darse un rol a sí mismo:
+      //   - el primer usuario de la granja queda como Administrador una sola vez, junto con el
+      //     marcador access/owner (que nunca se borra ni se cambia);
+      //   - los demás entran solo con una invitación pendiente a su correo y con ese rol;
+      //   - cambiar roles, quitar miembros e invitar es solo del Administrador.
+      // ---------------------------------------------------------------
+      function accAdmin() {
+        return request.auth != null
+          && exists(/databases/$(database)/documents/farms/$(farmId)/members/$(request.auth.uid))
+          && get(/databases/$(database)/documents/farms/$(farmId)/members/$(request.auth.uid)).data.role == 'Administrador';
+      }
+      function accEmail() {
+        return request.auth != null && 'email' in request.auth.token && request.auth.token.email != null ? request.auth.token.email.lower() : '';
+      }
+      function accInvite() {
+        return get(/databases/$(database)/documents/farms/$(farmId)/invitations/$(accEmail())).data;
+      }
+      match /access/owner {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.resource.data.uid == request.auth.uid && (
+          accAdmin()
+          || getAfter(/databases/$(database)/documents/farms/$(farmId)/members/$(request.auth.uid)).data.role == 'Administrador'
+        );
+        allow update, delete: if false;
+      }
+      match /members/{uid} {
+        allow read: if request.auth != null;
+        allow create: if accAdmin() || (
+          request.auth != null && request.auth.uid == uid && request.resource.data.uid == uid && (
+            (request.resource.data.role == 'Administrador'
+              && !exists(/databases/$(database)/documents/farms/$(farmId)/access/owner)
+              && getAfter(/databases/$(database)/documents/farms/$(farmId)/access/owner).data.uid == uid)
+            || (accEmail() != '' && accInvite().status == 'pendiente' && request.resource.data.role == accInvite().role)
+          )
+        );
+        // El propio miembro puede actualizar su nombre, nunca su rol.
+        allow update: if accAdmin() || (
+          request.auth != null && request.auth.uid == uid
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'uid', 'id'])
+        );
+        allow delete: if accAdmin();
+      }
+      match /invitations/{email} {
+        allow read: if request.auth != null;
+        allow create, delete: if accAdmin();
+        // El invitado solo puede marcar como aceptada su propia invitación pendiente.
+        allow update: if accAdmin() || (
+          request.auth != null && email == accEmail() && resource.data.status == 'pendiente'
+          && request.resource.data.status == 'aceptada'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt'])
+        );
+      }
+
+      // ---------------------------------------------------------------
+      // MÓDULO BOVINO: permisos por rol del miembro (farms/{farmId}/members/{uid}.role)
+      //   Operador / Trabajador -> operario/ordeñador: carga diaria, SIN costos ni balances
+      //   Veterinario           -> encargado: manejo, reproducción, sanidad, farmacia
+      //   Administrador         -> propietario: todo (precios, ventas, cierres, balance)
+      // ---------------------------------------------------------------
+      function bovMember() {
+        return request.auth != null && exists(/databases/$(database)/documents/farms/$(farmId)/members/$(request.auth.uid));
+      }
+      function bovRole() {
+        return get(/databases/$(database)/documents/farms/$(farmId)/members/$(request.auth.uid)).data.role;
+      }
+      function bovAdmin() {
+        return bovMember() && bovRole() == 'Administrador';
+      }
+      function bovManager() {
+        return bovMember() && bovRole() in ['Administrador', 'Veterinario'];
+      }
+      // Hechos de carga diaria que puede crear el operario (el parto y el destete son carga diaria
+      // en el dominio: registerCalving / registerWeaning)
+      function bovDailyKind(kind) {
+        return kind in ['pesaje', 'ordeno', 'racion', 'calostro', 'observacion', 'salida', 'parto', 'destete'];
+      }
+      // Movimiento que acompaña a un parto (cría al lote/potrero) o a un destete: el operario
+      // puede crearlo, pero no mover animales por su cuenta.
+      function bovDailyMove(data) {
+        return data.kind == 'movimiento' && data.scope == 'animal' && data.notes in ['Nacimiento', 'Destete'];
+      }
+
+      // Animales (colección histórica 'bovino'): todos los miembros leen; el alta/edición es del
+      // encargado o el propietario; el operario solo puede crear (reportar nacimiento) o
+      // actualizar sin tocar los datos de compra.
       match /bovino/{bovinoId} {
-        allow read, write: if true;
+        allow read: if bovMember();
+        allow create: if bovMember();
+        allow update: if bovManager() || (bovMember() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['purchase']));
+        allow delete: if bovAdmin();
+      }
+      match /bovino_lots/{id} {
+        allow read: if bovMember();
+        allow write: if bovManager();
+      }
+      match /bovino_paddocks/{id} {
+        allow read: if bovMember();
+        allow write: if bovManager();
+      }
+      // Eventos: un documento por hecho. El operario crea solo la carga diaria.
+      match /bovino_events/{id} {
+        allow read: if bovMember();
+        allow create: if bovManager() || (bovMember() && (bovDailyKind(request.resource.data.kind) || bovDailyMove(request.resource.data)));
+        allow update: if bovManager();
+        allow delete: if bovManager() || (bovMember() && resource.data.createdBy == request.auth.uid && bovDailyKind(resource.data.kind));
+      }
+      // Finanzas (ingresos, gastos, liquidaciones): solo el propietario las ve.
+      // El encargado puede crear el gasto de una compra de animales que registra.
+      match /bovino_finance/{id} {
+        allow read: if bovAdmin();
+        allow create: if bovAdmin() || (bovManager() && request.resource.data.kind == 'gasto');
+        allow update, delete: if bovAdmin();
+      }
+      // Bitácora: se agrega, nunca se edita ni se borra.
+      match /bovino_audit/{id} {
+        allow read: if bovManager();
+        allow create: if bovMember();
+        allow update, delete: if false;
+      }
+      // Configuración (tasa del día, topes, permisos de campo): la cambia el propietario.
+      match /bovino_config/{id} {
+        allow read: if bovMember();
+        allow write: if bovAdmin();
       }
 
       // Subcolección de lotes avícolas
@@ -70,9 +192,10 @@ service cloud.firestore {
         allow read, write: if true;
       }
 
-      // Catch-all para cualquier otra subcolección operativa
-      match /{allChildren=**} {
-        allow read, write: if true;
+      // Catch-all para cualquier otra subcolección operativa (EXCEPTO las bovinas y las de acceso,
+      // que tienen sus propias reglas arriba: las reglas se suman con OR, así que se excluyen aquí).
+      match /{col}/{allChildren=**} {
+        allow read, write: if col != 'bovino' && !col.matches('bovino_.*') && !(col in ['members', 'invitations', 'access']);
       }
     }
 

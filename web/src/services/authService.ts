@@ -10,7 +10,7 @@
  *   3) Tiene una invitación pendiente a su correo → se acepta y entra con el rol invitado.
  *   4) Si no → sin acceso (debe pedir una invitación).
  */
-import { collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db, createInvitedAccount } from '../firebase';
 import { FARM_ID } from './dbService';
@@ -55,6 +55,19 @@ const SESSION_CACHE_KEY = 'pecuario_session_member_v1';
 const membersCol = (farmId: string) => collection(db, 'farms', farmId, 'members');
 const memberRef = (farmId: string, uid: string) => doc(db, 'farms', farmId, 'members', uid);
 const invitationRef = (farmId: string, email: string) => doc(db, 'farms', farmId, 'invitations', email.trim().toLowerCase());
+/** Marcador del primer Administrador: las reglas solo permiten autoasignarse Administrador una vez. */
+const ownerMarkerRef = (farmId: string) => doc(db, 'farms', farmId, 'access', 'owner');
+
+/**
+ * Granjas creadas antes del marcador: el Administrador lo crea al entrar, para que nadie más pueda
+ * autoasignarse Administrador (best effort; sin conexión se reintenta en el próximo inicio).
+ */
+function ensureOwnerMarker(m: MemberDoc, farmId: string) {
+  if (m.role !== 'Administrador') return;
+  getDoc(ownerMarkerRef(farmId))
+    .then((s) => (s.exists() ? undefined : setDoc(ownerMarkerRef(farmId), { uid: m.uid, at: nowISO(), legacy: true })))
+    .catch(() => undefined);
+}
 
 const isRole = (r: unknown): r is MemberRole => MEMBER_ROLES.some((x) => x.key === r);
 const displayName = (user: User, fallback?: string) => (user.displayName || fallback || (user.email || '').split('@')[0] || 'Miembro').trim();
@@ -96,12 +109,16 @@ export async function resolveAccess(user: User, farmId: string = FARM_ID): Promi
   // Acceso ya verificado en este teléfono: se entra de inmediato (también sin internet).
   // Los cambios de rol o la baja se aplican en vivo con subscribeMyMember al haber conexión.
   const known = cachedMember(user.uid);
-  if (known) return { status: 'ok', member: known };
+  if (known) {
+    ensureOwnerMarker(known, farmId);
+    return { status: 'ok', member: known };
+  }
   try {
     const mine = await getDoc(memberRef(farmId, user.uid));
     if (mine.exists()) {
       const m = mine.data() as MemberDoc;
       cacheMember(m);
+      ensureOwnerMarker(m, farmId);
       return { status: 'ok', member: m };
     }
 
@@ -109,7 +126,11 @@ export async function resolveAccess(user: User, farmId: string = FARM_ID): Promi
     const any = await getDocs(query(membersCol(farmId), limit(1)));
     if (any.empty) {
       const owner: MemberDoc = { id: user.uid, uid: user.uid, name: displayName(user), email, role: 'Administrador', joinedAt: nowISO() };
-      await setDoc(memberRef(farmId, user.uid), owner);
+      // Miembro + marcador en un solo lote: las reglas exigen ambos (primer y único Administrador inicial)
+      const batch = writeBatch(db);
+      batch.set(memberRef(farmId, user.uid), owner);
+      batch.set(ownerMarkerRef(farmId), { uid: user.uid, at: nowISO() });
+      await batch.commit();
       cacheMember(owner);
       return { status: 'ok', member: owner, firstOwner: true };
     }

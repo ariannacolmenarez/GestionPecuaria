@@ -44,6 +44,8 @@ interface AlertsCenterModalProps {
   onOpenAvicolaLot?: (loteId: string) => void;
   /** Abre el módulo avícola (Home "Pollos de Engorde", con su calendario). */
   onNavigateToAvicolaCalendar?: () => void;
+  /** Abre el módulo bovino (Agenda del hato) desde una tarea bovina. */
+  onOpenBovino?: () => void;
 }
 
 const isAvicola = (t: SanitaryTask) => t.targetRubro === 'avicola';
@@ -66,6 +68,7 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
   avicolaLots = [],
   onOpenAvicolaLot,
   onNavigateToAvicolaCalendar,
+  onOpenBovino,
 }) => {
   const [activeTab, setActiveTab] = useState<'today' | 'warehouse'>('today');
   const [toastNotice, setToastNotice] = useState<string | null>(null);
@@ -271,6 +274,14 @@ export const AlertsCenterModal: React.FC<AlertsCenterModalProps> = ({
                               className="mt-1 min-h-10 px-3 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-bold cursor-pointer"
                             >
                               Ir al lote {avicolaLotName(task, avicolaLots)} ›
+                            </button>
+                          )}
+                          {task.targetRubro === 'bovino' && onOpenBovino && (
+                            <button
+                              onClick={onOpenBovino}
+                              className="mt-1 min-h-10 px-3 rounded-lg bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-800 text-xs font-bold cursor-pointer"
+                            >
+                              Ir al hato ›
                             </button>
                           )}
                         </div>

@@ -58,9 +58,23 @@ export interface FarmSummary {
       engorde: number;
     };
     bovino: {
+      /** Compatibilidad Home: = toros. */
       padrotes: number;
+      /** Compatibilidad Home: = crías + levante + novillos/ceba. */
       becerros: number;
+      /** Compatibilidad Home: = vacas + novillas. */
       vacas: number;
+      // ---- Categorías del módulo bovino (derivadas de models/bovinoCalc) ----
+      crias?: number;
+      levante?: number;
+      novillas?: number;
+      novillos?: number;
+      vacasParidas?: number;
+      toros?: number;
+      /** Vacas en ordeño (lactando). */
+      enOrdeno?: number;
+      /** Total de animales activos. */
+      total?: number;
     };
   };
 }
@@ -242,6 +256,33 @@ export interface WarehouseItem {
    * Sin valor = almacén general. Un mismo producto puede tener una fila por ubicación.
    */
   animalId?: string;
+
+  // ---- Almacén bovino (opcionales, compatibles con el resto de rubros) ----
+  /** Submódulo bovino: alimentos, minerales, farmacia u otros. */
+  bovinoCategory?: 'alimentos' | 'minerales' | 'farmacia' | 'otros';
+  /** Tipo de producto de farmacia. */
+  pharmacyType?: 'vacuna' | 'desparasitante' | 'antibiotico' | 'hormona' | 'vitamina' | 'material' | 'pajuela' | 'embrion' | 'otro';
+  /** Bodega o silo donde se guarda. */
+  storage?: string;
+  /** Número de lote del fabricante (obligatorio en farmacia). */
+  mfgLot?: string;
+  /** Días de retiro en carne tras la aplicación. */
+  withdrawalMeatDays?: number;
+  /** Días de retiro en leche tras la aplicación. */
+  withdrawalMilkDays?: number;
+  /** Dosis por kg de peso vivo (en la unidad de dosis) para la dosis automática. */
+  dosePerKg?: number;
+  /** Unidad de la dosis (ml, g, unidades...). Por defecto la unidad del insumo. */
+  doseUnit?: string;
+  /** Dosis fija por animal (si no se dosifica por peso). */
+  dosePerHead?: number;
+  /** Kilos por unidad de stock (ej. saco de 40 kg = 40) para conversión alimenticia. */
+  kgPerUnit?: number;
+  createdAt?: string;
+  createdBy?: string;
+  createdByName?: string;
+  updatedBy?: string;
+  updatedByName?: string;
 }
 
 export interface SanitaryTask {
@@ -295,6 +336,17 @@ export interface SanitaryTask {
   slaughterOffset?: number;
   /** Tipo de actividad (vacuna, vitamina, medicamento, desinfeccion, cama, pesaje, alimentacion, otro). */
   activityKind?: string;
+  /** Bovino: ítem del plan sanitario base que originó la tarea. */
+  planItemId?: string;
+  /** Bovino: animales destino (si la tarea aplica a varios animales sueltos). */
+  animalIds?: string[];
+  /** Bovino: tratamiento(s) generado(s) al completar la tarea. */
+  treatmentEventIds?: string[];
+  createdAt?: string;
+  createdBy?: string;
+  createdByName?: string;
+  updatedBy?: string;
+  updatedByName?: string;
 }
 
 export type ProductionType = 'engorde' | 'lechones' | 'maternidad' | 'verracos';
@@ -339,6 +391,18 @@ export interface FinancialMovement {
   date: string;
   category: string;
   details?: string;
+  // ---- Bovino (opcionales) ----
+  /** Unidad de negocio bovina a la que pertenece el movimiento. */
+  businessUnit?: 'ceba' | 'leche' | 'general';
+  /** Monto en moneda local y tasa del día usada. */
+  amountLocal?: number;
+  localCurrency?: string;
+  exchangeRate?: number;
+  /** Documento de origen (evento / registro financiero bovino). */
+  sourceId?: string;
+  createdAt?: string;
+  createdBy?: string;
+  createdByName?: string;
 }
 
 export interface FeedingPhaseData {
@@ -403,7 +467,12 @@ export interface TechStackItem {
   iconName: string;
 }
 
-export interface BovinoAnimal {
+/**
+ * @deprecated Registro del modal bovino antiguo (colección 'bovino'). El modelo nuevo
+ * es BovinoAnimal en models/bovinoModel.ts; los documentos antiguos se normalizan al
+ * leerlos (normalizeBovinoAnimal).
+ */
+export interface LegacyBovinoAnimal {
   id: string;
   tag: string;
   name: string;
@@ -616,3 +685,6 @@ export interface FlowStep {
   systemResponse: string;
   edgeCases?: string;
 }
+
+// Módulo bovino (modelo nuevo: animales, lotes, potreros, eventos, finanzas, configuración).
+export * from './bovinoModel';

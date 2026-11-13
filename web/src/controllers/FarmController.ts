@@ -29,6 +29,17 @@ import {
   AvicolaIncome,
   AvicolaMortality,
   AvicolaWeighing,
+  BovinoLot,
+  BovinoPaddock,
+  BovinoEvent,
+  BovinoFinanceDoc,
+  BovinoAuditEntry,
+  BovinoConfig,
+  BovinoActor,
+  FarmRole,
+  BovinoPermission,
+  bovinoCan,
+  bovinoRoleOf,
 } from '../models/FarmModel';
 import { productionFeedingPlansDefault, batchProductionConfigsDefault } from '../data/pecuarioData';
 import {
@@ -133,6 +144,97 @@ import {
   AddAvicolaWarehouseItemInput,
   ConsumeWarehouseForLotInput,
 } from '../models/avicolaDomain';
+import {
+  BovinoState,
+  BovinoDomainFn,
+  BovinoDomainResult,
+  BOVINO_SYSTEM_ACTOR,
+  collectBovinoChangedDocs,
+  normalizeBovinoAnimal,
+  isLegacyBovinoDoc,
+  createPaddock,
+  updatePaddock,
+  deletePaddock,
+  createBovinoLot,
+  updateBovinoLot,
+  deleteBovinoLot,
+  closeBovinoLot,
+  registerBovinoAnimals,
+  setBovinoPurchaseCost,
+  updateBovinoAnimal,
+  moveBovinoAnimals,
+  moveBovinoLot,
+  registerWeighings,
+  registerLotWeighing,
+  registerRation,
+  addBovinoItem,
+  purchaseBovinoItem,
+  updateBovinoItem,
+  deleteBovinoItem,
+  bovinoStockOut,
+  registerMilkings,
+  registerTankMilking,
+  registerService,
+  registerPregnancyDiagnosis,
+  registerCalving,
+  registerColostrum,
+  registerDryOff,
+  registerWeaning,
+  applyTreatment,
+  updateTreatmentOutcome,
+  addBovinoTask,
+  scheduleSanitaryPlan,
+  completeBovinoTask,
+  reopenBovinoTask,
+  cancelBovinoTask,
+  registerDeath,
+  registerDiscard,
+  registerAnimalSale,
+  registerMilkSale,
+  registerBovinoIncome,
+  registerBovinoExpense,
+  deleteBovinoFinance,
+  addBovinoNote,
+  deleteBovinoEvent,
+  updateBovinoConfig,
+  PaddockInput,
+  CreateBovinoLotInput,
+  RegisterBovinoAnimalsInput,
+  SetBovinoPurchaseCostInput,
+  UpdateBovinoAnimalInput,
+  MoveAnimalsInput,
+  RegisterWeighingsInput,
+  AddBovinoItemInput,
+  PurchaseBovinoItemInput,
+  BovinoStockOutInput,
+  RegisterMilkingsInput,
+  RegisterServiceInput,
+  RegisterDiagnosisInput,
+  RegisterCalvingInput,
+  ApplyTreatmentInput,
+  AddBovinoTaskInput,
+  CompleteBovinoTaskInput,
+  RegisterAnimalSaleInput,
+  RegisterBovinoIncomeInput,
+  RegisterBovinoExpenseInput,
+} from '../models/bovinoDomain';
+import {
+  BovinoData,
+  buildBovinoIndex,
+  resolveBovinoConfig,
+  bovinoHomeSummary,
+  bovinoHerdCounts,
+  bovinoUnitBalance,
+  lotLiquidation,
+  buildLotView,
+  mangaLookup,
+  animalTimeline,
+  isBovinoTask,
+  milkShippingList,
+  saleList,
+  paddockOccupancyHistory,
+  lactationCurve,
+} from '../models/bovinoCalc';
 import { dbService, FARM_ID, buildEmptySummary } from '../services/dbService';
 import { todayISO, currentMonthYear, nowISO } from '../utils/dates';
 import {
@@ -147,7 +249,14 @@ import {
 import { newId } from '../utils/ids';
 
 export type MainAppView = 'mockup' | 'documentation' | 'mvc';
-export type MockupScreen = 'home' | 'porcino' | 'avicola';
+export type MockupScreen = 'home' | 'porcino' | 'avicola' | 'bovino';
+
+/** Usuario de la sesión que alimenta App.tsx (createdBy / permisos / bitácora). */
+export interface CurrentUser {
+  uid: string;
+  name: string;
+  role: FarmRole;
+}
 
 /** Datos editables del resumen (los contadores y finanzas son derivados). */
 type SummaryMeta = Pick<FarmSummary, 'name' | 'location' | 'totalMembers' | 'members'>;
@@ -202,6 +311,18 @@ export function useFarmController() {
   const [feedingPlans, setFeedingPlans] = useState<ProductionFeedingPlan[]>(productionFeedingPlansDefault);
   const [batchConfigs, setBatchConfigs] = useState<BatchProductionConfig[]>(batchProductionConfigsDefault);
   const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
+  // ---- Módulo bovino (animales normalizados + eventos + finanzas + bitácora + configuración) ----
+  const [bovinoLots, setBovinoLots] = useState<BovinoLot[]>([]);
+  const [bovinoPaddocks, setBovinoPaddocks] = useState<BovinoPaddock[]>([]);
+  const [bovinoEvents, setBovinoEvents] = useState<BovinoEvent[]>([]);
+  const [bovinoFinance, setBovinoFinance] = useState<BovinoFinanceDoc[]>([]);
+  const [bovinoAudit, setBovinoAudit] = useState<BovinoAuditEntry[]>([]);
+  const [bovinoConfig, setBovinoConfig] = useState<BovinoConfig>(() => resolveBovinoConfig(null));
+  /** Lote / animal abiertos en el módulo bovino (null = Home bovino). */
+  const [selectedBovinoLotId, setSelectedBovinoLotId] = useState<string | null>(null);
+  const [selectedBovinoAnimalId, setSelectedBovinoAnimalId] = useState<string | null>(null);
+  /** Usuario actual (lo entrega App.tsx desde la sesión con setCurrentUser). */
+  const [currentUser, setCurrentUserState] = useState<CurrentUser | null>(null);
   /** true cuando terminó la carga inicial (incl. resumen): evita pisar nombre/miembros reales con los por defecto. */
   const [summaryLoaded, setSummaryLoaded] = useState<boolean>(false);
 
@@ -219,7 +340,6 @@ export function useFarmController() {
   const [showMembersModal, setShowMembersModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showAlertsModal, setShowAlertsModal] = useState<boolean>(false);
-  const [showBovinoModal, setShowBovinoModal] = useState<boolean>(false);
   const [showPushBanner, setShowPushBanner] = useState<boolean>(true);
   const [infoToast, setInfoToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -252,6 +372,42 @@ export function useFarmController() {
   }, []);
 
   const bovinoRef = useLatest(bovinoHerd);
+
+  // ==========================================================================
+  // REF AL ESTADO BOVINO MÁS RECIENTE + USUARIO ACTUAL (actor)
+  // ==========================================================================
+  const bovinoStateRef = useRef<BovinoData & { config: BovinoConfig }>({
+    animals: [],
+    lots: [],
+    paddocks: [],
+    events: [],
+    finance: [],
+    audit: [],
+    config: resolveBovinoConfig(null),
+  });
+  const actorRef = useRef<BovinoActor>(BOVINO_SYSTEM_ACTOR);
+  /** Ids de documentos bovinos antiguos ya migrados en esta sesión (evita reescrituras repetidas). */
+  const migratedBovinoRef = useRef<Set<string>>(new Set());
+
+  /** App.tsx llama esto con session.member: createdBy/createdByName/permisos de cada registro. */
+  const setCurrentUser = useCallback((u: CurrentUser | null) => {
+    actorRef.current = u && u.uid ? { uid: u.uid, name: u.name || 'Usuario', role: u.role } : BOVINO_SYSTEM_ACTOR;
+    setCurrentUserState((prev) =>
+      prev && u && prev.uid === u.uid && prev.name === u.name && prev.role === u.role ? prev : u ? { ...u } : null
+    );
+  }, []);
+
+  const applyBovinoState = useCallback((next: Partial<BovinoData & { config: BovinoConfig }>) => {
+    const prev = bovinoStateRef.current;
+    bovinoStateRef.current = { ...prev, ...next };
+    if (next.animals && next.animals !== prev.animals) setBovinoHerd(next.animals);
+    if (next.lots && next.lots !== prev.lots) setBovinoLots(next.lots);
+    if (next.paddocks && next.paddocks !== prev.paddocks) setBovinoPaddocks(next.paddocks);
+    if (next.events && next.events !== prev.events) setBovinoEvents(next.events);
+    if (next.finance && next.finance !== prev.finance) setBovinoFinance(next.finance);
+    if (next.audit && next.audit !== prev.audit) setBovinoAudit(next.audit);
+    if (next.config && next.config !== prev.config) setBovinoConfig(next.config);
+  }, []);
 
   // ==========================================================================
   // REF AL ESTADO AVÍCOLA MÁS RECIENTE (lotes, ventas, gastos, ingresos, mortalidad, pesajes)
@@ -314,7 +470,25 @@ export function useFarmController() {
       dbService.subscribeBatchConfigs(FARM_ID, (l) => {
         if (l.length > 0) applyPorcinoState({ batchConfigs: l });
       }),
-      dbService.subscribeBovinoHerd(FARM_ID, (l) => setBovinoHerd(l)),
+      // Bovino: los documentos antiguos de 'bovino' se normalizan al modelo nuevo al leerlos
+      dbService.subscribeBovinoHerd(FARM_ID, (l) => {
+        const raw = l || [];
+        const animals = raw.map((x) => normalizeBovinoAnimal(x));
+        applyBovinoState({ animals });
+        // Migración única de los documentos del modal antiguo: se guardan ya normalizados para
+        // que su fecha de ingreso (estimada) quede fija y no cambie cada día al volver a leerlos.
+        const toMigrate = animals.filter((a, i) => isLegacyBovinoDoc(raw[i]) && !migratedBovinoRef.current.has(a.id));
+        if (toMigrate.length) {
+          toMigrate.forEach((a) => migratedBovinoRef.current.add(a.id));
+          dbService.saveChanges(FARM_ID, { bovinoAnimals: toMigrate }).catch((e) => console.warn('Migración bovina:', e));
+        }
+      }),
+      dbService.subscribeBovinoLots(FARM_ID, (l) => applyBovinoState({ lots: l || [] })),
+      dbService.subscribeBovinoPaddocks(FARM_ID, (l) => applyBovinoState({ paddocks: l || [] })),
+      dbService.subscribeBovinoEvents(FARM_ID, (l) => applyBovinoState({ events: l || [] })),
+      dbService.subscribeBovinoFinance(FARM_ID, (l) => applyBovinoState({ finance: l || [] })),
+      dbService.subscribeBovinoAudit(FARM_ID, (l) => applyBovinoState({ audit: l || [] })),
+      dbService.subscribeBovinoConfig(FARM_ID, (docs) => applyBovinoState({ config: resolveBovinoConfig(docs.find((x) => x.id === 'default') || null) })),
       dbService.subscribeAvicolaLots(FARM_ID, (l) =>
         applyAvicolaState({ lots: (l || []).map((x) => normalizeAvicolaLot(x)) })
       ),
@@ -337,7 +511,7 @@ export function useFarmController() {
       alive = false;
       unsubs.forEach((u) => u());
     };
-  }, [applyPorcinoState, applyAvicolaState]);
+  }, [applyPorcinoState, applyAvicolaState, applyBovinoState]);
 
   // Toast
   const triggerToast = useCallback((msg: string) => {
@@ -368,11 +542,24 @@ export function useFarmController() {
     [avicolaData, tasks, today, avicolaFeedTemplate] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  /** Datos bovinos completos (para los selectores puros de models/bovinoCalc). */
+  const bovinoData: BovinoData = useMemo(
+    () => ({ animals: bovinoHerd, lots: bovinoLots, paddocks: bovinoPaddocks, events: bovinoEvents, finance: bovinoFinance, audit: bovinoAudit }),
+    [bovinoHerd, bovinoLots, bovinoPaddocks, bovinoEvents, bovinoFinance, bovinoAudit]
+  );
+  /** Índice derivado del hato: categoría, peso, GMD, lote/potrero, reproducción, retiros (por animal). */
+  const bovinoIndex = useMemo(() => buildBovinoIndex(bovinoData, bovinoConfig, today), [bovinoData, bovinoConfig, today]);
+  /** Home bovino: contadores, agenda del día, lotes, potreros, KPIs, flujo de caja, inventario, valor del hato. */
+  const bovinoHome = useMemo(
+    () => bovinoHomeSummary(bovinoData, bovinoIndex, tasks, warehouseItems, movements),
+    [bovinoData, bovinoIndex, tasks, warehouseItems, movements]
+  );
+
   const counts = useMemo(() => {
-    const base = calculateFarmCounts(animals, litters, bovinoHerd, []);
-    // Tarjeta avícola del Home de la granja: derivada en vivo de los registros del módulo.
-    return { ...base, avicola: avicolaFarmCounts({ ...avicolaData, tasks: [] }, today) };
-  }, [animals, litters, bovinoHerd, avicolaData, today]);
+    const base = calculateFarmCounts(animals, litters, [], []);
+    // Tarjetas avícola y bovina del Home de la granja: derivadas en vivo de los registros de cada módulo.
+    return { ...base, avicola: avicolaFarmCounts({ ...avicolaData, tasks: [] }, today), bovino: bovinoHerdCounts(bovinoIndex) };
+  }, [animals, litters, bovinoIndex, avicolaData, today]);
   const finances = useMemo(
     () => calculateFinancesFromMovements(movements, currentMonthYear()),
     // `today` fuerza el recálculo al cambiar de mes
@@ -517,6 +704,142 @@ export function useFarmController() {
     [dispatchAvicola, triggerToast]
   );
 
+  /**
+   * Aplica una operación del dominio bovino sobre el estado más reciente (datos bovinos +
+   * tareas/movimientos/almacén compartidos + configuración + USUARIO ACTUAL) y persiste
+   * SOLO los documentos cambiados/eliminados en un único lote.
+   * Un error con needsConfirmation:true NO se muestra como toast: la vista pide confirmación
+   * y reintenta con confirm:true (u overrideWithdrawalReason en ventas con retiro).
+   */
+  const dispatchBovino = useCallback(
+    <I,>(fn: BovinoDomainFn<I>, input: I, opts: { silent?: boolean; toastErrors?: boolean } = {}): BovinoDomainResult => {
+      const p = porcinoRef.current;
+      const b = bovinoStateRef.current;
+      const st: BovinoState = {
+        ...b,
+        tasks: p.tasks,
+        movements: p.movements,
+        warehouseItems: p.warehouseItems,
+        config: b.config,
+        actor: actorRef.current,
+      };
+      let result: BovinoDomainResult;
+      try {
+        result = fn(st, input);
+      } catch (err) {
+        console.error('Bovino domain error:', err);
+        result = { ok: false, error: 'Error inesperado al procesar la operación.' };
+      }
+      if (!result.ok) {
+        const e = result as { error: string; needsConfirmation?: boolean };
+        if (opts.toastErrors && !e.needsConfirmation) triggerToast(`⚠️ ${e.error}`);
+        return result;
+      }
+      const s = result.state;
+      applyBovinoState({ animals: s.animals, lots: s.lots, paddocks: s.paddocks, events: s.events, finance: s.finance, audit: s.audit, config: s.config });
+      applyPorcinoState({ tasks: s.tasks, movements: s.movements, warehouseItems: s.warehouseItems });
+      const docs = collectBovinoChangedDocs(s, result.changed, result.deleted, result.configChanged);
+      // Versión previa de los documentos que ya existían: se guardan por campo (merge) y el stock
+      // como incremento, así dos usuarios sin conexión no se sobrescriben al sincronizar.
+      const prevMap = <T extends { id: string }>(list: T[], ids?: string[]) => {
+        if (!ids || !ids.length) return undefined;
+        const want = new Set(ids);
+        const out: Record<string, T> = {};
+        list.forEach((x) => {
+          if (want.has(x.id)) out[x.id] = x;
+        });
+        return out;
+      };
+      const previous = {
+        bovinoAnimals: prevMap(st.animals, result.changed.animals),
+        bovinoLots: prevMap(st.lots, result.changed.lots),
+        bovinoPaddocks: prevMap(st.paddocks, result.changed.paddocks),
+        bovinoEvents: prevMap(st.events as Array<BovinoEvent & { id: string }>, result.changed.events),
+        bovinoFinance: prevMap(st.finance as Array<BovinoFinanceDoc & { id: string }>, result.changed.finance),
+        tasks: prevMap(st.tasks, result.changed.tasks),
+        movements: prevMap(st.movements, result.changed.movements),
+        warehouseItems: prevMap(st.warehouseItems, result.changed.warehouseItems),
+      };
+      dbService.saveChanges(FARM_ID, { ...docs, previous }).catch((e) => {
+        console.warn('saveChanges (bovino) failed:', e);
+        const code = String((e as { code?: string } | null)?.code || '');
+        // Sin conexión la escritura queda en cola y no falla: un rechazo del servidor NO se sincronizará.
+        if (code.includes('permission-denied')) {
+          triggerToast('⛔ El servidor rechazó el cambio: tu rol no tiene permiso para guardarlo. No se sincronizará; pide al encargado que lo registre.');
+        } else {
+          triggerToast(`⚠️ No se pudo guardar en la nube${code ? ` (${code})` : ''}. Revisa la conexión y vuelve a intentarlo.`);
+        }
+      });
+      if (!opts.silent) triggerToast(result.message);
+      return result;
+    },
+    [applyBovinoState, applyPorcinoState, triggerToast]
+  );
+
+  /** Acciones nombradas del módulo bovino. Devuelven BovinoDomainResult (ver docs/bovino/01-data-hub.md). */
+  const bovinoActions = useMemo(
+    () => ({
+      // Potreros
+      createPaddock: (i: PaddockInput) => dispatchBovino(createPaddock, i),
+      updatePaddock: (i: { paddockId: string; patch: Partial<PaddockInput> }) => dispatchBovino(updatePaddock, i),
+      deletePaddock: (i: { paddockId: string }) => dispatchBovino(deletePaddock, i),
+      // Lotes
+      createLot: (i: CreateBovinoLotInput) => dispatchBovino(createBovinoLot, i),
+      updateLot: (i: { lotId: string; patch: Partial<Pick<BovinoLot, 'name' | 'type' | 'targetSaleWeightKg' | 'notes'>> }) => dispatchBovino(updateBovinoLot, i),
+      deleteLot: (i: { lotId: string }) => dispatchBovino(deleteBovinoLot, i),
+      closeLot: (i: { lotId: string; date?: string; includeIndirect?: boolean; notes?: string; confirm?: boolean }) => dispatchBovino(closeBovinoLot, i),
+      // Animales
+      registerAnimals: (i: RegisterBovinoAnimalsInput) => dispatchBovino(registerBovinoAnimals, i),
+      setPurchaseCost: (i: SetBovinoPurchaseCostInput) => dispatchBovino(setBovinoPurchaseCost, i),
+      updateAnimal: (i: UpdateBovinoAnimalInput) => dispatchBovino(updateBovinoAnimal, i),
+      moveAnimals: (i: MoveAnimalsInput) => dispatchBovino(moveBovinoAnimals, i),
+      moveLot: (i: { lotId: string; toPaddockId: string; date?: string; notes?: string; confirm?: boolean }) => dispatchBovino(moveBovinoLot, i),
+      // Ceba
+      registerWeighings: (i: RegisterWeighingsInput) => dispatchBovino(registerWeighings, i),
+      registerLotWeighing: (i: { lotId: string; avgWeightKg: number; heads?: number; date?: string; notes?: string; confirm?: boolean }) => dispatchBovino(registerLotWeighing, i),
+      registerRation: (i: { lotId: string; feedName: string; kg: number; days?: number; date?: string; notes?: string }) => dispatchBovino(registerRation, i),
+      // Almacén bovino
+      addItem: (i: AddBovinoItemInput) => dispatchBovino(addBovinoItem, i),
+      purchaseItem: (i: PurchaseBovinoItemInput) => dispatchBovino(purchaseBovinoItem, i),
+      updateItem: (i: Parameters<typeof updateBovinoItem>[1]) => dispatchBovino(updateBovinoItem, i),
+      deleteItem: (i: { itemId: string; reason?: string }) => dispatchBovino(deleteBovinoItem, i),
+      stockOut: (i: BovinoStockOutInput) => dispatchBovino(bovinoStockOut, i),
+      // Lechería
+      registerMilkings: (i: RegisterMilkingsInput) => dispatchBovino(registerMilkings, i),
+      registerTankMilking: (i: Parameters<typeof registerTankMilking>[1]) => dispatchBovino(registerTankMilking, i),
+      // Reproducción y crías
+      registerService: (i: RegisterServiceInput) => dispatchBovino(registerService, i),
+      registerDiagnosis: (i: RegisterDiagnosisInput) => dispatchBovino(registerPregnancyDiagnosis, i),
+      registerCalving: (i: RegisterCalvingInput) => dispatchBovino(registerCalving, i),
+      registerColostrum: (i: Parameters<typeof registerColostrum>[1]) => dispatchBovino(registerColostrum, i),
+      registerDryOff: (i: { animalId: string; date?: string; treatment?: string; notes?: string; confirm?: boolean }) => dispatchBovino(registerDryOff, i),
+      registerWeaning: (i: { items: { animalId: string; weightKg?: number }[]; date?: string; toLotId?: string; confirm?: boolean }) => dispatchBovino(registerWeaning, i),
+      // Sanidad
+      applyTreatment: (i: ApplyTreatmentInput) => dispatchBovino(applyTreatment, i),
+      updateTreatmentOutcome: (i: Parameters<typeof updateTreatmentOutcome>[1]) => dispatchBovino(updateTreatmentOutcome, i),
+      addTask: (i: AddBovinoTaskInput) => dispatchBovino(addBovinoTask, i),
+      scheduleSanitaryPlan: (i: { planItemIds: string[]; lotId?: string; animalIds?: string[]; startDate: string }) => dispatchBovino(scheduleSanitaryPlan, i),
+      completeTask: (i: CompleteBovinoTaskInput) => dispatchBovino(completeBovinoTask, i),
+      reopenTask: (i: { taskId: string }) => dispatchBovino(reopenBovinoTask, i),
+      cancelTask: (i: { taskId: string; reason?: string }) => dispatchBovino(cancelBovinoTask, i),
+      // Bajas y ventas
+      registerDeath: (i: { animalId: string; date?: string; cause: string; weightKg?: number; notes?: string }) => dispatchBovino(registerDeath, i),
+      registerDiscard: (i: { animalId: string; date?: string; cause: string; notes?: string }) => dispatchBovino(registerDiscard, i),
+      registerAnimalSale: (i: RegisterAnimalSaleInput) => dispatchBovino(registerAnimalSale, i),
+      // Finanzas
+      registerMilkSale: (i: Parameters<typeof registerMilkSale>[1]) => dispatchBovino(registerMilkSale, i),
+      registerIncome: (i: RegisterBovinoIncomeInput) => dispatchBovino(registerBovinoIncome, i),
+      registerExpense: (i: RegisterBovinoExpenseInput) => dispatchBovino(registerBovinoExpense, i),
+      deleteFinance: (i: { financeId: string; reason: string }) => dispatchBovino(deleteBovinoFinance, i),
+      // Historial, eliminación y configuración
+      addNote: (i: { animalId?: string; lotId?: string; title: string; notes?: string; date?: string }) => dispatchBovino(addBovinoNote, i),
+      deleteEvent: (i: { eventId: string; reason: string }) => dispatchBovino(deleteBovinoEvent, i),
+      updateConfig: (i: { patch: Partial<Omit<BovinoConfig, 'id'>> }) => dispatchBovino(updateBovinoConfig, i),
+      notify: (msg: string) => triggerToast(msg),
+    }),
+    [dispatchBovino, triggerToast]
+  );
+
   /** Acciones nombradas (recomendado desde la UI). */
   const porcinoActions = useMemo(
     () => ({
@@ -592,19 +915,40 @@ export function useFarmController() {
   );
 
   /** Completa la tarea (con descuento de almacén si la tarea lo define). Las avícolas imputan el gasto a su lote. */
+  /**
+   * Completa una tarea bovina desde fuera del módulo (Alertas / Actividades) SIN confirmar valores
+   * fuera de rango: si los hay, se avisa y se debe registrar desde la Agenda bovina.
+   */
+  const completeBovinoTaskOutside = useCallback(
+    (taskId: string) => {
+      const r = dispatchBovino(completeBovinoTask, { taskId }, { toastErrors: true });
+      if (!r.ok && 'needsConfirmation' in r && r.needsConfirmation) {
+        const w = (r.warnings || []).join(' ');
+        triggerToast(`⚠️ ${w || 'Hay valores fuera de rango.'} Regístrala desde la Agenda bovina para revisarla y confirmarla.`);
+      }
+    },
+    [dispatchBovino, triggerToast]
+  );
+
   const handleCompleteTask = useCallback(
     (taskId: string) => {
       const t = porcinoRef.current.tasks.find((x) => x.id === taskId);
-      if (t && isAvicolaTask(t) && t.loteId) dispatchAvicola(completeLotTask, { taskId }, { toastErrors: true });
+      if (t && isBovinoTask(t)) completeBovinoTaskOutside(taskId);
+      else if (t && isAvicolaTask(t) && t.loteId) dispatchAvicola(completeLotTask, { taskId }, { toastErrors: true });
       else dispatchPorcino(completeSanitaryTask, { taskId }, { toastErrors: true });
     },
-    [dispatchPorcino, dispatchAvicola]
+    [dispatchPorcino, dispatchAvicola, completeBovinoTaskOutside]
   );
 
   const handleToggleTaskStatus = useCallback(
     (taskId: string) => {
       const t = porcinoRef.current.tasks.find((x) => x.id === taskId);
       if (!t) return;
+      if (isBovinoTask(t)) {
+        if (t.status === 'completada') dispatchBovino(reopenBovinoTask, { taskId }, { toastErrors: true });
+        else if (t.status !== 'cancelada') completeBovinoTaskOutside(taskId);
+        return;
+      }
       const avicola = isAvicolaTask(t) && !!t.loteId;
       if (t.status === 'completada') {
         if (avicola) dispatchAvicola(reopenLotTask, { taskId }, { toastErrors: true });
@@ -614,7 +958,7 @@ export function useFarmController() {
         else dispatchPorcino(completeSanitaryTask, { taskId }, { toastErrors: true });
       }
     },
-    [dispatchPorcino, dispatchAvicola]
+    [dispatchPorcino, dispatchAvicola, dispatchBovino, completeBovinoTaskOutside]
   );
 
   // Alimentación y protocolos (la UI debe llamar solo al pulsar "Guardar")
@@ -691,46 +1035,92 @@ export function useFarmController() {
   // ==========================================================================
   // BOVINO / AVÍCOLA (refs para evitar closures obsoletos)
   // ==========================================================================
+  /** @deprecated Usar bovinoActions.* (persiste los animales cambiados tal cual, sin eventos). */
   const handleUpdateBovino = useCallback((newHerd: BovinoAnimal[]) => {
     const { upserts, deleted } = diffById(bovinoRef.current as any[], newHerd as any[]);
-    setBovinoHerd(newHerd);
-    if (upserts.length) dbService.bulkSaveBovino(FARM_ID, upserts).catch(console.warn);
-    deleted.forEach((id) => dbService.deleteBovinoAnimal(FARM_ID, id).catch(console.warn));
-  }, [bovinoRef]);
+    applyBovinoState({ animals: newHerd });
+    dbService.saveChanges(FARM_ID, { bovinoAnimals: upserts, deletedBovinoAnimals: deleted }).catch(console.warn);
+  }, [bovinoRef, applyBovinoState]);
 
+  /** @deprecated Modal bovino antiguo: convierte el registro viejo y usa bovinoActions.registerAnimals. */
   const handleAddNewBovino = useCallback(
     (animal: any) => {
-      const newAnimal = { ...animal, id: animal.id || newId('bov') };
-      setBovinoHerd((prev) => [...prev, newAnimal]);
-      dbService.saveBovinoAnimal(FARM_ID, newAnimal).catch(console.warn);
+      const n = normalizeBovinoAnimal({ ...animal, id: undefined });
+      dispatchBovino(
+        registerBovinoAnimals,
+        {
+          origin: 'compra',
+          animals: [{ tag: n.tag, name: n.name, sex: n.sex, weightKg: n.entryWeightKg, breed: n.breed, purpose: n.purpose, initialCategory: n.initialCategory, priorCalvings: n.priorCalvings }],
+          confirm: true,
+        },
+        { toastErrors: true }
+      );
     },
-    []
+    [dispatchBovino]
   );
 
+  /** @deprecated Modal bovino antiguo: ordeño de una vaca por arete (+ venta de leche si hay precio). */
   const handleRecordMilking = useCallback(
-    async (tag: string, liters: number, pricePerLiter: number = 0.42, date: string = todayISO()) => {
-      const totalAmount = Math.round(liters * pricePerLiter * 100) / 100;
+    async (tag: string, liters: number, pricePerLiter: number = 0, date: string = todayISO()) => {
       const cow = bovinoRef.current.find((c) => c.tag === tag);
-      if (cow) {
-        const updated = { ...cow, dailyLiters: liters, lastMilkingDate: date };
-        setBovinoHerd((prev) => prev.map((c) => (c.id === cow.id ? updated : c)));
-        dbService.saveBovinoAnimal(FARM_ID, updated).catch(console.warn);
+      if (!cow) {
+        triggerToast(`⚠️ No existe la vaca ${tag}.`);
+        return;
       }
-      const movement: FinancialMovement = {
-        id: newId('fm'),
-        type: 'ingreso',
-        concept: `Venta de leche ordeño: Vaca ${tag} (${liters} Litros)`,
-        rubro: 'bovino',
-        amount: totalAmount,
-        date,
-        category: 'Venta de leche',
-        details: `${liters} Litros a $${pricePerLiter}/L.`,
-      };
-      applyPorcinoState({ movements: [movement, ...porcinoRef.current.movements] });
-      dbService.saveMovement(FARM_ID, movement).catch(console.warn);
-      triggerToast(`🥛 Ordeño registrado para ${tag}: ${liters}L (+$${totalAmount} USD)`);
+      const r = dispatchBovino(registerMilkings, { date, shift: 'unico', items: [{ animalId: cow.id, liters }], confirm: true }, { toastErrors: true });
+      if (r.ok && pricePerLiter > 0) dispatchBovino(registerMilkSale, { date, liters, pricePerLiter: { amount: pricePerLiter } }, { silent: true, toastErrors: true });
     },
-    [applyPorcinoState, triggerToast, bovinoRef]
+    [dispatchBovino, triggerToast, bovinoRef]
+  );
+
+  // ==========================================================================
+  // NAVEGACIÓN Y SELECTORES DEL MÓDULO BOVINO
+  // ==========================================================================
+  /** Abre el Home bovino (pantalla completa). */
+  const openBovino = useCallback(() => {
+    setSelectedBovinoLotId(null);
+    setSelectedBovinoAnimalId(null);
+    setMockupScreen('bovino');
+  }, []);
+  const openBovinoLot = useCallback((lotId: string | null) => {
+    setSelectedBovinoLotId(lotId);
+    setMockupScreen('bovino');
+  }, []);
+  const openBovinoAnimal = useCallback((animalId: string | null) => {
+    setSelectedBovinoAnimalId(animalId);
+    setMockupScreen('bovino');
+  }, []);
+  /** Permisos del usuario actual en el módulo bovino (la UI oculta costos/precios a operarios). */
+  const bovinoPermissions = useMemo(() => {
+    const role = currentUser?.role ?? actorRef.current.role;
+    const can = (p: BovinoPermission) => bovinoCan(role, p);
+    return { role: bovinoRoleOf(role), farmRole: role, can, cargaDiaria: can('carga_diaria'), manejo: can('manejo'), verCostos: can('ver_costos'), administrar: can('administrar') };
+  }, [currentUser]);
+  /** Selectores bajo demanda (reciben fechas/ids desde la vista). */
+  const bovinoSelectors = useMemo(
+    () => ({
+      lotView: (lotId: string) => {
+        const lot = bovinoData.lots.find((l) => l.id === lotId);
+        return lot ? buildLotView(lot, bovinoData, bovinoIndex) : null;
+      },
+      animal: (animalId: string) => bovinoIndex.views.get(animalId) || null,
+      timeline: (animalId: string) => animalTimeline(animalId, bovinoIndex),
+      lactationCurve: (animalId: string) => {
+        const v = bovinoIndex.views.get(animalId);
+        return v ? lactationCurve(v, bovinoIndex.eventsByAnimal.get(animalId) || []) : [];
+      },
+      balance: (from: string, to: string) => bovinoUnitBalance(bovinoData, bovinoIndex, from, to),
+      liquidationPreview: (lotId: string, includeIndirect = false) => lotLiquidation(bovinoData, bovinoIndex, lotId, { includeIndirect }),
+      manga: (tag: string) => mangaLookup(tag, bovinoData, bovinoIndex, tasks, warehouseItems, bovinoHome.agenda),
+      milkShippingList: () => milkShippingList(bovinoIndex),
+      saleList: () => saleList(bovinoIndex),
+      paddockHistory: (paddockId: string) => paddockOccupancyHistory(paddockId, bovinoData, today),
+    }),
+    [bovinoData, bovinoIndex, tasks, warehouseItems, bovinoHome, today]
+  );
+  const selectedBovinoLot = useMemo(
+    () => (selectedBovinoLotId ? bovinoLots.find((l) => l.id === selectedBovinoLotId) || null : null),
+    [bovinoLots, selectedBovinoLotId]
   );
 
   // ==========================================================================
@@ -801,9 +1191,13 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
   const avicolaOverdueTasks = avicolaHome.overdueTasks;
   const avicolaAlertsCount = avicolaHome.alertsCount;
   const criticalWarehouseCount = useMemo(() => countCriticalWarehouseItems(warehouseItems), [warehouseItems]);
+  /** Agenda bovina del día (palpar, secar, PEV, partos, retiros, pesajes, tareas, stock...). */
+  const bovinoAgenda = bovinoHome.agenda;
+  /** Alertas bovinas relevantes que no son tareas ni stock (esas ya se cuentan aparte). */
+  const bovinoAlertsCount = bovinoHome.alertsCount;
   const totalNotifications = useMemo(
-    () => todayPendingTasks.length + overduePendingTasks.length + criticalWarehouseCount,
-    [todayPendingTasks, overduePendingTasks, criticalWarehouseCount]
+    () => todayPendingTasks.length + overduePendingTasks.length + criticalWarehouseCount + bovinoAlertsCount,
+    [todayPendingTasks, overduePendingTasks, criticalWarehouseCount, bovinoAlertsCount]
   );
 
   // ==========================================================================
@@ -820,16 +1214,18 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
       feedingPlans: productionFeedingPlansDefault,
       batchConfigs: batchProductionConfigsDefault,
     });
-    setBovinoHerd([]);
+    applyBovinoState({ animals: [], lots: [], paddocks: [], events: [], finance: [], audit: [], config: resolveBovinoConfig(null) });
+    setSelectedBovinoLotId(null);
+    setSelectedBovinoAnimalId(null);
     applyAvicolaState({ lots: [], sales: [], expenses: [], incomes: [], mortality: [], weighings: [] });
     setSelectedAvicolaLotId(null);
     const e = buildEmptySummary();
     setSummaryMeta({ name: e.name, location: e.location, totalMembers: e.totalMembers, members: e.members });
-  }, [applyPorcinoState, applyAvicolaState]);
+  }, [applyPorcinoState, applyAvicolaState, applyBovinoState]);
 
   const handleClearAllTestData = useCallback(async () => {
     try {
-      await dbService.clearAllData(FARM_ID);
+      await dbService.clearAllData(FARM_ID, actorRef.current.uid !== BOVINO_SYSTEM_ACTOR.uid ? actorRef.current : undefined);
       resetLocalState();
       setShowSettingsModal(false);
       triggerToast('🧹 Datos eliminados. Granja lista en blanco para registros reales.');
@@ -863,7 +1259,25 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     tasks,
     movements,
     warehouseItems,
+    /** Animales bovinos (modelo nuevo, normalizados). */
     bovinoHerd,
+    bovinoLots,
+    bovinoPaddocks,
+    bovinoEvents,
+    bovinoFinance,
+    bovinoAudit,
+    bovinoConfig,
+    bovinoData,
+    bovinoIndex,
+    bovinoHome,
+    bovinoAgenda,
+    bovinoAlertsCount,
+    bovinoPermissions,
+    bovinoSelectors,
+    selectedBovinoLotId,
+    selectedBovinoLot,
+    selectedBovinoAnimalId,
+    currentUser,
     avicolaLots,
     avicolaSales,
     avicolaExpenses,
@@ -891,7 +1305,6 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     showMembersModal,
     showSettingsModal,
     showAlertsModal,
-    showBovinoModal,
     showPushBanner,
 
     // Setters
@@ -901,17 +1314,24 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     setShowMembersModal,
     setShowSettingsModal,
     setShowAlertsModal,
-    setShowBovinoModal,
     setShowPushBanner,
     setSelectedAvicolaLotId,
     openAvicola,
     openAvicolaLot,
+    openBovino,
+    openBovinoLot,
+    openBovinoAnimal,
+    setSelectedBovinoLotId,
+    setSelectedBovinoAnimalId,
+    setCurrentUser,
 
     // NUEVA API DE DOMINIO
     dispatchPorcino,
     porcinoActions,
     dispatchAvicola,
     avicolaActions,
+    dispatchBovino,
+    bovinoActions,
     avicolaPlanTemplate,
     saveAvicolaPlanTemplate,
     avicolaFeedTemplate,
@@ -945,3 +1365,6 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
 export type FarmController = ReturnType<typeof useFarmController>;
 export type PorcinoActions = FarmController['porcinoActions'];
 export type AvicolaActions = FarmController['avicolaActions'];
+export type BovinoActions = FarmController['bovinoActions'];
+export type BovinoSelectors = FarmController['bovinoSelectors'];
+export type BovinoPermissions = FarmController['bovinoPermissions'];

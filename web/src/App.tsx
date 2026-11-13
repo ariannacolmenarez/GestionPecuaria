@@ -9,9 +9,6 @@ import { Info, CloudOff } from 'lucide-react';
 // ============================================================================
 // 1. CONTROLADOR (Controller): orquestación de estado, dominio y persistencia Firebase
 import { useFarmController, FarmController } from './controllers/FarmController';
-import type { DomainFn } from './models/porcinoDomain';
-import type { FinancialMovement } from './models/FarmModel';
-import { newId } from './utils/ids';
 
 // 2. VISTAS (Views): componentes de presentación desacoplados
 import {
@@ -29,15 +26,18 @@ import {
 import type { PorcinoTab } from './components/mockup/MenuPorcino';
 import type { BottomNavScreen } from './components/mockup/BottomNav';
 import type { AvicolaFocusRequest } from './components/mockup/avicola/shared';
+import { popRoute, rootRoute, routeTo, screenTitle, type BovinoFocusRequest, type BovinoRoute, type BovinoScreen, type BovinoSection } from './components/mockup/bovino/routes';
 import { RubroPanels } from './components/mockup/RubroPanels';
 import { itemMatchesRubro } from './models/warehouseRubro';
 import { countCriticalWarehouseItems } from './models/PorcinoCalculations';
 import { AuthGate, type AppSession } from './views/auth/AuthGate';
 import { initialsAvatar } from './services/authService';
 import type { FarmMember } from './models/FarmModel';
+import { bovinoCan } from './models/bovinoModel';
 
 // Vistas secundarias cargadas bajo demanda (chunks propios, fuera del bundle inicial)
-const BovinoModalView = lazy(() => import('./views/bovino/BovinoModalView').then((m) => ({ default: m.BovinoModalView })));
+// Módulo bovino "Ganado Bovino" a pantalla completa (reemplaza al antiguo BovinoModal desde el Home)
+const BovinoModuleView = lazy(() => import('./views/bovino/BovinoModuleView').then((m) => ({ default: m.BovinoModuleView })));
 // Módulo avícola "Pollos de Engorde" a pantalla completa (reemplaza al antiguo AvicolaModal desde el Home)
 const AvicolaModuleView = lazy(() => import('./views/avicola/AvicolaModuleView').then((m) => ({ default: m.AvicolaModuleView })));
 const DocumentationView = lazy(() => import('./views/doc/DocumentationView').then((m) => ({ default: m.DocumentationView })));
@@ -46,17 +46,6 @@ const MvcArchitectureView = lazy(() => import('./views/mvc/MvcArchitectureView')
 const ViewFallback: React.FC = () => (
   <div className="flex-1 flex items-center justify-center text-xs text-slate-400 p-6">Cargando…</div>
 );
-
-/** Registra un movimiento externo (bovino/avícola) sobre el estado más reciente, en un solo guardado. */
-const appendMovement: DomainFn<FinancialMovement> = (state, m) => {
-  const mov = { ...m, id: m.id || newId('fm') };
-  return {
-    ok: true,
-    state: { ...state, movements: [mov, ...state.movements.filter((x) => x.id !== mov.id)] },
-    changed: { movements: [mov.id] },
-    message: 'Movimiento registrado.',
-  };
-};
 
 /** Rubro de un almacén o balance. */
 export type Rubro = 'porcino' | 'avicola' | 'bovino';
@@ -71,18 +60,22 @@ const asRubro = (r: unknown): Rubro => (r === 'avicola' || r === 'bovino' ? r : 
 
 /** Navegación interna del teléfono: pestaña del menú porcino, almacén y balance por rubro. */
 function usePhoneNavigation(ctrl: FarmController) {
-  const { mockupScreen, setMockupScreen, setShowAlertsModal, openAvicola, openAvicolaLot } = ctrl;
+  const { mockupScreen, setMockupScreen, setShowAlertsModal, openAvicola, openAvicolaLot, openBovino } = ctrl;
   const [porcinoTab, setPorcinoTab] = useState<PorcinoTab>('porcinos');
   const [warehouse, setWarehouse] = useState<RubroPanel | null>(null);
   const [balance, setBalance] = useState<RubroPanel | null>(null);
   const [activities, setActivities] = useState<RubroPanel | null>(null);
   const [avicolaFocus, setAvicolaFocus] = useState<AvicolaFocusRequest | null>(null);
+  // Módulo bovino: ruta interna (sección + pila) y petición externa de navegación
+  const [bovinoRoute, setBovinoRoute] = useState<BovinoRoute>(() => rootRoute('hato'));
+  const [bovinoFocus, setBovinoFocus] = useState<BovinoFocusRequest | null>(null);
   // Nonce de peticiones de navegación (contador, no fecha del sistema)
   const focusSeq = useRef(0);
   const nextNonce = () => ++focusSeq.current;
 
   /** Rubro de la pantalla actual (null = Home de la granja). */
-  const currentRubro: Rubro | null = mockupScreen === 'avicola' ? 'avicola' : mockupScreen === 'porcino' ? 'porcino' : null;
+  const currentRubro: Rubro | null =
+    mockupScreen === 'avicola' ? 'avicola' : mockupScreen === 'porcino' ? 'porcino' : mockupScreen === 'bovino' ? 'bovino' : null;
 
   const closePanels = useCallback(() => {
     setWarehouse(null);
@@ -126,6 +119,23 @@ function usePhoneNavigation(ctrl: FarmController) {
     [openAvicolaLot, closePanels]
   );
 
+  /** El módulo bovino consumió la petición. */
+  const clearBovinoFocus = useCallback(() => setBovinoFocus(null), []);
+
+  /**
+   * Módulo bovino a pantalla completa. Sin opciones abre el Hato; con section/screen abre esa
+   * pantalla (p. ej. Más › Almacén bovino); nuevoAlta / nuevaActividad abren su formulario.
+   */
+  const goBovino = useCallback(
+    (opts: { section?: BovinoSection; screen?: BovinoScreen; nuevoAlta?: boolean; nuevaActividad?: boolean } = {}) => {
+      closePanels();
+      openBovino();
+      setBovinoRoute(opts.section || opts.screen ? routeTo(opts.section || 'hato', opts.screen) : rootRoute('hato'));
+      setBovinoFocus(opts.nuevoAlta || opts.nuevaActividad ? { nonce: nextNonce(), nuevoAlta: opts.nuevoAlta, nuevaActividad: opts.nuevaActividad } : null);
+    },
+    [openBovino, closePanels]
+  );
+
   const openPorcino = useCallback(
     (tab?: PorcinoTab) => {
       closePanels();
@@ -143,6 +153,12 @@ function usePhoneNavigation(ctrl: FarmController) {
     (rubro?: Rubro) => {
       setBalance(null);
       setActivities(null);
+      // Dentro del módulo bovino el almacén es una pantalla propia (submódulos, lotes y vencimientos)
+      if (currentRubro === 'bovino') {
+        setWarehouse(null);
+        setBovinoRoute(routeTo('mas', { s: 'almacen' }));
+        return;
+      }
       setWarehouse(currentRubro ? { rubro: currentRubro, locked: true } : { rubro: asRubro(rubro), locked: false });
     },
     [currentRubro]
@@ -155,6 +171,11 @@ function usePhoneNavigation(ctrl: FarmController) {
       setActivities(null);
       if (currentRubro === 'porcino') {
         setPorcinoTab('balance');
+        return;
+      }
+      // Bovino: balance ceba vs leche y cría del módulo (Más › Balance)
+      if (currentRubro === 'bovino') {
+        setBovinoRoute(routeTo('mas', { s: 'balance' }));
         return;
       }
       setBalance(currentRubro ? { rubro: currentRubro, locked: true } : { rubro: asRubro(rubro), locked: false });
@@ -176,6 +197,11 @@ function usePhoneNavigation(ctrl: FarmController) {
           // En el módulo avícola, "Actividades" abre el calendario de los lotes de pollos
           if (mockupScreen === 'avicola') {
             goAvicola({ openCalendar: true });
+            break;
+          }
+          // En el módulo bovino, "Actividades" es la Agenda del día del hato
+          if (mockupScreen === 'bovino') {
+            setBovinoRoute(rootRoute('agenda'));
             break;
           }
           // Desde el Home de la granja: modal de actividades con pestañas por rubro
@@ -207,7 +233,7 @@ function usePhoneNavigation(ctrl: FarmController) {
     ? 'almacen'
     : balance
       ? 'balance'
-      : mockupScreen === 'home' || mockupScreen === 'avicola'
+      : mockupScreen === 'home' || mockupScreen === 'avicola' || mockupScreen === 'bovino'
         ? 'home'
         : porcinoTab === 'sanitario' || porcinoTab === 'balance'
           ? porcinoTab
@@ -234,6 +260,11 @@ function usePhoneNavigation(ctrl: FarmController) {
     goAvicola,
     goAvicolaLot,
     goAvicolaLotSanidad,
+    bovinoRoute,
+    setBovinoRoute,
+    bovinoFocus,
+    clearBovinoFocus,
+    goBovino,
   };
 }
 
@@ -242,8 +273,9 @@ type PhoneNav = ReturnType<typeof usePhoneNavigation>;
 /**
  * Botón Atrás de Android (Capacitor). Orden:
  * 1) hoja abierta del módulo avícola → se cierra;
- * 2) modal global (alertas, miembros, ajustes, bovino) → se cierra;
+ * 2) modal global (alertas, miembros, ajustes) → se cierra;
  * 3) lote → Home avícola → Home de la granja; almacén → pantalla de origen;
+ *    bovino: subpantalla → raíz de la sección → Hato → Home de la granja (popRoute);
  * 4) en el Home de la granja → sale de la app.
  */
 function useHardwareBackButton(ctrl: FarmController, nav: PhoneNav, enabled: boolean) {
@@ -258,11 +290,16 @@ function useHardwareBackButton(ctrl: FarmController, nav: PhoneNav, enabled: boo
       if (c.showAlertsModal) return c.setShowAlertsModal(false);
       if (c.showMembersModal) return c.setShowMembersModal(false);
       if (c.showSettingsModal) return c.setShowSettingsModal(false);
-      if (c.showBovinoModal) return c.setShowBovinoModal(false);
       // Almacén o balance abiertos: se cierran primero
       if (n.warehouse || n.balance || n.activities) return n.closePanels();
       if (c.mockupScreen === 'avicola') {
         if (c.selectedAvicolaLotId) c.openAvicolaLot(null);
+        else c.setMockupScreen('home');
+        return;
+      }
+      if (c.mockupScreen === 'bovino') {
+        const next = popRoute(n.bovinoRoute);
+        if (next) n.setBovinoRoute(next);
         else c.setMockupScreen('home');
         return;
       }
@@ -297,11 +334,33 @@ function useOnline(): boolean {
 // ============================================================================
 // CONTENIDO DEL TELÉFONO (compartido por modo nativo y modo navegador)
 // ============================================================================
-const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, nav }) => {
+const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSession }> = ({ ctrl, nav, session }) => {
   const { summary, mockupScreen, setMockupScreen, todayPendingTasks, overduePendingTasks, today } = ctrl;
   const bannerTasks = useMemo(() => [...overduePendingTasks, ...todayPendingTasks], [overduePendingTasks, todayPendingTasks]);
   const farmName = summary.name || 'Mi Granja';
   const inAvicola = mockupScreen === 'avicola';
+  const inBovino = mockupScreen === 'bovino';
+  // Usuario de la sesión para el módulo bovino (rol → permisos, createdBy en el dominio)
+  const bovinoMember = useMemo(
+    () => ({ uid: session.member.uid || session.user.uid, name: session.member.name, role: session.member.role }),
+    [session.member.uid, session.member.name, session.member.role, session.user.uid]
+  );
+  const bovinoMembers = useMemo(() => session.members.map((m) => ({ uid: m.uid, name: m.name, role: m.role })), [session.members]);
+  const bovinoTitle = useMemo(
+    () =>
+      inBovino
+        ? screenTitle(nav.bovinoRoute, {
+            lotName: (id) => ctrl.bovinoIndex.lotsById.get(id)?.name,
+            animalLabel: (id) => {
+              const v = ctrl.bovinoIndex.views.get(id);
+              return v ? `${v.categoryLabel} #${v.tag}` : undefined;
+            },
+            paddockName: (id) => ctrl.bovinoIndex.paddocksById.get(id)?.name,
+            itemName: (id) => ctrl.warehouseItems.find((i) => i.id === id)?.name,
+          })
+        : '',
+    [inBovino, nav.bovinoRoute, ctrl.bovinoIndex, ctrl.warehouseItems]
+  );
   // Badge del Almacén: insumos críticos del rubro de la pantalla (o de toda la granja en el Home)
   const warehouseAlertCount = useMemo(
     () => countCriticalWarehouseItems(nav.currentRubro ? ctrl.warehouseItems.filter((i) => itemMatchesRubro(i, nav.currentRubro!)) : ctrl.warehouseItems),
@@ -310,13 +369,18 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
   const avicolaLot = inAvicola ? ctrl.selectedAvicolaLot : null;
   const online = useOnline();
   const headerTitle =
-    mockupScreen === 'home' ? farmName : inAvicola ? avicolaLot?.name || 'Pollos de Engorde' : 'Menú Porcino';
+    mockupScreen === 'home' ? farmName : inAvicola ? avicolaLot?.name || 'Pollos de Engorde' : inBovino ? bovinoTitle : 'Menú Porcino';
 
-  // Atrás: lote -> Home avícola -> Home de la granja
+  // Atrás: lote -> Home avícola -> Home de la granja; bovino: subpantalla -> raíz -> Hato -> Home
   const onBack = () => {
     if (inAvicola && ctrl.selectedAvicolaLotId) ctrl.openAvicolaLot(null);
-    else setMockupScreen('home');
+    else if (inBovino) {
+      const next = popRoute(nav.bovinoRoute);
+      if (next) nav.setBovinoRoute(next);
+      else setMockupScreen('home');
+    } else setMockupScreen('home');
   };
+  const exitBovino = useCallback(() => setMockupScreen('home'), [setMockupScreen]);
 
   return (
     <>
@@ -353,10 +417,13 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
             movements={ctrl.movements}
             warehouseItems={ctrl.warehouseItems}
             avicolaHome={ctrl.avicolaHome}
+            bovinoHome={ctrl.bovinoHome}
             tasksCountToday={todayPendingTasks.length}
             overdueTasksCount={overduePendingTasks.length}
             onNavigateToPorcino={() => nav.openPorcino('porcinos')}
-            onNavigateToBovino={() => ctrl.setShowBovinoModal(true)}
+            onNavigateToBovino={() => nav.goBovino()}
+            onOpenBovinoCategory={(category) => nav.goBovino({ section: 'hato', screen: { s: 'animales', filtro: { category } } })}
+            hideBovinoFinance={!bovinoCan(session.member.role, 'ver_costos')}
             onNavigateToAvicola={() => nav.goAvicola()}
             onCreateAvicolaLot={() => nav.goAvicola({ newLot: true })}
             onOpenAvicolaLot={nav.goAvicolaLot}
@@ -386,6 +453,30 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
               onSaveFeedTemplate={ctrl.saveAvicolaFeedTemplate}
             />
           </Suspense>
+        ) : inBovino ? (
+          <Suspense fallback={<ViewFallback />}>
+            <BovinoModuleView
+              data={ctrl.bovinoData}
+              index={ctrl.bovinoIndex}
+              home={ctrl.bovinoHome}
+              agenda={ctrl.bovinoAgenda}
+              config={ctrl.bovinoConfig}
+              tasks={ctrl.tasks}
+              movements={ctrl.movements}
+              warehouseItems={ctrl.warehouseItems}
+              today={today}
+              actions={ctrl.bovinoActions}
+              selectors={ctrl.bovinoSelectors}
+              member={bovinoMember}
+              members={bovinoMembers}
+              route={nav.bovinoRoute}
+              onRouteChange={nav.setBovinoRoute}
+              onExit={exitBovino}
+              focus={nav.bovinoFocus}
+              onFocusHandled={nav.clearBovinoFocus}
+              farmName={farmName}
+            />
+          </Suspense>
         ) : (
           <MenuPorcinoView
             summary={summary}
@@ -412,7 +503,9 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
       {/* Dentro del detalle de un lote avícola la barra global se oculta: el lote tiene su
           propia barra de 5 pestañas (Ventas, Gastos, Ingresos, Control, Gestión) y dos barras
           apiladas no caben en móvil. "Atrás" lleva al Home avícola, donde la barra global vuelve. */}
-      {!avicolaLot && (
+      {/* En el módulo bovino la barra global se oculta: BovinoNav (Hato · Agenda · Campo · Repro · Más)
+          ocupa su lugar y absorbe Actividades (Agenda), Almacén y Balance (Más) y Alertas (campana). */}
+      {!avicolaLot && !inBovino && (
         <BottomNavView
           activeScreen={nav.activeScreen}
           onNavigate={nav.onNavigate}
@@ -432,6 +525,7 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
         onActivitiesChange={nav.setActivities}
         onOpenAvicolaLot={nav.goAvicolaLotSanidad}
         onOpenAvicolaCalendar={() => nav.goAvicola({ openCalendar: true })}
+        onOpenBovino={nav.goBovino}
       />
 
       {/* Capa de superposición del teléfono: las hojas del módulo avícola se montan aquí (portal). */}
@@ -444,13 +538,6 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav }> = ({ ctrl, n
 // MODALES GLOBALES (compartidos)
 // ============================================================================
 const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSession }> = ({ ctrl, nav, session }) => {
-  const addMovement = useCallback(
-    (m: FinancialMovement) => {
-      ctrl.dispatchPorcino(appendMovement, m, { silent: true });
-    },
-    [ctrl.dispatchPorcino] // eslint-disable-line react-hooks/exhaustive-deps
-  );
-
   return (
     <>
       {ctrl.showAlertsModal && (
@@ -475,6 +562,10 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: App
           onNavigateToWarehouse={() => {
             ctrl.setShowAlertsModal(false);
             nav.openWarehouse();
+          }}
+          onOpenBovino={() => {
+            ctrl.setShowAlertsModal(false);
+            nav.goBovino({ section: 'agenda' });
           }}
           onToggleTaskStatus={ctrl.handleToggleTaskStatus}
           onCompleteTask={ctrl.handleCompleteTask}
@@ -509,18 +600,6 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: App
         />
       )}
 
-      <Suspense fallback={null}>
-      {ctrl.showBovinoModal && (
-        <BovinoModalView
-          herd={ctrl.bovinoHerd}
-          onClose={() => ctrl.setShowBovinoModal(false)}
-          onAddAnimal={ctrl.handleAddNewBovino}
-          onRecordMilking={ctrl.handleRecordMilking}
-          onAddFinancialMovement={addMovement}
-          onShowToast={ctrl.triggerToast}
-        />
-      )}
-      </Suspense>
     </>
   );
 };
@@ -559,6 +638,11 @@ function FarmApp({ session }: { session: AppSession }) {
   useEffect(() => {
     if (session.welcome) rawCtrl.triggerToast(session.welcome);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Usuario actual → createdBy / permisos por rol / bitácora del módulo bovino
+  const { setCurrentUser } = rawCtrl;
+  useEffect(() => {
+    setCurrentUser({ uid: session.member.uid || session.user.uid, name: session.member.name, role: session.member.role });
+  }, [setCurrentUser, session.member.uid, session.member.name, session.member.role, session.user.uid]);
   const nav = usePhoneNavigation(ctrl);
   const isNative = Capacitor.isNativePlatform();
   useHardwareBackButton(ctrl, nav, isNative);
@@ -573,7 +657,7 @@ function FarmApp({ session }: { session: AppSession }) {
         className="relative flex flex-col h-screen w-screen bg-slate-900 text-slate-100 overflow-hidden font-sans select-none"
       >
         <Toast message={ctrl.infoToast} placement="top" />
-        <PhoneShell ctrl={ctrl} nav={nav} />
+        <PhoneShell ctrl={ctrl} nav={nav} session={session} />
         <GlobalModals ctrl={ctrl} nav={nav} session={session} />
       </div>
     );
@@ -613,7 +697,7 @@ function FarmApp({ session }: { session: AppSession }) {
         {currentView === 'mockup' && (
           <div className="flex-1 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-2 sm:p-4">
             <MobileDeviceFrameView isExpanded={ctrl.isExpanded} onToggleExpand={() => ctrl.setIsExpanded(!ctrl.isExpanded)}>
-              <PhoneShell ctrl={ctrl} nav={nav} />
+              <PhoneShell ctrl={ctrl} nav={nav} session={session} />
             </MobileDeviceFrameView>
           </div>
         )}

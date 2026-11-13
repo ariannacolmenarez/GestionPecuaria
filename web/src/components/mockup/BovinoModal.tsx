@@ -12,14 +12,15 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { apiClient } from '../../services/apiClient';
-import { FinancialMovement, BovinoAnimal } from '../../types';
+import { FinancialMovement, LegacyBovinoAnimal as BovinoAnimal } from '../../types';
 import { calculateBovinoCounters } from '../../models/PorcinoCalculations';
 import { todayISO } from '../../utils/dates';
 import { newId } from '../../utils/ids';
 
 interface BovinoModalProps {
   onClose: () => void;
-  herd?: BovinoAnimal[];
+  /** Registros antiguos o del modelo nuevo (el módulo bovino nuevo reemplaza este modal). */
+  herd?: Array<BovinoAnimal | any>;
   onAddAnimal?: (animal: any) => void;
   onRecordMilking?: (tag: string, liters: number, pricePerLiter: number, date: string) => void;
   onAddFinancialMovement?: (movement: FinancialMovement) => void;

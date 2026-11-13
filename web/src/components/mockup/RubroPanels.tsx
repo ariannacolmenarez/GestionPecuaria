@@ -4,8 +4,10 @@
  * - Desde el Home de la granja muestran un selector para cambiar de rubro.
  * Cada rubro conecta sus propias acciones: el avícola descuenta stock y carga el gasto al lote.
  */
-import React, { Suspense, lazy, useMemo, useState } from 'react';
-import { Bird, Calculator, PiggyBank, Beef, X, CalendarDays } from 'lucide-react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Bird, Calculator, PiggyBank, Beef, X, CalendarDays, Package } from 'lucide-react';
+import { bovinoCan } from '../../models/bovinoModel';
+import type { BovinoScreen, BovinoSection } from './bovino/routes';
 import type { FarmController } from '../../controllers/FarmController';
 import type { SanitaryTask } from '../../types';
 import { isLotActive } from '../../models/avicolaDomain';
@@ -26,6 +28,9 @@ export interface RubroPanel {
   rubro: Rubro;
   locked: boolean;
 }
+
+/** Abre el módulo bovino en una sección / pantalla (App.tsx › nav.goBovino). */
+export type OpenBovino = (opts?: { section?: BovinoSection; screen?: BovinoScreen; nuevoAlta?: boolean; nuevaActividad?: boolean }) => void;
 
 const RUBROS: { key: Rubro; label: string; Icon: React.ElementType; active: string }[] = [
   { key: 'porcino', label: 'Porcino', Icon: PiggyBank, active: 'bg-rose-600 text-white' },
@@ -64,6 +69,8 @@ export const RubroPanels: React.FC<{
   /** Avícola: abrir el lote en Control › Sanidad / el calendario del módulo. */
   onOpenAvicolaLot?: (loteId: string) => void;
   onOpenAvicolaCalendar?: () => void;
+  /** Bovino: el almacén, el balance ceba vs leche y la agenda viven en el módulo. */
+  onOpenBovino?: OpenBovino;
 }> = ({
   ctrl,
   warehouse,
@@ -74,10 +81,19 @@ export const RubroPanels: React.FC<{
   onActivitiesChange,
   onOpenAvicolaLot,
   onOpenAvicolaCalendar,
+  onOpenBovino,
 }) => {
   const P = ctrl.porcinoActions;
   const A = ctrl.avicolaActions;
   const rubro = warehouse?.rubro;
+  // Bovino: el almacén vive en el módulo (submódulos, lotes y vencimientos): elegir Bovino abre
+  // directamente Más › Almacén, sin un diálogo intermedio.
+  const goBovinoWarehouse = rubro === 'bovino' && !!onOpenBovino;
+  useEffect(() => {
+    if (!goBovinoWarehouse) return;
+    onWarehouseChange(null);
+    onOpenBovino?.({ section: 'mas', screen: { s: 'almacen' } });
+  }, [goBovinoWarehouse]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const purchases = useMemo(
     () => (rubro ? ctrl.movements.filter((m) => m.category === 'Compra de insumos' && (m.rubro || 'porcino') === rubro) : []),
@@ -90,7 +106,42 @@ export const RubroPanels: React.FC<{
 
   return (
     <>
-      {warehouse && rubro && (
+      {warehouse && rubro === 'bovino' && !onOpenBovino && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150">
+          <div role="dialog" aria-modal="true" aria-label="Almacén bovino" className="bg-slate-50 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-900">
+            <div className="bg-slate-900 text-white p-4 shrink-0 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center">
+                    <Package className="w-4 h-4" />
+                  </div>
+                  <h3 className="font-bold text-base leading-tight">Almacén</h3>
+                </div>
+                <button onClick={() => onWarehouseChange(null)} aria-label="Cerrar" className="w-12 h-12 rounded-lg text-white hover:bg-slate-800 flex items-center justify-center">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              {!warehouse.locked && <RubroSwitcher dark value={rubro} onChange={(r) => onWarehouseChange({ rubro: r, locked: false })} />}
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-sm text-slate-900">
+                El almacén bovino tiene submódulos (Alimentos, Minerales, Farmacia, Otros) y control de lotes y vencimientos.
+              </p>
+              <button
+                onClick={() => {
+                  onWarehouseChange(null);
+                  onOpenBovino?.({ section: 'mas', screen: { s: 'almacen' } });
+                }}
+                className="w-full h-12 rounded-2xl bg-sky-600 text-white font-bold cursor-pointer"
+              >
+                Abrir almacén bovino
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {warehouse && rubro && rubro !== 'bovino' && (
         <Suspense fallback={null}>
           <WarehouseModal
             key={rubro}
@@ -150,8 +201,26 @@ export const RubroPanels: React.FC<{
               </div>
               {!balance.locked && <RubroSwitcher dark value={balance.rubro} onChange={(r) => onBalanceChange({ rubro: r, locked: false })} />}
             </div>
-            <div className="flex-1 overflow-y-auto p-3">
-              <TabBalance key={balance.rubro} movements={ctrl.movements} today={ctrl.today} rubro={balance.rubro} />
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {balance.rubro === 'bovino' && onOpenBovino && bovinoCan(ctrl.currentUser?.role, 'ver_costos') && (
+                <button
+                  onClick={() => {
+                    onBalanceChange(null);
+                    onOpenBovino({ section: 'mas', screen: { s: 'balance' } });
+                  }}
+                  className="w-full h-12 rounded-2xl bg-sky-600 text-white font-bold cursor-pointer"
+                >
+                  Ver balance ceba vs leche
+                </button>
+              )}
+              {balance.rubro === 'bovino' && !bovinoCan(ctrl.currentUser?.role, 'ver_costos') ? (
+                <div role="status" className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 text-amber-900">
+                  <p className="text-base font-black">Balance bovino no disponible</p>
+                  <p className="text-sm font-semibold mt-1">Tu rol ({ctrl.currentUser?.role || 'sin rol'}) registra la carga diaria del hato, pero no ve costos ni balances. Pídeselo al administrador.</p>
+                </div>
+              ) : (
+                <TabBalance key={balance.rubro} movements={ctrl.movements} today={ctrl.today} rubro={balance.rubro} />
+              )}
             </div>
           </div>
         </div>
@@ -164,6 +233,7 @@ export const RubroPanels: React.FC<{
           onChange={onActivitiesChange}
           onOpenAvicolaLot={onOpenAvicolaLot}
           onOpenAvicolaCalendar={onOpenAvicolaCalendar}
+          onOpenBovino={onOpenBovino}
         />
       )}
     </>
@@ -177,7 +247,8 @@ const ActivitiesPanel: React.FC<{
   onChange: (p: RubroPanel | null) => void;
   onOpenAvicolaLot?: (loteId: string) => void;
   onOpenAvicolaCalendar?: () => void;
-}> = ({ ctrl, panel, onChange, onOpenAvicolaLot, onOpenAvicolaCalendar }) => {
+  onOpenBovino?: OpenBovino;
+}> = ({ ctrl, panel, onChange, onOpenAvicolaLot, onOpenAvicolaCalendar, onOpenBovino }) => {
   const P = ctrl.porcinoActions;
   const rubro = panel.rubro;
   const [addDate, setAddDate] = useState<string | null>(null);
@@ -194,13 +265,22 @@ const ActivitiesPanel: React.FC<{
       else onOpenAvicolaCalendar?.();
       return;
     }
+    // Las tareas bovinas se gestionan en la Agenda del módulo bovino
+    if (rubro === 'bovino' && onOpenBovino) {
+      onChange(null);
+      onOpenBovino({ section: 'agenda' });
+      return;
+    }
     setSelectedTaskId(t.id);
   };
 
   const onAddActivity = (date: string) => {
     // Avícola: las actividades se programan dentro de cada lote (calendario del módulo)
     if (rubro === 'avicola') onOpenAvicolaCalendar?.();
-    else setAddDate(date);
+    else if (rubro === 'bovino' && onOpenBovino) {
+      onChange(null);
+      onOpenBovino({ section: 'agenda', nuevaActividad: true });
+    } else setAddDate(date);
   };
 
   return (
@@ -238,7 +318,7 @@ const ActivitiesPanel: React.FC<{
             key={rubro}
             tasks={tasks}
             today={ctrl.today}
-            addLabel={rubro === 'avicola' ? 'Programar en un lote' : undefined}
+            addLabel={rubro === 'avicola' ? 'Programar en un lote' : rubro === 'bovino' ? 'Abrir agenda bovina' : undefined}
             onAddActivity={onAddActivity}
             onSelectTask={onSelectTask}
             onToggleTask={(t) => ctrl.handleToggleTaskStatus(t.id)}

@@ -8,7 +8,7 @@
  * - Control de potreros y días de lactancia
  */
 
-import { BovinoAnimal, FinancialMovement } from '../models/FarmModel';
+import { LegacyBovinoAnimal as BovinoAnimal, FinancialMovement } from '../models/FarmModel';
 import { newId } from '../utils/ids';
 import { calculateBovinoCounters } from '../models/PorcinoCalculations';
 

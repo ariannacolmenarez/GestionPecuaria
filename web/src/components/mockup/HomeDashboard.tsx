@@ -14,6 +14,8 @@ import {
 import { FarmSummary, FinancialMovement, WarehouseItem } from '../../types';
 import { calculateUtilityTrendPercent, evaluateWarehouseReplenishment } from '../../models/PorcinoCalculations';
 import type { AvicolaHomeSummary } from '../../models/avicolaDomain';
+import type { BovinoHomeSummary } from '../../models/bovinoCalc';
+import type { BovinoCategoryKey } from '../../models/bovinoModel';
 import { itemMatchesRubro, type WarehouseRubro } from '../../models/warehouseRubro';
 
 /** Nombre del rubro en finances.byRubro -> clave. */
@@ -58,6 +60,12 @@ interface HomeDashboardProps {
   onCreateAvicolaLot?: () => void;
   /** Abre el detalle de un lote avícola. */
   onOpenAvicolaLot?: (loteId: string) => void;
+  /** Resumen en vivo del módulo bovino (agenda del día, leche). */
+  bovinoHome?: BovinoHomeSummary;
+  /** El usuario no puede ver costos ni balances bovinos (operario/ordeñador): se excluye el rubro del balance. */
+  hideBovinoFinance?: boolean;
+  /** Abre la lista de animales del módulo bovino filtrada por categoría. */
+  onOpenBovinoCategory?: (category: BovinoCategoryKey) => void;
 }
 
 const safe = (n: unknown) => {
@@ -82,10 +90,26 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   avicolaHome,
   onCreateAvicolaLot,
   onOpenAvicolaLot,
+  bovinoHome,
+  hideBovinoFinance = false,
+  onOpenBovinoCategory,
 }) => {
-  const { finances, counts } = summary;
+  const { counts } = summary;
+  // Sin permiso de costos bovinos: el balance general y la utilidad por rubro excluyen al bovino.
+  const finances = useMemo(() => {
+    const f = summary.finances;
+    if (!hideBovinoFinance) return f;
+    const bovRow = f.byRubro.find((r) => r.rubro === 'Bovina');
+    if (!bovRow) return f;
+    const totalIncome = safe(f.totalIncome) - safe(bovRow.income);
+    const totalExpenses = safe(f.totalExpenses) - safe(bovRow.expenses);
+    return { ...f, totalIncome, totalExpenses, netUtility: totalIncome - totalExpenses, byRubro: f.byRubro.filter((r) => r.rubro !== 'Bovina') };
+  }, [summary.finances, hideBovinoFinance]);
 
-  const trend = useMemo(() => calculateUtilityTrendPercent(movements), [movements]);
+  const trend = useMemo(
+    () => calculateUtilityTrendPercent(hideBovinoFinance ? movements.filter((m) => m.rubro !== 'bovino') : movements),
+    [movements, hideBovinoFinance]
+  );
 
   // Insumos con cobertura < 2 meses (los más urgentes primero)
   const criticalItems = useMemo(
@@ -119,7 +143,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
   const totalPorcino =
     counts.porcino.productoras + counts.porcino.lechones + counts.porcino.verracos + counts.porcino.engorde;
-  const totalBovino = counts.bovino.padrotes + counts.bovino.becerros + counts.bovino.vacas;
+  const bov = counts.bovino;
+  const totalBovino = bov.total ?? bov.padrotes + bov.becerros + bov.vacas;
+  const bovMilkToday = bovinoHome && bovinoHome.dairy.dailyDate === today ? bovinoHome.dairy.dailyLiters : 0;
+  const bovPending = bovinoHome ? bovinoHome.agenda.filter((a) => a.date <= today).length : 0;
   const hasFinances = safe(finances.totalIncome) > 0 || safe(finances.totalExpenses) > 0;
   const netUtility = safe(finances.netUtility);
   const utilityBase = finances.byRubro.reduce((s, r) => s + Math.abs(safe(r.utility)), 0);
@@ -331,42 +358,66 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       {/* 3. Sección Bovina */}
       <section
         id="section-bovina-card"
-        className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs hover:border-blue-200 transition-colors"
+        className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs hover:border-sky-200 transition-colors"
       >
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
-              🐂
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+              <Beef className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="font-bold text-slate-900 text-sm">Gestión Bovina</h3>
-              <p className="text-[11px] text-slate-500">Ganado lechero, engorde y reproducción</p>
+              <p className="text-xs text-slate-700 truncate">
+                {totalBovino > 0 ? `${totalBovino} animales · ceba, leche y cría` : 'Ceba, lechería y cría'}
+              </p>
             </div>
           </div>
           <button
             id="btn-ir-gestion-bovina"
             onClick={onNavigateToBovino}
-            className="flex items-center text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 px-3.5 h-11 rounded-xl transition-colors cursor-pointer shrink-0"
           >
-            Ver Hato
-            <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+            Ver hato
+            <ChevronRight className="w-4 h-4 ml-0.5" />
           </button>
         </div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 min-[340px]:grid-cols-3 gap-2">
           {(
             [
-              ['Padrotes', counts.bovino.padrotes, 'Reproductores', 'text-blue-600'],
-              ['Becerros', counts.bovino.becerros, 'Crías y Destete', 'text-emerald-600'],
-              ['Vacas', counts.bovino.vacas, 'Ordeño / Cría', 'text-indigo-600'],
+              ['Crías', bov.crias ?? 0, 'cria'],
+              ['Levante', bov.levante ?? 0, 'levante'],
+              ['Novillas', bov.novillas ?? 0, 'novilla'],
+              ['Vacas', bov.vacasParidas ?? 0, 'vaca'],
+              ['Toros', bov.toros ?? bov.padrotes, 'toro'],
+              ['Ceba', bov.novillos ?? 0, 'novillo'],
             ] as const
-          ).map(([label, value, hint, cls]) => (
-            <div key={label} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center">
-              <span className="text-[10px] font-medium text-slate-500">{label}</span>
-              <p className="text-lg font-black text-slate-900">{value}</p>
-              <span className={`text-[9px] font-medium ${cls}`}>{hint}</span>
-            </div>
+          ).map(([label, value, cat]) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => (onOpenBovinoCategory ? onOpenBovinoCategory(cat) : onNavigateToBovino())}
+              aria-label={`Ver ${label.toLowerCase()} (${value})`}
+              className="bg-slate-50 hover:bg-sky-50 p-2 rounded-xl border border-slate-200 text-center cursor-pointer"
+            >
+              <p className="text-lg font-black text-slate-900 tabular-nums">{value}</p>
+              <span className="text-xs font-bold text-slate-800">{label}</span>
+            </button>
           ))}
         </div>
+        {(bovMilkToday > 0 || bovPending > 0) && (
+          <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-800 gap-2 flex-wrap">
+            {bovMilkToday > 0 && (
+              <span>
+                Leche hoy: <strong className="text-slate-900">{Math.round(bovMilkToday * 10) / 10} L</strong>
+              </span>
+            )}
+            {bovPending > 0 && (
+              <span>
+                Pendientes hoy: <strong className="text-amber-800">{bovPending}</strong>
+              </span>
+            )}
+          </div>
+        )}
       </section>
 
       {/* 4. Sección Avícola */}
