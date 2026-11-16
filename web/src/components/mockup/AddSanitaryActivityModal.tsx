@@ -1,10 +1,34 @@
-import React, { useMemo, useState } from 'react';
-import { X, Calendar, Layers, Plus, CheckCircle2, Package } from 'lucide-react';
+import React, { useId, useMemo, useRef, useState } from 'react';
+import {
+  Calendar,
+  Layers,
+  Plus,
+  CheckCircle2,
+  Package,
+  Syringe,
+  Pill,
+  Zap,
+  FlaskConical,
+  Stethoscope,
+  Scale,
+} from 'lucide-react';
 import { SanitaryTask, PorcinoAnimal, WarehouseItem, PorcinoCategory } from '../../types';
 import { isActiveAnimal, headCount } from '../../models/porcinoRules';
 import { todayISO, formatShortDate } from '../../utils/dates';
 import { newId } from '../../utils/ids';
 import { ModalActionReturn, runModalAction, toNumber } from './modalResult';
+import {
+  Btn,
+  ErrorBox,
+  FieldError,
+  FieldLabel,
+  ModalHeader,
+  Overlay,
+  fieldClass,
+  inputClass,
+  useBackClose,
+  useFocusFirstInvalid,
+} from '../common/ui';
 
 interface AddSanitaryActivityModalProps {
   animals?: PorcinoAnimal[];
@@ -29,15 +53,17 @@ const CATEGORY_GROUPS: { value: string; label: string; category?: PorcinoCategor
 
 const RESPONSIBLE_ROLES = ['Veterinario', 'Encargado de granja', 'Operador', 'Trabajador'];
 
-// Pre-configured activity presets
+// Tipos de actividad frecuentes (icono lucide, no emoji)
 const ACTIVITY_PRESETS = [
-  { label: 'Vacunación', icon: '💉', defaultTitle: 'Vacunación preventiva' },
-  { label: 'Desparasitación', icon: '💊', defaultTitle: 'Desparasitación' },
-  { label: 'Aplicación de Hierro', icon: '⚡', defaultTitle: 'Hierro dextrano a camada' },
-  { label: 'Vitaminización ADE', icon: '🧪', defaultTitle: 'Vitaminización de soporte' },
-  { label: 'Tratamiento Antibiótico', icon: '🏥', defaultTitle: 'Tratamiento antibiótico' },
-  { label: 'Pesaje y Control Biométrico', icon: '⚖️', defaultTitle: 'Pesaje de control y ajuste de ración' },
+  { label: 'Vacunación', Icon: Syringe, defaultTitle: 'Vacunación preventiva' },
+  { label: 'Desparasitación', Icon: Pill, defaultTitle: 'Desparasitación' },
+  { label: 'Hierro', Icon: Zap, defaultTitle: 'Hierro dextrano a camada' },
+  { label: 'Vitaminas', Icon: FlaskConical, defaultTitle: 'Vitaminización de soporte' },
+  { label: 'Antibiótico', Icon: Stethoscope, defaultTitle: 'Tratamiento antibiótico' },
+  { label: 'Pesaje', Icon: Scale, defaultTitle: 'Pesaje de control y ajuste de ración' },
 ];
+
+type FieldErrors = Partial<Record<'title' | 'procedure' | 'date' | 'qty' | 'animal', string>>;
 
 export const AddSanitaryActivityModal: React.FC<AddSanitaryActivityModalProps> = ({
   animals = [],
@@ -49,6 +75,9 @@ export const AddSanitaryActivityModal: React.FC<AddSanitaryActivityModalProps> =
 }) => {
   const today = todayISO();
   const effectiveDate = initialDate || defaultDate || today;
+  const uid = useId();
+  const titleId = `${uid}-title`;
+  const formRef = useRef<HTMLFormElement>(null);
 
   const activeAnimals = useMemo(() => (animals || []).filter(isActiveAnimal), [animals]);
   // Lotes reales (registros con más de una cabeza)
@@ -73,9 +102,18 @@ export const AddSanitaryActivityModal: React.FC<AddSanitaryActivityModalProps> =
   const [warehouseQuantity, setWarehouseQuantity] = useState('');
   const [responsible, setResponsible] = useState('');
   const [procedure, setProcedure] = useState('');
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [errorMsg, setErrorMsg] = useState('');
+  const [submitCount, setSubmitCount] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isDone, setIsDone] = useState(false);
+
+  const dirty =
+    !isDone &&
+    !!(title.trim() || procedure.trim() || medicamentUsed.trim() || dosage.trim() || responsible.trim() || customAnimalCode.trim() || warehouseQuantity);
+  const { requestClose, confirmDialog } = useBackClose(true, onClose, dirty);
+  const firstError = (Object.values(errors).find(Boolean) as string | undefined) || null;
+  useFocusFirstInvalid(formRef, firstError, submitCount);
 
   const selectedItem = medicineItems.find((i) => i.id === warehouseItemId);
 
@@ -99,26 +137,36 @@ export const AddSanitaryActivityModal: React.FC<AddSanitaryActivityModalProps> =
     return { label: 'General de la granja' };
   };
 
+  const resetForm = () => {
+    setTitle('');
+    setActivityCategory('Vacunación');
+    setCustomAnimalCode('');
+    setMedicamentUsed('');
+    setDosage('');
+    setWarehouseItemId('');
+    setWarehouseQuantity('');
+    setProcedure('');
+    setErrors({});
+    setErrorMsg('');
+    setIsDone(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
-    if (!title.trim()) {
-      setErrorMsg('Por favor especifica el nombre de la actividad.');
-      return;
-    }
-    if (!procedure.trim()) {
-      setErrorMsg('Por favor describe el procedimiento o protocolo a realizar.');
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      setErrorMsg('Selecciona una fecha válida.');
-      return;
-    }
+    const next: FieldErrors = {};
+    if (!title.trim()) next.title = 'Escribe el nombre de la actividad.';
+    if (!procedure.trim()) next.procedure = 'Describe qué hay que hacer.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) next.date = 'Elige una fecha válida.';
     const qty = toNumber(warehouseQuantity);
-    if (selectedItem && qty <= 0) {
-      setErrorMsg('Indica la cantidad del insumo a descontar al completar la actividad.');
-      return;
+    if (selectedItem && qty <= 0) next.qty = 'Indica cuánto insumo se descontará al completar.';
+    if (targetType === 'animal') {
+      if (selectedAnimalId === 'otro' && !customAnimalCode.trim()) next.animal = 'Escribe el arete del animal.';
+      else if (selectedAnimalId !== 'otro' && !individuals.find((x) => x.id === selectedAnimalId)) next.animal = 'Elige un animal.';
     }
+    setErrors(next);
+    setSubmitCount((c) => c + 1);
+    if (Object.keys(next).length > 0) return;
 
     const group = resolveGroup();
     let targetAnimal: string;
@@ -130,18 +178,10 @@ export const AddSanitaryActivityModal: React.FC<AddSanitaryActivityModalProps> =
       batchCode = group.animal?.code;
     } else if (selectedAnimalId === 'otro') {
       const code = customAnimalCode.trim();
-      if (!code) {
-        setErrorMsg('Escribe el código del animal.');
-        return;
-      }
       targetAnimal = code;
       animalId = activeAnimals.find((a) => a.code === code)?.id;
     } else {
-      const a = individuals.find((x) => x.id === selectedAnimalId);
-      if (!a) {
-        setErrorMsg('Selecciona un animal.');
-        return;
-      }
+      const a = individuals.find((x) => x.id === selectedAnimalId)!;
       targetAnimal = a.code;
       animalId = a.id;
     }
@@ -175,321 +215,326 @@ export const AddSanitaryActivityModal: React.FC<AddSanitaryActivityModalProps> =
     setIsDone(true);
   };
 
+  const errId = (k: keyof FieldErrors) => (errors[k] ? `${uid}-${k}-err` : undefined);
+
   return (
-    <div
-      id="add-sanitary-activity-modal-overlay"
-      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150 overflow-y-auto"
-    >
+    <Overlay className="bg-black/70 flex items-end sm:items-center justify-center sm:p-4" onBackdrop={requestClose}>
       <div
         id="add-sanitary-activity-card"
-        className="bg-white text-slate-900 w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl border border-slate-200 my-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white text-slate-900 w-full max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[94%] sm:max-h-[92vh]"
       >
-        {/* Modal Header */}
-        <div className="bg-slate-900 text-white p-4 flex items-center justify-between border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-600/30 text-emerald-400 flex items-center justify-center font-bold">
-              <Calendar className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm text-white flex items-center gap-1.5">Programar Actividad en Calendario</h3>
-              <p className="text-[11px] text-slate-400">Plan Sanitario • Registro de Granja</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        <ModalHeader
+          rubro="porcino"
+          icon={<Calendar />}
+          title="Programar actividad"
+          subtitle="Plan sanitario · aparece en el calendario"
+          titleId={titleId}
+          onClose={requestClose}
+        />
 
         {isDone ? (
-          <div className="p-8 text-center space-y-3">
-            <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-7 h-7" />
+          <div className="p-6 text-center space-y-3 overflow-y-auto">
+            <div className="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
             </div>
-            <h4 className="font-bold text-slate-800 text-base">¡Actividad Programada!</h4>
-            <p className="text-xs text-slate-600">
-              "{title.trim()}" quedó en el calendario para el {date}.
+            <h3 className="font-bold text-slate-900 text-lg">Actividad programada</h3>
+            <p className="text-sm text-slate-700">
+              "{title.trim()}" quedó en el calendario para el {formatShortDate(date)}.
             </p>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
-            >
-              Cerrar
-            </button>
+            <div className="grid grid-cols-1 gap-2 pt-2">
+              <Btn rubro="porcino" size="lg" block icon={<Plus />} onClick={resetForm}>
+                Programar otra
+              </Btn>
+              <Btn variant="secondary" size="lg" block onClick={onClose}>
+                Volver al calendario
+              </Btn>
+            </div>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[80vh] overflow-y-auto text-xs">
-            {errorMsg && (
-              <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl font-medium text-xs">
-                {errorMsg}
-              </div>
-            )}
+          <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 text-sm">
+              {/* Tipo de actividad */}
+              <fieldset>
+                <legend className="text-sm font-semibold text-slate-900 mb-1.5">¿Qué se va a hacer?</legend>
+                <div className="grid grid-cols-3 gap-2">
+                  {ACTIVITY_PRESETS.map((preset) => {
+                    const active = activityCategory === preset.label;
+                    return (
+                      <button
+                        type="button"
+                        key={preset.label}
+                        aria-pressed={active}
+                        onClick={() => handleSelectPreset(preset)}
+                        className={`min-h-14 p-2 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 ${
+                          active
+                            ? 'bg-rose-50 border-rose-600 text-rose-900 font-bold'
+                            : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50'
+                        }`}
+                      >
+                        <preset.Icon className="w-5 h-5" aria-hidden="true" />
+                        <span className="text-xs leading-tight text-center">{preset.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
 
-            {/* Preset Chips */}
-            <div>
-              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1.5">
-                Tipo de Actividad a Realizar
-              </label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {ACTIVITY_PRESETS.map((preset) => (
-                  <button
-                    type="button"
-                    key={preset.label}
-                    onClick={() => handleSelectPreset(preset)}
-                    className={`p-2 rounded-xl border text-left flex items-center gap-1.5 transition-all cursor-pointer ${
-                      activityCategory === preset.label
-                        ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-bold shadow-xs'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
+              {/* Título */}
+              <div>
+                <FieldLabel htmlFor={`${uid}-title-in`}>Nombre de la actividad *</FieldLabel>
+                <input
+                  id={`${uid}-title-in`}
+                  type="text"
+                  placeholder="Ej: Vacuna neumonía y refuerzo"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  aria-invalid={!!errors.title}
+                  aria-describedby={errId('title')}
+                  className={fieldClass(!!errors.title, 'font-semibold')}
+                />
+                <FieldError id={errId('title')} error={errors.title} />
+              </div>
+
+              {/* Destinatario */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-3">
+                <span className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-rose-700" aria-hidden="true" />
+                  ¿A quién?
+                </span>
+
+                <div role="radiogroup" aria-label="Destinatario" className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      ['lote', 'Grupo o lote'],
+                      ['animal', 'Un animal'],
+                    ] as const
+                  ).map(([val, label]) => (
+                    <button
+                      key={val}
+                      type="button"
+                      role="radio"
+                      aria-checked={targetType === val}
+                      onClick={() => setTargetType(val)}
+                      className={`min-h-11 rounded-xl border-2 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 ${
+                        targetType === val ? 'bg-rose-600 border-rose-600 text-white' : 'bg-white border-slate-300 text-slate-800'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {targetType === 'lote' ? (
+                  <select
+                    aria-label="Grupo o lote"
+                    value={targetGroup}
+                    onChange={(e) => setTargetGroup(e.target.value)}
+                    className={inputClass}
                   >
-                    <span className="text-sm">{preset.icon}</span>
-                    <span className="text-[10px] leading-tight truncate">{preset.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Title */}
-            <div>
-              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
-                Nombre / Título de la Actividad *
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="Ej: Vacuna Neumonía y Refuerzo PCV2"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900 focus:bg-white focus:border-emerald-500 outline-none"
-              />
-            </div>
-
-            {/* Lote and Animal Specification */}
-            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-emerald-600" />
-                Destinatario: Grupo, Lote o Animal
-              </span>
-
-              <div className="flex bg-slate-200 p-0.5 rounded-xl text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setTargetType('lote')}
-                  className={`flex-1 py-1 rounded-lg transition-all ${
-                    targetType === 'lote' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                  }`}
-                >
-                  Grupo / Lote
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTargetType('animal')}
-                  className={`flex-1 py-1 rounded-lg transition-all ${
-                    targetType === 'animal' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                  }`}
-                >
-                  Animal Individual
-                </button>
-              </div>
-
-              {targetType === 'lote' ? (
-                <select
-                  value={targetGroup}
-                  onChange={(e) => setTargetGroup(e.target.value)}
-                  className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:border-emerald-500 outline-none"
-                >
-                  <optgroup label="Grupos">
-                    {CATEGORY_GROUPS.map((g) => (
-                      <option key={g.value} value={g.value}>
-                        {g.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                  {batches.length > 0 && (
-                    <optgroup label="Lotes registrados">
-                      {batches.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.code} ({b.category} · {headCount(b)} cab.){b.penLocation ? ` - ${b.penLocation}` : ''}
+                    <optgroup label="Grupos">
+                      {CATEGORY_GROUPS.map((g) => (
+                        <option key={g.value} value={g.value}>
+                          {g.label}
                         </option>
                       ))}
                     </optgroup>
-                  )}
-                </select>
-              ) : (
-                <div className="space-y-1">
-                  <select
-                    value={selectedAnimalId}
-                    onChange={(e) => setSelectedAnimalId(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900"
-                  >
-                    {individuals.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} ({a.category} - {a.healthStatus} - {a.currentWeightKg}kg)
-                      </option>
-                    ))}
-                    <option value="otro">Otro arete / código libre...</option>
+                    {batches.length > 0 && (
+                      <optgroup label="Lotes registrados">
+                        {batches.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.code} ({b.category} · {headCount(b)} animales){b.penLocation ? ` - ${b.penLocation}` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
-                  {individuals.length === 0 && (
-                    <p className="text-[10px] text-slate-500">No hay animales individuales activos registrados.</p>
-                  )}
-                  {selectedAnimalId === 'otro' && (
-                    <input
-                      type="text"
-                      placeholder="Escribe el código de arete"
-                      value={customAnimalCode}
-                      onChange={(e) => setCustomAnimalCode(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold"
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Date Picker */}
-            <div>
-              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
-                Fecha Específica en el Calendario *
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  required
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:bg-white focus:border-emerald-500 outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setDate(today)}
-                  className={`px-2.5 py-2 rounded-xl font-bold text-[11px] border transition-all ${
-                    date === today
-                      ? 'bg-amber-100 border-amber-300 text-amber-900'
-                      : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  Hoy ({formatShortDate(today)})
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-500 mt-1">
-                La actividad se reflejará con un marcador en el día correspondiente del calendario mensual.
-              </p>
-            </div>
-
-            {/* Insumo del almacén */}
-            {medicineItems.length > 0 && (
-              <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100 space-y-2">
-                <label className="text-[10px] font-bold uppercase text-blue-800 flex items-center gap-1">
-                  <Package className="w-3.5 h-3.5" /> Insumo del almacén (se descuenta al completar)
-                </label>
-                <select
-                  value={warehouseItemId}
-                  onChange={(e) => handleSelectItem(e.target.value)}
-                  className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800"
-                >
-                  <option value="">Ninguno</option>
-                  {medicineItems.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.name} — stock {i.quantity} {i.unit}
-                    </option>
-                  ))}
-                </select>
-                {selectedItem && (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      placeholder="Cantidad"
-                      value={warehouseQuantity}
-                      onChange={(e) => setWarehouseQuantity(e.target.value)}
-                      className="w-28 px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl font-bold text-slate-900"
-                    />
-                    <span className="text-[11px] text-slate-600">{selectedItem.unit} a descontar</span>
+                ) : (
+                  <div className="space-y-2">
+                    <select
+                      aria-label="Animal"
+                      value={selectedAnimalId}
+                      onChange={(e) => setSelectedAnimalId(e.target.value)}
+                      aria-invalid={!!errors.animal && selectedAnimalId !== 'otro'}
+                      className={fieldClass(!!errors.animal && selectedAnimalId !== 'otro', 'font-mono font-bold')}
+                    >
+                      {individuals.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} ({a.category} - {a.healthStatus} - {a.currentWeightKg} kg)
+                        </option>
+                      ))}
+                      <option value="otro">Otro arete (escribirlo)…</option>
+                    </select>
+                    {individuals.length === 0 && (
+                      <p className="text-xs text-slate-600">No hay animales individuales activos registrados.</p>
+                    )}
+                    {selectedAnimalId === 'otro' && (
+                      <input
+                        type="text"
+                        aria-label="Arete del animal"
+                        placeholder="Escribe el arete"
+                        value={customAnimalCode}
+                        onChange={(e) => setCustomAnimalCode(e.target.value)}
+                        aria-invalid={!!errors.animal}
+                        aria-describedby={errId('animal')}
+                        className={fieldClass(!!errors.animal, 'font-mono font-bold')}
+                      />
+                    )}
+                    <FieldError id={errId('animal')} error={errors.animal} />
                   </div>
                 )}
               </div>
-            )}
 
-            {/* Medicament and Dosage */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* Fecha */}
               <div>
-                <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Medicamento / Insumo</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Hierro Dextrano 200mg"
-                  value={medicamentUsed}
-                  onChange={(e) => setMedicamentUsed(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 focus:bg-white focus:border-emerald-500 outline-none"
-                />
+                <FieldLabel htmlFor={`${uid}-date`} hint="Se marcará ese día en el calendario.">
+                  Fecha *
+                </FieldLabel>
+                <div className="flex items-center gap-2">
+                  <input
+                    id={`${uid}-date`}
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    aria-invalid={!!errors.date}
+                    aria-describedby={errId('date')}
+                    className={fieldClass(!!errors.date, 'flex-1 font-bold')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setDate(today)}
+                    aria-pressed={date === today}
+                    className={`min-h-11 px-3 rounded-xl font-bold text-sm border-2 shrink-0 ${
+                      date === today ? 'bg-amber-100 border-amber-400 text-amber-900' : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50'
+                    }`}
+                  >
+                    Hoy
+                  </button>
+                </div>
+                <FieldError id={errId('date')} error={errors.date} />
               </div>
+
+              {/* Insumo del almacén */}
+              {medicineItems.length > 0 && (
+                <div className="bg-sky-50 p-3 rounded-2xl border border-sky-200 space-y-2">
+                  <FieldLabel htmlFor={`${uid}-item`} hint="Se descuenta del almacén al completar la actividad.">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Package className="w-4 h-4 text-sky-800" aria-hidden="true" /> Insumo del almacén
+                    </span>
+                  </FieldLabel>
+                  <select id={`${uid}-item`} value={warehouseItemId} onChange={(e) => handleSelectItem(e.target.value)} className={inputClass}>
+                    <option value="">Ninguno</option>
+                    {medicineItems.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.name} — hay {i.quantity} {i.unit}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedItem && (
+                    <div>
+                      <label htmlFor={`${uid}-qty`} className="block text-sm font-semibold text-slate-900 mb-1">
+                        Cantidad a descontar ({selectedItem.unit}) *
+                      </label>
+                      <input
+                        id={`${uid}-qty`}
+                        type="number"
+                        inputMode="decimal"
+                        step="any"
+                        min="0"
+                        enterKeyHint="done"
+                        placeholder="Ej: 2"
+                        value={warehouseQuantity}
+                        onChange={(e) => setWarehouseQuantity(e.target.value)}
+                        aria-invalid={!!errors.qty}
+                        aria-describedby={errId('qty')}
+                        className={fieldClass(!!errors.qty, 'font-bold')}
+                      />
+                      <FieldError id={errId('qty')} error={errors.qty} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Medicamento y dosis */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel htmlFor={`${uid}-med`}>Medicamento</FieldLabel>
+                  <input
+                    id={`${uid}-med`}
+                    type="text"
+                    placeholder="Ej: Hierro dextrano 200 mg"
+                    value={medicamentUsed}
+                    onChange={(e) => setMedicamentUsed(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <FieldLabel htmlFor={`${uid}-dose`}>Dosis y cómo se aplica</FieldLabel>
+                  <input
+                    id={`${uid}-dose`}
+                    type="text"
+                    placeholder="Ej: 2 ml en el músculo"
+                    value={dosage}
+                    onChange={(e) => setDosage(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              {/* Responsable */}
               <div>
-                <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Dosis y Vía de Aplicación</label>
+                <FieldLabel htmlFor={`${uid}-resp`}>Responsable</FieldLabel>
                 <input
+                  id={`${uid}-resp`}
                   type="text"
-                  placeholder="Ej: 2.0 ml vía intramuscular"
-                  value={dosage}
-                  onChange={(e) => setDosage(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 focus:bg-white focus:border-emerald-500 outline-none"
+                  list="sanitary-responsible-roles"
+                  placeholder="Ej: Veterinario"
+                  value={responsible}
+                  onChange={(e) => setResponsible(e.target.value)}
+                  className={inputClass}
                 />
+                <datalist id="sanitary-responsible-roles">
+                  {RESPONSIBLE_ROLES.map((r) => (
+                    <option key={r} value={r} />
+                  ))}
+                </datalist>
+              </div>
+
+              {/* Procedimiento */}
+              <div>
+                <FieldLabel htmlFor={`${uid}-proc`}>Cómo hacerlo (pasos) *</FieldLabel>
+                <textarea
+                  id={`${uid}-proc`}
+                  rows={3}
+                  placeholder="Aguja a usar, limpieza, precauciones y qué vigilar después…"
+                  value={procedure}
+                  onChange={(e) => setProcedure(e.target.value)}
+                  aria-invalid={!!errors.procedure}
+                  aria-describedby={errId('procedure')}
+                  className={fieldClass(!!errors.procedure, 'py-2')}
+                />
+                <FieldError id={errId('procedure')} error={errors.procedure} />
               </div>
             </div>
 
-            {/* Responsible & Procedure */}
-            <div>
-              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Responsable Asignado</label>
-              <input
-                type="text"
-                list="sanitary-responsible-roles"
-                placeholder="Ej: Veterinario"
-                value={responsible}
-                onChange={(e) => setResponsible(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:bg-white focus:border-emerald-500 outline-none"
-              />
-              <datalist id="sanitary-responsible-roles">
-                {RESPONSIBLE_ROLES.map((r) => (
-                  <option key={r} value={r} />
-                ))}
-              </datalist>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
-                Procedimiento Veterinario Detallado *
-              </label>
-              <textarea
-                required
-                rows={3}
-                placeholder="Describa el protocolo paso a paso: aguja a utilizar, medidas de asepsia, precauciones y observaciones post-tratamiento..."
-                value={procedure}
-                onChange={(e) => setProcedure(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 focus:bg-white focus:border-emerald-500 outline-none"
-              />
-            </div>
-
-            {/* Submit Actions */}
-            <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-slate-600 hover:text-slate-800 font-semibold"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-bold flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>{isSaving ? 'Guardando...' : 'Guardar y Mostrar en Calendario'}</span>
-              </button>
+            {/* Pie fijo */}
+            <div className="shrink-0 border-t border-slate-200 bg-white p-3 space-y-2">
+              <ErrorBox error={errorMsg || null} />
+              <div className="grid grid-cols-[auto_1fr] gap-2">
+                <Btn variant="secondary" size="lg" onClick={requestClose}>
+                  Cancelar
+                </Btn>
+                <Btn type="submit" rubro="porcino" size="lg" block disabled={isSaving} icon={<Plus />}>
+                  {isSaving ? 'Guardando…' : 'Guardar actividad'}
+                </Btn>
+              </div>
             </div>
           </form>
         )}
+        {confirmDialog}
       </div>
-    </div>
+    </Overlay>
   );
 };

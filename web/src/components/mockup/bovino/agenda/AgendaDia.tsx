@@ -3,12 +3,13 @@
  * dominio (palpar, secar, PEV, partos, retiros, pesajes, destetes, calostro, caídas,
  * tareas, stock y vencimientos). Mañana / Semana suman las tareas programadas.
  */
-import React, { useMemo, useState } from 'react';
-import { CalendarCheck, Plus, Share2, Zap } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { CalendarCheck, Plus, Scale, Share2, Zap } from 'lucide-react';
 import type { BovinoAgendaItem } from '../../../../models/bovinoCalc';
 import { isBovinoTask } from '../../../../models/bovinoCalc';
 import { addDays } from '../../../../utils/dates';
 import { useBovino } from '../context';
+import { useScreenKey, useViewState } from '../viewState';
 import { EmptyBlock, FOCUS_B, Screen, SecondaryBtn, fdw } from '../ui';
 import { AGENDA_GROUPS, AgendaItemRow } from './AgendaItemRow';
 
@@ -16,7 +17,8 @@ type Day = 'vencidas' | 'hoy' | 'manana' | 'semana';
 
 export const AgendaDia: React.FC = () => {
   const { agenda, tasks, today, perms, navigate, openSheet, actions } = useBovino();
-  const [day, setDay] = useState<Day>('hoy');
+  // Si hay tareas vencidas se abre en "Vencidas" (lo más urgente); al volver se recuerda la pestaña.
+  const [day, setDay] = useViewState<Day>(`${useScreenKey()}day`, () => (agenda.some((a) => a.overdue) ? 'vencidas' : 'hoy'));
   const tomorrow = addDays(today, 1);
 
   const futureTasks: BovinoAgendaItem[] = useMemo(
@@ -85,14 +87,14 @@ export const AgendaDia: React.FC = () => {
             role="tab"
             aria-selected={day === t.id}
             onClick={() => setDay(t.id)}
-            className={`h-12 rounded-xl border-2 text-xs font-bold px-1 ${day === t.id ? 'bg-sky-600 border-sky-600 text-white' : t.id === 'vencidas' && lists.vencidas.length ? 'bg-rose-50 border-rose-300 text-rose-900' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}
+            className={`h-12 rounded-xl border-2 text-xs font-bold px-1 ${day === t.id ? 'bg-sky-700 border-sky-700 text-white' : t.id === 'vencidas' && lists.vencidas.length ? 'bg-rose-50 border-rose-300 text-rose-900' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}
           >
             {t.label}
           </button>
         ))}
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => navigate({ s: 'manga', agenda: true }, 'hato')} className={`h-12 rounded-2xl bg-slate-900 text-white font-bold text-sm flex items-center justify-center gap-2 ${FOCUS_B}`}>
+        <button type="button" onClick={() => navigate({ s: 'manga', agenda: true })} className={`h-12 rounded-2xl bg-slate-900 text-white font-bold text-sm flex items-center justify-center gap-2 ${FOCUS_B}`}>
           <Zap className="w-5 h-5 text-sky-300" /> Llevar a la manga
         </button>
         <SecondaryBtn onClick={share} disabled={!items.length}>
@@ -107,16 +109,29 @@ export const AgendaDia: React.FC = () => {
       {items.length === 0 ? (
         <EmptyBlock icon={<CalendarCheck className="w-8 h-8" />} title={day === 'vencidas' ? 'Nada vencido' : day === 'hoy' ? 'Nada pendiente para hoy' : 'Nada programado'} text="Las palpaciones, secados, partos y tratamientos aparecerán aquí." />
       ) : (
-        groups.map((g) => (
-          <section key={g.kind} className="space-y-2">
-            <p className="text-base font-black text-slate-900 flex items-center gap-2">
-              <g.Icon className="w-5 h-5 text-sky-700" /> {g.label} ({g.items.length})
-            </p>
-            {g.items.map((a) => (
-              <AgendaItemRow key={a.id} item={a} />
-            ))}
-          </section>
-        ))
+        groups.map((g) => {
+          // Pesajes atrasados: pesar todo el grupo de una vez (lista arete tras arete)
+          const toWeigh = g.kind === 'pesaje_atrasado' && perms.cargaDiaria ? Array.from(new Set<string>(g.items.map((i) => i.animalId).filter((x): x is string => !!x))) : [];
+          return (
+            <section key={g.kind} className="space-y-2">
+              <p className="text-base font-black text-slate-900 flex items-center gap-2">
+                <g.Icon className="w-5 h-5 text-sky-700" /> {g.label} ({g.items.length})
+              </p>
+              {toWeigh.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => navigate({ s: 'ceba', pesar: true, animalIds: toWeigh })}
+                  className={`w-full h-14 rounded-2xl bg-sky-700 text-white font-bold text-base flex items-center justify-center gap-2 ${FOCUS_B}`}
+                >
+                  <Scale className="w-5 h-5" /> Pesar los {toWeigh.length}
+                </button>
+              )}
+              {g.items.map((a) => (
+                <AgendaItemRow key={a.id} item={a} />
+              ))}
+            </section>
+          );
+        })
       )}
     </Screen>
   );

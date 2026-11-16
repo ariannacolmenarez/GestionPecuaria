@@ -68,7 +68,7 @@ export const EntradasSalidas: React.FC = () => {
             const isIn = r.kind === 'compra' || r.kind === 'nacimiento' || r.kind === 'traslado';
             return (
               <li key={r.id}>
-                <button type="button" onClick={() => navigate({ s: 'animal', id: r.animalId }, 'hato')} className={`w-full min-h-16 p-3 rounded-2xl bg-white border-2 border-slate-200 flex items-center gap-3 text-left ${FOCUS_B}`}>
+                <button type="button" onClick={() => navigate({ s: 'animal', id: r.animalId })} className={`w-full min-h-16 p-3 rounded-2xl bg-white border-2 border-slate-200 flex items-center gap-3 text-left ${FOCUS_B}`}>
                   <span className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isIn ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-800'}`}>{isIn ? <LogIn className="w-5 h-5" /> : <LogOut className="w-5 h-5" />}</span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-base font-black text-slate-900">#{r.tag}</span>

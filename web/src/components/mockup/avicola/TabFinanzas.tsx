@@ -12,14 +12,13 @@ import {
   Pill,
   Plus,
   Receipt,
-  SlidersHorizontal,
   Syringe,
   Trash2,
   UtensilsCrossed,
   Wheat,
 } from 'lucide-react';
 import type { AvicolaExpense, AvicolaExpenseCategory, AvicolaExpenseUnit, AvicolaIncome, AvicolaLot, AvicolaProduct, AvicolaStage, AvicolaWeightUnit } from '../../../models/FarmModel';
-import { isLotActive, lotBirds, lotFinancials, lotStage, suggestedIncomeTotal } from '../../../models/avicolaDomain';
+import { isLotActive, lotFinancials, lotStage, suggestedIncomeTotal } from '../../../models/avicolaDomain';
 import { AVICOLA_EXPENSE_CATEGORIES, AVICOLA_EXPENSE_UNITS, AVICOLA_PRODUCTS, AVICOLA_STAGES } from '../../../models/avicolaReference';
 import { useAvicola } from './context';
 import {
@@ -74,7 +73,6 @@ const PLACEHOLDER: Record<string, string> = {
 export const TabGastos: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
   const { data } = useAvicola();
   const [cat, setCat] = useState<string>('');
-  const [showFilter, setShowFilter] = useState(false);
   const [form, setForm] = useState<{ expense?: AvicolaExpense } | null>(null);
   const fin = useMemo(() => lotFinancials(data, lot.id), [data, lot.id]);
   const expenses = useMemo(
@@ -89,7 +87,7 @@ export const TabGastos: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
   return (
     <div className="space-y-3">
       <div className={`${CARD} p-4`}>
-        <p className="text-xs text-slate-500">Total gastado</p>
+        <p className="text-xs text-slate-600">Total gastado</p>
         <p className="text-3xl font-black tabular-nums text-slate-900">{usd(fin.expensesTotal)}</p>
         {byCat.length >= 2 && (
           <div className="mt-2">
@@ -98,7 +96,7 @@ export const TabGastos: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
                 <div key={c} className={CAT_BAR[i % CAT_BAR.length]} style={{ width: `${(v / fin.expensesTotal) * 100}%` }} />
               ))}
             </div>
-            <p className="text-[10px] text-slate-500 mt-1">
+            <p className="text-xs text-slate-600 mt-1">
               {byCat
                 .slice(0, 3)
                 .map(([c, v]) => `${c} ${Math.round((v / fin.expensesTotal) * 100)}%`)
@@ -109,32 +107,35 @@ export const TabGastos: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
         <div className="grid grid-cols-3 divide-x divide-slate-200 mt-3 pt-3 border-t border-slate-100 text-center">
           <div>
             <p className="text-lg font-black tabular-nums">{fin.expensesCount}</p>
-            <p className="text-[10px] text-slate-500">Registros</p>
+            <p className="text-xs text-slate-600">Registros</p>
           </div>
           <div>
             <p className="text-lg font-black tabular-nums">{fin.costPerBird ? usd(fin.costPerBird) : '—'}</p>
-            <p className="text-[10px] text-slate-500">Costo por pollo</p>
+            <p className="text-xs text-slate-600">Costo por pollo</p>
           </div>
           <div>
             <p className="text-lg font-black tabular-nums">{fin.feedKg ? `${num(fin.feedKg, 1)} kg` : '—'}</p>
-            <p className="text-[10px] text-slate-500">Alimento</p>
+            <p className="text-xs text-slate-600">Alimento</p>
           </div>
         </div>
       </div>
 
-      <button onClick={() => setShowFilter((s) => !s)} className={`h-10 px-3 text-sm font-semibold text-slate-700 flex items-center gap-1.5 rounded-xl ${FOCUS}`}>
-        <SlidersHorizontal className="w-4 h-4" /> Filtrar {cat && <span className="text-rose-600">· {cat}</span>}
-      </button>
-      {showFilter && (
-        <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1">
-          {['', ...AVICOLA_EXPENSE_CATEGORIES].map((c) => {
-            const n = c ? data.expenses.filter((e) => e.loteId === lot.id && e.category === c).length : fin.expensesCount;
-            return (
-              <button key={c || 'all'} onClick={() => setCat(c)} className={`h-10 px-4 rounded-full border text-sm font-semibold shrink-0 ${cat === c ? 'bg-rose-600 text-white border-rose-600' : 'bg-white border-slate-200 text-slate-700'} ${FOCUS}`}>
+      {/* Filtro siempre visible; solo con las categorías que tienen gastos (si hay más de una) */}
+      {(byCat.length >= 2 || cat) && (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar gastos por categoría">
+          {['', ...AVICOLA_EXPENSE_CATEGORIES]
+            .map((c) => [c, c ? data.expenses.filter((e) => e.loteId === lot.id && e.category === c).length : fin.expensesCount] as const)
+            .filter(([c, n]) => !c || n > 0 || c === cat)
+            .map(([c, n]) => (
+              <button
+                key={c || 'all'}
+                onClick={() => setCat(c)}
+                aria-pressed={cat === c}
+                className={`h-11 px-4 rounded-full border text-sm font-semibold shrink-0 ${cat === c ? 'bg-rose-700 text-white border-rose-700' : 'bg-white border-slate-300 text-slate-800'} ${FOCUS}`}
+              >
                 {c || 'Todas'} <span className="tabular-nums">{n}</span>
               </button>
-            );
-          })}
+            ))}
         </div>
       )}
 
@@ -143,20 +144,20 @@ export const TabGastos: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
       ) : (
         expenses.map((e) => (
           <button key={e.id} onClick={() => setForm({ expense: e })} className={`w-full text-left ${CARD} p-3.5 flex gap-3 ${FOCUS}`}>
-            <span className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">{CATEGORY_ICON[e.category] || CATEGORY_ICON.Otros}</span>
+            <span className="w-10 h-10 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center shrink-0">{CATEGORY_ICON[e.category] || CATEGORY_ICON.Otros}</span>
             <span className="min-w-0 flex-1">
               <span className="block font-bold text-sm text-slate-900 truncate">{e.product || e.category}</span>
-              <span className="block text-[11px] text-slate-500">
+              <span className="block text-xs text-slate-600">
                 {num(e.quantity, 2)} {UNIT_SHORT[e.unit] || e.unit} × {usd(e.unitPrice)} · {shortDate(e.date)}
               </span>
               <span className="flex gap-1 mt-1 flex-wrap">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{e.category}</span>
-                {e.stage && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STAGE_STYLES[e.stage].chip}`}>{e.stage}</span>}
-                {e.taskId && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">Desde actividad</span>}
-                {e.warehouseItemId && !e.taskId && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">Desde bodega</span>}
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{e.category}</span>
+                {e.stage && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STAGE_STYLES[e.stage].chip}`}>{e.stage}</span>}
+                {e.taskId && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">Desde actividad</span>}
+                {e.warehouseItemId && !e.taskId && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">Desde bodega</span>}
               </span>
             </span>
-            <span className="font-black text-rose-600 tabular-nums shrink-0">{usd(e.total)}</span>
+            <span className="font-black text-rose-700 tabular-nums shrink-0">{usd(e.total)}</span>
           </button>
         ))
       )}
@@ -184,6 +185,8 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
   const [notes, setNotes] = useState(expense?.notes || '');
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [bad, setBad] = useState<'qty' | 'total' | null>(null);
 
   const isFeed = category === 'Alimento';
   const units = AVICOLA_EXPENSE_UNITS.filter((u) => (isFeed ? u.key !== 'unidad' : ['unidad', 'kg', 'lb', 'g'].includes(u.key)));
@@ -199,8 +202,16 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
 
   const save = (again: boolean) => {
     setError(null);
-    if (!(parseNum(qty) > 0)) return setError('La cantidad debe ser mayor a 0.');
-    if (!(totalNum > 0)) return setError('El total del gasto debe ser mayor a 0.');
+    setBad(null);
+    setAttempt((n) => n + 1);
+    if (!(parseNum(qty) > 0)) {
+      setBad('qty');
+      return setError('La cantidad debe ser mayor a 0.');
+    }
+    if (!(totalNum > 0)) {
+      setBad('total');
+      return setError('El total del gasto debe ser mayor a 0.');
+    }
     const input = {
       category,
       product: product.trim() || category,
@@ -237,10 +248,13 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
         price !== (expense ? String(expense.unitPrice) : '') ||
         notes !== (expense?.notes || '')
       }
+      error={error}
+      errorKey={attempt}
       header={
         <ChipGroup
           onColor
           tone="rose"
+          ariaLabel="Categoría del gasto"
           value={category}
           onChange={(c) => !readOnly && changeCategory(c)}
           options={AVICOLA_EXPENSE_CATEGORIES.map((c) => ({ key: c, label: c, icon: CATEGORY_ICON[c] }))}
@@ -253,7 +267,7 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
           <TotalFooter label="Total del gasto" total={totalNum > 0 ? totalNum : 0}>
             <div className={editing ? 'grid grid-cols-[auto_1fr] gap-3' : 'grid grid-cols-2 gap-3'}>
               {editing ? (
-                <button onClick={() => setConfirmDelete(true)} aria-label="Eliminar gasto" className={`h-12 w-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center ${FOCUS}`}>
+                <button onClick={() => setConfirmDelete(true)} aria-label="Eliminar gasto" className={`h-12 w-12 rounded-2xl bg-rose-50 border border-rose-300 text-rose-700 flex items-center justify-center ${FOCUS}`}>
                   <Trash2 className="w-5 h-5" />
                 </button>
               ) : (
@@ -269,22 +283,21 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
         )
       }
     >
-      <ErrorBox error={error} />
       <fieldset disabled={readOnly} className="space-y-5 disabled:opacity-70">
         <section className="space-y-2">
           <SectionLabel index={1} label="Producto" />
           <TextInput ariaLabel="Producto" value={product} onChange={setProduct} placeholder={PLACEHOLDER[category]} maxLength={80} />
           {isFeed && (
             <>
-              <p className="text-sm font-semibold text-slate-800 pt-1">Etapa</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="pt-1"><SectionLabel label="Etapa del alimento" /></div>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Etapa del alimento">
                 {AVICOLA_STAGES.map((s) => (
                   <button
                     key={s}
                     type="button"
                     onClick={() => setStage(s)}
                     aria-pressed={stage === s}
-                    className={`h-10 px-4 rounded-full border text-sm font-semibold ${stage === s ? `${STAGE_STYLES[s].chip} border-transparent ring-2 ring-offset-1 ring-slate-900` : 'bg-white border-slate-200 text-slate-700'} ${FOCUS}`}
+                    className={`h-11 px-4 rounded-full border text-sm font-semibold ${stage === s ? `${STAGE_STYLES[s].chip} border-transparent ring-2 ring-offset-1 ring-slate-900` : 'bg-white border-slate-300 text-slate-800'} ${FOCUS}`}
                   >
                     {s}
                   </button>
@@ -295,10 +308,10 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
         </section>
         <section className="space-y-2">
           <SectionLabel index={2} label="Cantidad y precio" />
-          <ChipGroup tone="rose" value={unit} onChange={setUnit} options={units.map((u) => ({ key: u.key, label: u.label }))} />
+          <ChipGroup tone="rose" ariaLabel="Unidad" value={unit} onChange={setUnit} options={units.map((u) => ({ key: u.key, label: u.label }))} />
           <div>
             <FieldRow label="Cantidad" htmlFor="g-qty">
-              <NumberInput id="g-qty" value={qty} onChange={setQty} decimal />
+              <NumberInput id="g-qty" value={qty} onChange={setQty} decimal invalid={bad === 'qty'} />
             </FieldRow>
             <FieldRow label={priceLabel} htmlFor="g-price">
               <NumberInput id="g-price" value={price} onChange={setPrice} decimal />
@@ -306,15 +319,7 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
             <FieldRow
               label="Total del gasto"
               htmlFor="g-total"
-              hint={
-                totalEdited ? (
-                  <button type="button" onClick={() => setTotalEdited(false)} className="text-rose-700 font-bold">
-                    Recalcular ({usd(suggested)})
-                  </button>
-                ) : (
-                  'Cantidad × precio. Puedes cambiarlo.'
-                )
-              }
+              hint={totalEdited ? 'Lo cambiaste a mano.' : 'Cantidad × precio. Puedes cambiarlo.'}
             >
               <NumberInput
                 id="g-total"
@@ -324,9 +329,15 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
                   setTotalEdited(true);
                 }}
                 decimal
+                invalid={bad === 'total'}
                 className="w-32 bg-rose-50 text-rose-900"
               />
             </FieldRow>
+            {totalEdited && (
+              <button type="button" onClick={() => setTotalEdited(false)} className={`h-11 px-4 my-1 rounded-xl border border-rose-300 bg-rose-50 text-rose-800 text-sm font-bold ${FOCUS}`}>
+                Recalcular: {usd(suggested)}
+              </button>
+            )}
           </div>
         </section>
         <section className="space-y-2">
@@ -334,7 +345,12 @@ const GastoFormSheet: React.FC<{ lot: AvicolaLot; expense?: AvicolaExpense; onCl
           <FieldRow label="Fecha" hint={date < lot.startDate ? 'Anterior al inicio del lote' : undefined}>
             <DatePill value={date} onChange={setDate} max={today} />
           </FieldRow>
-          <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 text-slate-900 p-3 text-sm ${FOCUS}`} />
+          <div className="space-y-1">
+            <label htmlFor="g-notes" className="text-sm font-semibold text-slate-900">
+              Notas (opcional)
+            </label>
+            <textarea id="g-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={`w-full rounded-xl bg-slate-50 border border-slate-300 text-slate-900 p-3 text-base ${FOCUS}`} />
+          </div>
         </section>
       </fieldset>
       {confirmDelete && expense && (
@@ -368,7 +384,6 @@ const PRODUCT_ICON: Record<AvicolaProduct, React.ReactNode> = {
 export const TabIngresos: React.FC<{ lot: AvicolaLot; onGoToSales: () => void }> = ({ lot, onGoToSales }) => {
   const { data, actions } = useAvicola();
   const [filter, setFilter] = useState<'todos' | 'ventas' | 'otros'>('todos');
-  const [showFilter, setShowFilter] = useState(false);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<AvicolaIncome | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -385,30 +400,33 @@ export const TabIngresos: React.FC<{ lot: AvicolaLot; onGoToSales: () => void }>
   return (
     <div className="space-y-3">
       <div className={`${CARD} p-4`}>
-        <p className="text-xs text-slate-500">Total ingresos</p>
-        <p className="text-3xl font-black tabular-nums text-emerald-600">{usd(fin.incomesTotal)}</p>
+        <p className="text-xs text-slate-600">Total ingresos</p>
+        <p className="text-3xl font-black tabular-nums text-emerald-700">{usd(fin.incomesTotal)}</p>
         <div className="grid grid-cols-3 divide-x divide-slate-200 mt-3 pt-3 border-t border-slate-100 text-center">
           <div>
             <p className="text-base font-black tabular-nums">{usd(fin.incomesFromSales)}</p>
-            <p className="text-[10px] text-slate-500">De ventas</p>
+            <p className="text-xs text-slate-600">De ventas</p>
           </div>
           <div>
             <p className="text-base font-black tabular-nums">{usd(fin.incomesOther)}</p>
-            <p className="text-[10px] text-slate-500">Otros</p>
+            <p className="text-xs text-slate-600">Otros</p>
           </div>
           <div>
-            <p className={`text-base font-black tabular-nums ${fin.isProfit ? 'text-emerald-600' : 'text-rose-600'}`}>{usd(fin.balance)}</p>
-            <p className="text-[10px] text-slate-500">Balance del lote</p>
+            <p className={`text-base font-black tabular-nums ${fin.isProfit ? 'text-emerald-700' : 'text-rose-700'}`}>{usd(fin.balance)}</p>
+            <p className="text-xs text-slate-600">Balance del lote</p>
           </div>
         </div>
       </div>
-      <button onClick={() => setShowFilter((s) => !s)} className={`h-10 px-3 text-sm font-semibold text-slate-700 flex items-center gap-1.5 rounded-xl ${FOCUS}`}>
-        <SlidersHorizontal className="w-4 h-4" /> Filtrar
-      </button>
-      {showFilter && (
-        <div className="flex gap-2">
+      {/* Filtro siempre visible (sin botón "Filtrar" escondido) */}
+      {(fin.incomesTotal > 0 || filter !== 'todos') && (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar ingresos">
           {(['todos', 'ventas', 'otros'] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={`h-10 px-4 rounded-full border text-sm font-semibold ${filter === f ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-slate-200 text-slate-700'} ${FOCUS}`}>
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              aria-pressed={filter === f}
+              className={`h-11 px-4 rounded-full border text-sm font-semibold ${filter === f ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white border-slate-300 text-slate-800'} ${FOCUS}`}
+            >
               {f === 'todos' ? 'Todos' : f === 'ventas' ? 'De ventas' : 'Otros'}
             </button>
           ))}
@@ -420,26 +438,26 @@ export const TabIngresos: React.FC<{ lot: AvicolaLot; onGoToSales: () => void }>
       ) : (
         incomes.map((i) => (
           <div key={i.id} className={`${CARD} p-3.5 flex gap-3 items-center`}>
-            <span className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">{PRODUCT_ICON[i.type] || PRODUCT_ICON.otros}</span>
-            <button onClick={i.saleId ? onGoToSales : undefined} className="min-w-0 flex-1 text-left">
+            <span className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">{PRODUCT_ICON[i.type] || PRODUCT_ICON.otros}</span>
+            <button onClick={i.saleId ? onGoToSales : undefined} className={`min-w-0 flex-1 min-h-11 text-left rounded-lg ${FOCUS}`}>
               <span className="block font-bold text-sm text-slate-900 truncate">{i.saleId ? `Cobro de venta · ${saleName(i.saleId) || 'cliente'}` : i.detail || AVICOLA_PRODUCTS.find((p) => p.key === i.type)?.label}</span>
               <span className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                {i.saleId && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">Automático</span>}
-                {i.birds > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{i.birds} pollos</span>}
-                <span className="text-[11px] text-slate-500">{shortDate(i.date)}</span>
+                {i.saleId && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">Automático</span>}
+                {i.birds > 0 && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{i.birds} pollos</span>}
+                <span className="text-xs text-slate-600">{shortDate(i.date)}</span>
               </span>
             </button>
-            <span className="font-black text-emerald-600 tabular-nums shrink-0">{usd(i.total)}</span>
+            <span className="font-black text-emerald-700 tabular-nums shrink-0">{usd(i.total)}</span>
             {!i.saleId && (
-              <button aria-label="Eliminar ingreso" onClick={() => setDeleting(i)} className={`w-10 h-10 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center shrink-0 ${FOCUS}`}>
-                <Trash2 className="w-4 h-4" />
+              <button aria-label="Eliminar ingreso" onClick={() => setDeleting(i)} className={`w-11 h-11 rounded-lg text-slate-600 hover:text-rose-700 hover:bg-rose-50 flex items-center justify-center shrink-0 ${FOCUS}`}>
+                <Trash2 className="w-5 h-5" />
               </button>
             )}
           </div>
         ))
       )}
       {isLotActive(lot) && <FabButton label="Nuevo ingreso" onClick={() => setAdding(true)} />}
-      {adding && <IngresoFormSheet lot={lot} onClose={() => setAdding(false)} />}
+      {adding && <IngresoFormSheet lot={lot} onClose={() => setAdding(false)} onGoToSales={onGoToSales} />}
       {deleting && (
         <ConfirmDialog
           title="¿Eliminar ingreso?"
@@ -458,12 +476,17 @@ export const TabIngresos: React.FC<{ lot: AvicolaLot; onGoToSales: () => void }>
   );
 };
 
-const IngresoFormSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ lot, onClose }) => {
-  const { actions, today, data } = useAvicola();
-  const available = useMemo(() => lotBirds(data, lot.id).available, [data, lot.id]);
-  const [type, setType] = useState<AvicolaProduct>('pollo');
+/**
+ * Otros ingresos (menudencia, gallinaza, etc.). Vender pollos se hace SOLO en Ventas:
+ * aquí ya no se ofrece el tipo "Pollo" con cantidad (era una segunda forma de vender).
+ * Los ingresos antiguos de tipo pollo se siguen mostrando en la lista.
+ */
+const INCOME_TYPES = AVICOLA_PRODUCTS.filter((p) => p.key !== 'pollo');
+
+const IngresoFormSheet: React.FC<{ lot: AvicolaLot; onClose: () => void; onGoToSales: () => void }> = ({ lot, onClose, onGoToSales }) => {
+  const { actions, today } = useAvicola();
+  const [type, setType] = useState<AvicolaProduct>(INCOME_TYPES[0]?.key || 'otros');
   const [detail, setDetail] = useState('');
-  const [birds, setBirds] = useState('');
   const [unit, setUnit] = useState<AvicolaWeightUnit>('lb');
   const [weight, setWeight] = useState('');
   const [price, setPrice] = useState('');
@@ -471,20 +494,19 @@ const IngresoFormSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ 
   const [totalEdited, setTotalEdited] = useState(false);
   const [date, setDate] = useState(today);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const suggested = suggestedIncomeTotal({ unitPrice: parseNum(price) || 0, weight: parseNum(weight) || 0 });
   const totalNum = totalEdited ? parseNum(total) : suggested;
-  const nb = parseNum(birds) || 0;
   const unitWord = unit === 'g' ? 'gramo' : unit === 'kg' ? 'kilo' : 'libra';
 
   const save = () => {
     setError(null);
+    setAttempt((n) => n + 1);
     if (!(totalNum > 0)) return setError('El total del ingreso debe ser mayor a 0.');
-    if (nb > available) return setError(`Solo hay ${available} pollos disponibles.`);
     const r = actions.registerIncome({
       loteId: lot.id,
       type,
       detail: detail.trim() || undefined,
-      birds: nb || undefined,
       unit,
       weight: parseNum(weight) || undefined,
       unitPrice: parseNum(price) || undefined,
@@ -502,28 +524,41 @@ const IngresoFormSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ 
       subtitle={lot.name}
       question="¿De qué es el ingreso?"
       onClose={onClose}
-      dirty={!!(detail.trim() || birds || weight || price || total)}
-      header={<ChipGroup onColor tone="emerald" value={type} onChange={setType} options={AVICOLA_PRODUCTS.map((p) => ({ key: p.key, label: p.label, icon: PRODUCT_ICON[p.key] }))} />}
+      dirty={!!(detail.trim() || weight || price || total)}
+      error={error}
+      errorKey={attempt}
+      header={<ChipGroup onColor tone="emerald" ariaLabel="Tipo de ingreso" value={type} onChange={setType} options={INCOME_TYPES.map((p) => ({ key: p.key, label: p.label, icon: PRODUCT_ICON[p.key] }))} />}
       footer={
-        <TotalFooter label="Total del ingreso" total={totalNum > 0 ? totalNum : 0} note={nb > 0 ? `${nb} pollos salen del galpón como vendidos.` : undefined}>
+        <TotalFooter label="Total del ingreso" total={totalNum > 0 ? totalNum : 0}>
           <PrimaryButton tone="emerald" onClick={save} className="w-full h-14">
             Guardar ingreso
           </PrimaryButton>
         </TotalFooter>
       }
     >
-      <ErrorBox error={error} />
+      <div className="bg-violet-50 border border-violet-200 rounded-2xl p-3 flex items-center gap-3">
+        <Drumstick className="w-5 h-5 text-violet-800 shrink-0" aria-hidden="true" />
+        <p className="text-sm text-slate-800 flex-1">¿Vendiste pollos? Anótalo en Ventas.</p>
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            onGoToSales();
+          }}
+          className={`h-11 px-4 rounded-xl bg-violet-700 text-white text-sm font-bold shrink-0 ${FOCUS}`}
+        >
+          Ir a Ventas
+        </button>
+      </div>
       <section className="space-y-2">
         <SectionLabel index={1} label="Detalle" />
-        <TextInput ariaLabel="Detalle" value={detail} onChange={setDetail} placeholder="Ej: Venta en la plaza" maxLength={80} />
-        <FieldRow label="Pollos" hint={`Opcional · ${available} disponibles`} htmlFor="i-birds">
-          <NumberInput id="i-birds" value={birds} onChange={setBirds} invalid={nb > available} />
-        </FieldRow>
+        <TextInput ariaLabel="Detalle" value={detail} onChange={setDetail} placeholder="Ej: Gallinaza vendida" maxLength={80} />
       </section>
       <section className="space-y-2">
         <SectionLabel index={2} label="Peso y precio" />
         <ChipGroup
           tone="emerald"
+          ariaLabel="Unidad de peso"
           value={unit}
           onChange={setUnit}
           options={[
@@ -542,15 +577,7 @@ const IngresoFormSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ 
           <FieldRow
             label="Total"
             htmlFor="i-total"
-            hint={
-              totalEdited ? (
-                <button type="button" onClick={() => setTotalEdited(false)} className="text-emerald-700 font-bold">
-                  Recalcular ({usd(suggested)})
-                </button>
-              ) : (
-                'Peso × precio. Puedes cambiarlo.'
-              )
-            }
+            hint={totalEdited ? 'Lo cambiaste a mano.' : 'Peso × precio. Puedes cambiarlo.'}
           >
             <NumberInput
               id="i-total"
@@ -560,9 +587,15 @@ const IngresoFormSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ 
                 setTotalEdited(true);
               }}
               decimal
+              invalid={!!error && !(totalNum > 0)}
               className="w-32 bg-emerald-50 text-emerald-900"
             />
           </FieldRow>
+          {totalEdited && (
+            <button type="button" onClick={() => setTotalEdited(false)} className={`h-11 px-4 my-1 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 text-sm font-bold ${FOCUS}`}>
+              Recalcular: {usd(suggested)}
+            </button>
+          )}
         </div>
       </section>
       <section className="space-y-2">

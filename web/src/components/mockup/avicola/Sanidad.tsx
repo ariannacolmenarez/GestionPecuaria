@@ -5,6 +5,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   Bell,
   BriefcaseMedical,
   CalendarDays,
@@ -23,6 +24,7 @@ import {
   XCircle,
   Bird,
   ClipboardList,
+  Clock,
   Pencil,
 } from 'lucide-react';
 import type { AvicolaLot, SanitaryTask } from '../../../models/FarmModel';
@@ -99,15 +101,22 @@ const STATUS_CLASS: Record<DisplayStatus, string> = {
 
 /** Etiquetas iguales a las del resto de la app (centro de alertas, calendario porcino). */
 const STATUS_LABEL: Record<DisplayStatus, string> = {
-  completada: '✓ Completada',
-  pendiente: '⏳ Pendiente',
-  vencida: '⚠ Vencida',
+  completada: 'Completada',
+  pendiente: 'Pendiente',
+  vencida: 'Vencida',
   cancelada: 'Cancelada',
+};
+/** Icono de estado (lucide, no emoji: se ve igual en todos los teléfonos). */
+const STATUS_ICON: Record<DisplayStatus, React.ReactNode> = {
+  completada: <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />,
+  pendiente: <Clock className="w-3.5 h-3.5" aria-hidden="true" />,
+  vencida: <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />,
+  cancelada: <XCircle className="w-3.5 h-3.5" aria-hidden="true" />,
 };
 
 export const LotChip: React.FC<{ name: string }> = ({ name }) => (
-  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 max-w-full">
-    <Bird className="w-3 h-3 shrink-0" />
+  <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 max-w-full">
+    <Bird className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
     <span className="truncate">{name}</span>
   </span>
 );
@@ -134,53 +143,59 @@ export const AvicolaTaskCard: React.FC<{
       <div className="flex items-start gap-2.5">
         <span className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0">{KIND_ICON[task.activityKind || 'otro'] || KIND_ICON.otro}</span>
         <div className="min-w-0 flex-1 space-y-1">
-          <p className={`text-sm font-bold leading-snug ${st === 'completada' || st === 'cancelada' ? 'text-slate-500 line-through' : 'text-slate-900'}`}>{cleanTitle(task)}</p>
+          <p className={`text-sm font-bold leading-snug ${st === 'completada' || st === 'cancelada' ? 'text-slate-600 line-through' : 'text-slate-900'}`}>{cleanTitle(task)}</p>
           <div className="flex items-center gap-1.5 flex-wrap">
             <LotChip name={taskLotLabel(task, data.lots)} />
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASS[st]}`}>{STATUS_LABEL[st]}</span>
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{kindLabel(task.activityKind)}</span>
+            <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_CLASS[st]}`}>
+              {STATUS_ICON[st]}
+              {STATUS_LABEL[st]}
+            </span>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{kindLabel(task.activityKind)}</span>
           </div>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-xs text-slate-700">
             {lifeDay && lifeDay >= 1 ? `Día ${lifeDay} de vida · ` : ''}
             {shortDate(task.date)}
           </p>
         </div>
       </div>
       {!compact && (task.medicamentUsed || task.dosage || item) && (
-        <div className="text-[11px] text-slate-600 bg-slate-50 rounded-xl p-2 space-y-0.5">
+        <div className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2 space-y-0.5">
           {task.medicamentUsed && <p><strong>Producto:</strong> {task.medicamentUsed}{task.dosage ? ` · ${task.dosage}` : ''}</p>}
           {item && <p><strong>Insumo:</strong> {task.warehouseQuantity ? `${task.warehouseQuantity} ${item.unit} de ` : ''}{item.name} (quedan {item.quantity} {item.unit})</p>}
         </div>
       )}
-      {!compact && task.procedure && task.procedure !== cleanTitle(task) && <p className="text-[11px] text-slate-600 line-clamp-3">{task.procedure}</p>}
-      {task.status === 'cancelada' && task.cancelReason && <p className="text-[10px] text-slate-500">Cancelada: {task.cancelReason}</p>}
-      <div className="flex gap-2 flex-wrap">
-        {isPending(task) && (
-          <button onClick={onComplete} className={`h-10 px-3 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 flex items-center gap-1 ${FOCUS}`}>
-            <CheckCircle2 className="w-4 h-4" /> Completar
-          </button>
-        )}
-        {task.status === 'completada' && (
-          <button onClick={onReopen} className={`h-10 px-3 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 flex items-center gap-1 ${FOCUS}`}>
-            <RotateCcw className="w-4 h-4" /> Reabrir
-          </button>
-        )}
-        {onGoToLot && (
-          <button onClick={onGoToLot} className={`h-10 px-3 rounded-xl text-xs font-bold bg-amber-50 text-amber-800 flex items-center gap-1 ${FOCUS}`}>
-            Ir al lote <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
-        {onEdit && isPending(task) && (
-          <button onClick={onEdit} className={`h-10 px-3 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 flex items-center gap-1 ${FOCUS}`}>
-            <Pencil className="w-4 h-4" /> Editar
-          </button>
-        )}
-        {onCancel && isPending(task) && (
-          <button onClick={onCancel} className={`h-10 px-3 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 flex items-center gap-1 ml-auto ${FOCUS}`}>
-            <XCircle className="w-4 h-4" /> Cancelar
-          </button>
-        )}
-      </div>
+      {!compact && task.procedure && task.procedure !== cleanTitle(task) && <p className="text-sm text-slate-700 line-clamp-3">{task.procedure}</p>}
+      {task.status === 'cancelada' && task.cancelReason && <p className="text-xs text-slate-600">Cancelada: {task.cancelReason}</p>}
+      {/* Acción principal a todo el ancho; las secundarias debajo */}
+      {isPending(task) && (
+        <button onClick={onComplete} className={`w-full h-12 rounded-xl text-base font-bold bg-emerald-700 text-white hover:bg-emerald-800 flex items-center justify-center gap-1.5 ${FOCUS}`}>
+          <CheckCircle2 className="w-5 h-5" aria-hidden="true" /> Completar
+        </button>
+      )}
+      {(task.status === 'completada' || onGoToLot || (onEdit && isPending(task)) || (onCancel && isPending(task))) && (
+        <div className="flex gap-2 flex-wrap">
+          {task.status === 'completada' && (
+            <button onClick={onReopen} className={`h-11 px-3 rounded-xl text-sm font-bold bg-slate-100 border border-slate-300 text-slate-800 flex items-center gap-1 ${FOCUS}`}>
+              <RotateCcw className="w-4 h-4" aria-hidden="true" /> Reabrir
+            </button>
+          )}
+          {onGoToLot && (
+            <button onClick={onGoToLot} className={`h-11 px-3 rounded-xl text-sm font-bold bg-amber-50 border border-amber-300 text-amber-900 flex items-center gap-1 ${FOCUS}`}>
+              Ir al lote <ChevronRight className="w-4 h-4" aria-hidden="true" />
+            </button>
+          )}
+          {onEdit && isPending(task) && (
+            <button onClick={onEdit} className={`h-11 px-3 rounded-xl text-sm font-bold bg-slate-100 border border-slate-300 text-slate-800 flex items-center gap-1 ${FOCUS}`}>
+              <Pencil className="w-4 h-4" aria-hidden="true" /> Editar
+            </button>
+          )}
+          {onCancel && isPending(task) && (
+            <button onClick={onCancel} className={`h-11 px-3 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-1 ml-auto ${FOCUS}`}>
+              <XCircle className="w-4 h-4" aria-hidden="true" /> Cancelar
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -231,16 +246,20 @@ export const CompleteTaskSheet: React.FC<{ task: SanitaryTask; onClose: () => vo
   const [itemId, setItemId] = useState(task.warehouseItemId || '');
   const [qty, setQty] = useState(task.warehouseQuantity ? String(task.warehouseQuantity) : '');
   const [notes, setNotes] = useState('');
-  const [responsible, setResponsible] = useState('');
+  // El responsable programado es el valor inicial (antes era un placeholder que parecía un valor ya escrito)
+  const [responsible, setResponsible] = useState(task.responsible || '');
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const item = warehouseItems.find((i) => i.id === itemId);
   const items = useMemo(
     () => [...warehouseItems].sort((a, b) => (a.rubro === 'avicola' ? -1 : 0) - (b.rubro === 'avicola' ? -1 : 0)),
     [warehouseItems]
   );
   const alreadyApplied = !!task.stockApplied;
+  const qtyBad = !!error && !!itemId && !alreadyApplied && !(parseNum(qty) > 0);
   const save = () => {
     setError(null);
+    setAttempt((n) => n + 1);
     const q = parseNum(qty);
     if (itemId && !alreadyApplied && (!isFinite(q) || q <= 0)) return setError('Indica la cantidad usada del insumo.');
     const r = actions.completeLotTask({
@@ -259,28 +278,30 @@ export const CompleteTaskSheet: React.FC<{ task: SanitaryTask; onClose: () => vo
       title="Completar actividad"
       subtitle={`${cleanTitle(task)}${lot ? ` · ${lot.name} · ${lotBirds(data, lot.id).inShed} pollos` : ''}`}
       icon={<CheckCircle2 className="w-5 h-5" />}
-      iconClass="bg-emerald-50 text-emerald-600"
+      iconClass="bg-emerald-50 text-emerald-700"
       onClose={onClose}
+      dirty={!!(notes.trim() || responsible !== (task.responsible || '') || itemId !== (task.warehouseItemId || '') || qty !== (task.warehouseQuantity ? String(task.warehouseQuantity) : ''))}
+      error={error}
+      errorKey={attempt}
       footer={
         <PrimaryButton tone="emerald" onClick={save} className="w-full">
           Marcar como realizada
         </PrimaryButton>
       }
     >
-      <ErrorBox error={error} />
       <FieldRow label="Fecha de realización">
         <DatePill value={date} onChange={setDate} max={today} />
       </FieldRow>
       {alreadyApplied ? (
-        <p className="text-[11px] text-slate-600 bg-slate-50 rounded-xl p-2">El insumo de esta actividad ya se descontó antes; no se volverá a descontar.</p>
+        <p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2">El insumo de esta actividad ya se descontó antes; no se volverá a descontar.</p>
       ) : (
         <div className="space-y-2">
           <SectionLabel label="Insumo usado (opcional)" />
           <select
-            aria-label="Insumo del almacén"
+            aria-label="Insumo usado (opcional)"
             value={itemId}
             onChange={(e) => setItemId(e.target.value)}
-            className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 px-3 text-sm ${FOCUS}`}
+            className={`w-full h-12 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 px-3 text-base ${FOCUS}`}
           >
             <option value="">Sin insumo</option>
             {items.map((i) => (
@@ -292,16 +313,21 @@ export const CompleteTaskSheet: React.FC<{ task: SanitaryTask; onClose: () => vo
           </select>
           {item && (
             <FieldRow label={`Cantidad (${item.unit})`} hint={`Quedan ${item.quantity} ${item.unit}`}>
-              <NumberInput value={qty} onChange={setQty} decimal invalid={parseNum(qty) > item.quantity} />
+              <NumberInput id="completar-cantidad" value={qty} onChange={setQty} decimal invalid={qtyBad || parseNum(qty) > item.quantity} />
             </FieldRow>
           )}
-          <p className="text-[10px] text-slate-500">Al completar se descuenta del almacén y se suma a Gastos del lote.</p>
+          <p className="text-xs text-slate-600">Al completar se descuenta del almacén y se suma a Gastos del lote.</p>
         </div>
       )}
-      <FieldRow label="Responsable">
-        <input value={responsible} onChange={(e) => setResponsible(e.target.value)} placeholder={task.responsible} className={`w-44 h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 px-3 text-sm ${FOCUS}`} />
+      <FieldRow label="Responsable (opcional)">
+        <input value={responsible} onChange={(e) => setResponsible(e.target.value)} className={`w-44 h-11 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 px-3 text-base ${FOCUS}`} />
       </FieldRow>
-      <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 text-slate-900 p-3 text-sm ${FOCUS}`} />
+      <div className="space-y-1">
+        <label htmlFor="completar-notas" className="text-sm font-semibold text-slate-900">
+          Notas (opcional)
+        </label>
+        <textarea id="completar-notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={`w-full rounded-xl bg-slate-50 border border-slate-300 text-slate-900 p-3 text-base ${FOCUS}`} />
+      </div>
     </BottomSheet>
   );
 };
@@ -310,7 +336,6 @@ export const CompleteTaskSheet: React.FC<{ task: SanitaryTask; onClose: () => vo
 // Calendario mensual
 // ---------------------------------------------------------------------------
 const WEEK = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-const LOT_DOTS = ['bg-amber-500', 'bg-sky-500', 'bg-violet-500', 'bg-emerald-500'];
 
 export const MonthCalendar: React.FC<{
   tasks: SanitaryTask[];
@@ -319,8 +344,7 @@ export const MonthCalendar: React.FC<{
   lot?: AvicolaLot;
   selected: string;
   onSelect: (d: string) => void;
-  lotColors?: Record<string, string>;
-}> = ({ tasks, lots, loteId, lot, selected, onSelect, lotColors }) => {
+}> = ({ tasks, lots, loteId, lot, selected, onSelect }) => {
   const { today } = useAvicola();
   const sel = parseISODate(selected) || new Date();
   const [ym, setYm] = useState({ y: sel.getFullYear(), m: sel.getMonth() + 1 });
@@ -333,19 +357,19 @@ export const MonthCalendar: React.FC<{
   return (
     <div className={`${CARD} p-3`}>
       <div className="flex items-center justify-between mb-2">
-        <button aria-label="Mes anterior" onClick={() => move(-1)} className={`w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center ${FOCUS}`}>
+        <button aria-label="Mes anterior" onClick={() => move(-1)} className={`w-11 h-11 rounded-full hover:bg-slate-100 text-slate-900 flex items-center justify-center ${FOCUS}`}>
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <span className="font-bold text-sm text-slate-900">
+        <span className="font-bold text-base text-slate-900">
           {MONTH_NAMES_ES[ym.m - 1]} {ym.y}
         </span>
-        <button aria-label="Mes siguiente" onClick={() => move(1)} className={`w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center ${FOCUS}`}>
+        <button aria-label="Mes siguiente" onClick={() => move(1)} className={`w-11 h-11 rounded-full hover:bg-slate-100 text-slate-900 flex items-center justify-center ${FOCUS}`}>
           <ChevronRight className="w-5 h-5" />
         </button>
       </div>
       <div className="grid grid-cols-7 gap-1 text-center">
         {WEEK.map((w) => (
-          <span key={w} className="text-[10px] font-bold text-slate-500">
+          <span key={w} className="text-xs font-bold text-slate-700">
             {w}
           </span>
         ))}
@@ -356,43 +380,45 @@ export const MonthCalendar: React.FC<{
           const isSel = d.date === selected;
           const isToday = d.date === today;
           const lifeDay = lot ? lotDayAt(lot, d.date) : 0;
-          const lotIds = lotColors ? Array.from(new Set<string>(d.tasks.map((x) => x.lotId || ''))) : [];
+          const showLifeDay = !!lot && lifeDay >= 1 && lifeDay <= lot.productionDays + 7;
+          // Contador con el color del estado más urgente (vencida > pendiente > completada) y su número: no depende solo del color
+          const n = d.tasks.length;
+          const badge = d.overdue > 0 ? 'bg-rose-700 text-white' : d.pending > 0 ? 'bg-indigo-700 text-white' : 'bg-emerald-700 text-white';
+          const detail = [
+            d.overdue > 0 ? `${d.overdue} vencidas` : '',
+            d.pending - d.overdue > 0 ? `${d.pending - d.overdue} pendientes` : '',
+            d.completed > 0 ? `${d.completed} completadas` : '',
+          ]
+            .filter(Boolean)
+            .join(', ');
           return (
             <button
               key={d.date}
               onClick={() => onSelect(d.date)}
-              aria-label={`${d.day} de ${MONTH_NAMES_ES[ym.m - 1]}: ${d.tasks.length} actividades`}
-              className={`h-12 pb-2 rounded-xl flex flex-col items-center justify-center text-xs relative ${
-                isSel ? 'bg-indigo-600 text-white font-bold' : isToday ? 'bg-amber-50 text-slate-900 font-bold ring-1 ring-amber-300' : 'text-slate-700 hover:bg-slate-100'
-              } ${d.date === slaughter && !isSel ? 'ring-2 ring-amber-400' : ''} ${FOCUS}`}
+              aria-label={`${d.day} de ${MONTH_NAMES_ES[ym.m - 1]}${showLifeDay ? `, día ${lifeDay} de vida` : ''}: ${n ? `${n} actividades (${detail})` : 'sin actividades'}${d.date === slaughter ? ', día de sacrificio' : ''}`}
+              aria-pressed={isSel}
+              className={`${lot ? 'h-16' : 'h-14'} rounded-xl flex flex-col items-center justify-start pt-1.5 gap-0.5 text-sm relative ${
+                isSel ? 'bg-indigo-700 text-white font-bold' : isToday ? 'bg-amber-50 text-slate-900 font-bold ring-1 ring-amber-400' : 'text-slate-800 hover:bg-slate-100'
+              } ${d.date === slaughter && !isSel ? 'ring-2 ring-amber-500' : ''} ${FOCUS}`}
             >
               <span className="leading-none">{d.day}</span>
-              {lot && lifeDay >= 1 && lifeDay <= lot.productionDays + 7 && (
-                <span className={`text-[9px] leading-none mt-0.5 ${isSel ? 'text-indigo-100' : 'text-slate-500'}`}>D{lifeDay}</span>
-              )}
-              {d.tasks.length > 0 && (
-                <span className="flex gap-0.5 absolute bottom-0.5">
-                  {lotColors
-                    ? lotIds.slice(0, 3).map((id) => <span key={id} className={`w-1.5 h-1.5 rounded-full ${lotColors[id] || 'bg-slate-400'}`} />)
-                    : [
-                        d.overdue > 0 && <span key="o" className="w-1.5 h-1.5 rounded-full bg-rose-500" />,
-                        d.pending - d.overdue > 0 && <span key="p" className={`w-1.5 h-1.5 rounded-full ${isSel ? 'bg-white' : 'bg-indigo-600'}`} />,
-                        d.completed > 0 && <span key="c" className="w-1.5 h-1.5 rounded-full bg-emerald-500" />,
-                      ]}
+              {showLifeDay && <span className={`text-xs leading-none ${isSel ? 'text-white' : 'text-slate-700'}`}>D{lifeDay}</span>}
+              {n > 0 && (
+                <span aria-hidden="true" className={`min-w-5 h-5 px-1 rounded-full text-xs font-bold leading-5 ${isSel ? 'bg-white text-indigo-900' : badge}`}>
+                  {n}
                 </span>
               )}
             </button>
           );
         })}
       </div>
-      {!lotColors && (
-        <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-500 flex-wrap">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500" /> Vencida</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-600" /> Pendiente</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Completada</span>
-          {lot && <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded ring-2 ring-amber-400" /> Sacrificio</span>}
-        </div>
-      )}
+      <div className="flex items-center gap-x-3 gap-y-1 mt-2 text-xs text-slate-700 flex-wrap">
+        <span className="flex items-center gap-1"><span className="min-w-5 h-5 px-1 rounded-full bg-rose-700 text-white text-xs font-bold leading-5 text-center">1</span> Vencida</span>
+        <span className="flex items-center gap-1"><span className="min-w-5 h-5 px-1 rounded-full bg-indigo-700 text-white text-xs font-bold leading-5 text-center">1</span> Pendiente</span>
+        <span className="flex items-center gap-1"><span className="min-w-5 h-5 px-1 rounded-full bg-emerald-700 text-white text-xs font-bold leading-5 text-center">1</span> Hecha</span>
+        {lot && <span className="flex items-center gap-1"><span className="w-3 h-3 rounded ring-2 ring-amber-500" /> Sacrificio</span>}
+      </div>
+      <p className="text-xs text-slate-600 mt-1">El número es la cantidad de actividades del día.{lot ? ' D = día de vida del lote.' : ''}</p>
     </div>
   );
 };
@@ -433,6 +459,8 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
   const [qty, setQty] = useState(task?.warehouseQuantity ? String(task.warehouseQuantity) : '');
   const [responsible, setResponsible] = useState(task?.responsible || '');
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [bad, setBad] = useState<'title' | 'qty' | null>(null);
 
   const effDate = mode === 'dia' ? dateOfLotDay(lot, lifeDay) : date;
   const effDay = mode === 'dia' ? lifeDay : lotDayAt(lot, date);
@@ -442,10 +470,18 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
 
   const save = () => {
     setError(null);
-    if (!title.trim()) return setError('Escribe el título de la actividad.');
+    setBad(null);
+    setAttempt((n) => n + 1);
+    if (!title.trim()) {
+      setBad('title');
+      return setError('Escribe el nombre de la actividad.');
+    }
     if (mode === 'fecha' && date < lot.startDate) return setError('La fecha no puede ser anterior al inicio del lote.');
     const q = parseNum(qty);
-    if (itemId && (!isFinite(q) || q <= 0)) return setError('Indica la cantidad del insumo.');
+    if (itemId && (!isFinite(q) || q <= 0)) {
+      setBad('qty');
+      return setError('Indica la cantidad del insumo.');
+    }
     if (task) {
       const r = actions.updateLotTask({
         taskId: task.id,
@@ -495,10 +531,13 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
         responsible !== (task?.responsible || '') ||
         qty !== (task?.warehouseQuantity ? String(task.warehouseQuantity) : '')
       }
+      error={error}
+      errorKey={attempt}
       header={
         <ChipGroup
           onColor
           tone="indigo"
+          ariaLabel="Tipo de actividad"
           options={AVICOLA_ACTIVITY_KINDS.map((k) => ({ key: k.key, label: k.label, icon: KIND_ICON[k.key] }))}
           value={kind}
           onChange={(k) => {
@@ -509,37 +548,57 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
       }
       footer={
         <div className="space-y-2">
-          {effDate < today && <p className="text-[11px] text-amber-800 bg-amber-50 rounded-lg p-2">La fecha ya pasó: quedará como vencida hasta que la completes.</p>}
+          {effDate < today && <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-2">La fecha ya pasó: quedará como vencida hasta que la completes.</p>}
           <PrimaryButton tone="indigo" onClick={save} className="w-full">
             {editing ? 'Guardar cambios' : effDate === today ? 'Programar para hoy' : 'Programar actividad'}
           </PrimaryButton>
         </div>
       }
     >
-      <ErrorBox error={error} />
       <section className="space-y-2">
         <SectionLabel index={1} label="Detalle" />
-        <TextInput
-          ariaLabel="Título"
-          value={title}
-          onChange={(v) => {
-            setTitle(v);
-            setTouchedTitle(true);
-          }}
-          placeholder="Ej: Vacuna Newcastle"
-          maxLength={80}
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <TextInput ariaLabel="Producto" value={medicament} onChange={setMedicament} placeholder="Producto (opcional)" />
-          <TextInput ariaLabel="Dosis o vía" value={dosage} onChange={setDosage} placeholder="Dosis / vía" />
+        <div className="space-y-1">
+          <label htmlFor="act-titulo" className="text-sm font-semibold text-slate-900">
+            Nombre de la actividad
+          </label>
+          <TextInput
+            id="act-titulo"
+            value={title}
+            onChange={(v) => {
+              setTitle(v);
+              setTouchedTitle(true);
+            }}
+            placeholder="Ej: Vacuna Newcastle"
+            maxLength={80}
+            invalid={bad === 'title'}
+          />
         </div>
-        <textarea aria-label="Indicaciones" value={procedure} onChange={(e) => setProcedure(e.target.value)} rows={2} placeholder="Indicaciones o procedimiento (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 text-slate-900 p-3 text-sm ${FOCUS}`} />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1 min-w-0">
+            <label htmlFor="act-producto" className="text-sm font-semibold text-slate-900">
+              Producto
+            </label>
+            <TextInput id="act-producto" value={medicament} onChange={setMedicament} placeholder="Opcional" />
+          </div>
+          <div className="space-y-1 min-w-0">
+            <label htmlFor="act-dosis" className="text-sm font-semibold text-slate-900">
+              Dosis o vía
+            </label>
+            <TextInput id="act-dosis" value={dosage} onChange={setDosage} placeholder="Opcional" />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="act-indicaciones" className="text-sm font-semibold text-slate-900">
+            Indicaciones (opcional)
+          </label>
+          <textarea id="act-indicaciones" value={procedure} onChange={(e) => setProcedure(e.target.value)} rows={2} className={`w-full rounded-xl bg-slate-50 border border-slate-300 text-slate-900 p-3 text-base ${FOCUS}`} />
+        </div>
       </section>
       <section className="space-y-2">
         <SectionLabel index={2} label="¿Cuándo?" />
-        <div className="bg-slate-200/80 p-1 rounded-xl grid grid-cols-2 gap-1">
+        <div role="radiogroup" aria-label="¿Cuándo?" className="bg-slate-200 p-1 rounded-xl grid grid-cols-2 gap-1">
           {(['dia', 'fecha'] as const).map((m) => (
-            <button key={m} onClick={() => setMode(m)} className={`h-10 rounded-lg text-sm font-semibold ${mode === m ? 'bg-white text-indigo-900 shadow-xs' : 'text-slate-600'} ${FOCUS}`}>
+            <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={`h-12 rounded-lg text-sm font-semibold ${mode === m ? 'bg-white text-indigo-900 shadow-xs font-bold' : 'text-slate-800'} ${FOCUS}`}>
               {m === 'dia' ? 'Por día de vida' : 'Fecha fija'}
             </button>
           ))}
@@ -547,9 +606,9 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
         {mode === 'dia' ? (
           <>
             <FieldRow label="Día de vida" hint={`Día ${lifeDay} → ${shortDate(effDate)}`}>
-              <Stepper value={lifeDay} onChange={setLifeDay} min={1} max={maxDay} tone="indigo" ariaLabel="Día de vida" />
+              <Stepper id="act-dia" value={lifeDay} onChange={setLifeDay} min={1} max={maxDay} tone="indigo" ariaLabel="Día de vida" />
             </FieldRow>
-            <p className="text-[10px] text-slate-500">Si cambias la fecha de inicio del lote, esta tarea se mueve sola.</p>
+            <p className="text-xs text-slate-600">Si cambias la fecha de inicio del lote, esta tarea se mueve sola.</p>
           </>
         ) : (
           <FieldRow label="Fecha" hint={effDay >= 1 ? `Será el día ${effDay} de vida` : 'Antes del inicio del lote'}>
@@ -561,6 +620,7 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
             <SectionLabel label="Repetir" />
             <ChipGroup
               tone="indigo"
+              ariaLabel="Repetir"
               value={repeat}
               onChange={setRepeat}
               options={[
@@ -573,18 +633,18 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
         )}
         {repeat === 'seguidos' && (
           <FieldRow label="¿Cuántos días?">
-            <Stepper value={times} onChange={setTimes} min={2} max={30} tone="indigo" />
+            <Stepper id="act-veces" value={times} onChange={setTimes} min={2} max={30} tone="indigo" />
           </FieldRow>
         )}
         {repeat === 'cada' && (
           <FieldRow label="Cada cuántos días" hint={`${untilSlaughterTimes} veces hasta el sacrificio`}>
-            <Stepper value={every} onChange={setEvery} min={1} max={30} tone="indigo" />
+            <Stepper id="act-cada" value={every} onChange={setEvery} min={1} max={30} tone="indigo" />
           </FieldRow>
         )}
       </section>
       <section className="space-y-2">
         <SectionLabel index={3} label="Insumo (opcional)" />
-        <select aria-label="Insumo del almacén" value={itemId} onChange={(e) => setItemId(e.target.value)} className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 px-3 text-sm ${FOCUS}`}>
+        <select aria-label="Insumo (opcional)" value={itemId} onChange={(e) => setItemId(e.target.value)} className={`w-full h-12 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 px-3 text-base ${FOCUS}`}>
           <option value="">Sin insumo</option>
           {warehouseItems.map((i) => (
             <option key={i.id} value={i.id}>
@@ -594,14 +654,14 @@ export const ActividadSheet: React.FC<{ lot: AvicolaLot; initialDate?: string; t
         </select>
         {item && (
           <FieldRow label={`Cantidad (${item.unit})`} hint={`Quedan ${item.quantity} ${item.unit}`}>
-            <NumberInput value={qty} onChange={setQty} decimal invalid={parseNum(qty) > item.quantity} />
+            <NumberInput id="act-cantidad" value={qty} onChange={setQty} decimal invalid={bad === 'qty' || parseNum(qty) > item.quantity} />
           </FieldRow>
         )}
-        <p className="text-[10px] text-slate-500">Al completar se descuenta del almacén y se suma a Gastos del lote.</p>
+        <p className="text-xs text-slate-600">Al completar se descuenta del almacén y se suma a Gastos del lote.</p>
       </section>
       <section className="space-y-2">
         <SectionLabel index={4} label="Responsable (opcional)" />
-        <TextInput ariaLabel="Responsable" value={responsible} onChange={setResponsible} placeholder="Encargado de galpón" />
+        <TextInput ariaLabel="Responsable (opcional)" value={responsible} onChange={setResponsible} placeholder="Ej: Encargado de galpón" />
       </section>
     </FormSheet>
   );
@@ -616,9 +676,12 @@ export const PlanBaseSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> =
       .filter((p) => !existing.has(p.key))
       .map((p) => ({ key: p.key, enabled: p.defaultEnabled && dateOfLotDay(lot, p.lifeDay) >= today, lifeDay: p.lifeDay, title: p.title, kind: p.kind, procedure: p.procedure, medicament: p.medicament, dosage: p.dosage }))
   );
+  const [initialRows] = useState(rows);
+  const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const apply = () => {
     setError(null);
+    setAttempt((n) => n + 1);
     const chosen = rows.filter((r) => r.enabled && r.title.trim());
     if (chosen.length === 0) return setError('Elige al menos una actividad.');
     const res = actions.addLotTasks({
@@ -629,18 +692,17 @@ export const PlanBaseSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> =
     onClose();
   };
   return (
-    <BottomSheet title="Plan de vacunas y cuidados" subtitle={`${lot.name} · ${existing.size} pasos ya programados`} icon={<Layers className="w-5 h-5" />} iconClass="bg-slate-900 text-amber-300" onClose={onClose} footer={
+    <BottomSheet title="Plan de vacunas y cuidados" subtitle={`${lot.name} · ${existing.size} pasos ya programados`} icon={<Layers className="w-5 h-5" />} iconClass="bg-slate-900 text-amber-300" onClose={onClose} dirty={JSON.stringify(rows) !== JSON.stringify(initialRows)} error={error} errorKey={attempt} footer={
       <PrimaryButton tone="indigo" onClick={apply} className="w-full" disabled={rows.length === 0}>
         Aplicar {rows.filter((r) => r.enabled).length} actividades
       </PrimaryButton>
     }>
-      <ErrorBox error={error} />
       {rows.length === 0 ? (
         <EmptyState icon={<ShieldCheck className="w-7 h-7" />} title="El plan base ya está aplicado" hint="Todas las actividades sugeridas ya están en el calendario del lote." />
       ) : (
         <PlanEditor rows={rows} onChange={setRows} maxDay={lot.productionDays} startDate={lot.startDate} />
       )}
-      <p className="text-[10px] text-slate-500">Guía general. Ajusta los días y productos con tu veterinario según la zona.</p>
+      <p className="text-xs text-slate-600">Guía general. Ajusta los días y productos con tu veterinario según la zona.</p>
     </BottomSheet>
   );
 };
@@ -688,7 +750,7 @@ export const SanidadPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
     <div className="space-y-3">
       {active && (
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => setAdding(null)} className={`h-12 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-1.5 ${FOCUS}`}>
+          <button onClick={() => setAdding(null)} className={`h-12 rounded-2xl bg-indigo-700 text-white font-bold text-sm flex items-center justify-center gap-1.5 ${FOCUS}`}>
             <Plus className="w-4 h-4" /> Programar actividad
           </button>
           <button onClick={() => setPlan(true)} className={`h-12 rounded-2xl bg-slate-900 text-white font-bold text-sm flex items-center justify-center gap-1.5 ${FOCUS}`}>
@@ -700,14 +762,14 @@ export const SanidadPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
       <StatStrip
         items={[
           { label: 'Hoy', value: stats.hoy },
-          { label: 'Vencidas', value: stats.vencidas, tone: stats.vencidas ? 'text-rose-600' : undefined },
+          { label: 'Vencidas', value: stats.vencidas, tone: stats.vencidas ? 'text-rose-700' : undefined },
           { label: 'Próx. 7 días', value: stats.proximas },
-          { label: 'Completadas', value: stats.completadas, tone: 'text-emerald-600' },
+          { label: 'Completadas', value: stats.completadas, tone: 'text-emerald-700' },
         ]}
       />
-      <div className="bg-slate-200/80 p-1 rounded-xl grid grid-cols-2 gap-1" role="tablist">
+      <div className="bg-slate-200 p-1 rounded-xl grid grid-cols-2 gap-1" role="tablist">
         {(['calendario', 'listado'] as const).map((v) => (
-          <button key={v} role="tab" aria-selected={view === v} onClick={() => setView(v)} className={`h-10 rounded-lg text-sm font-semibold ${view === v ? 'bg-white text-indigo-900 shadow-xs' : 'text-slate-600'} ${FOCUS}`}>
+          <button key={v} role="tab" aria-selected={view === v} onClick={() => setView(v)} className={`h-11 rounded-lg text-sm font-semibold ${view === v ? 'bg-white text-indigo-900 shadow-xs font-bold' : 'text-slate-800'} ${FOCUS}`}>
             {v === 'calendario' ? 'Calendario' : 'Listado'}
           </button>
         ))}
@@ -717,7 +779,7 @@ export const SanidadPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
           icon={<BriefcaseMedical className="w-7 h-7" />}
           title="Sin actividades para este lote"
           hint="Programa vacunas, vitaminas o limpiezas, o aplica el plan base."
-          action={active ? <button onClick={() => setPlan(true)} className={`h-10 px-4 rounded-xl bg-slate-900 text-white text-sm font-bold ${FOCUS}`}>Aplicar plan base</button> : undefined}
+          action={active ? <button onClick={() => setPlan(true)} className={`h-11 px-4 rounded-xl bg-slate-900 text-white text-sm font-bold ${FOCUS}`}>Aplicar plan base</button> : undefined}
         />
       ) : view === 'calendario' ? (
         <>
@@ -725,26 +787,26 @@ export const SanidadPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
           <div className="flex items-center justify-between">
             <p className="text-sm font-bold text-slate-900">
               {longDate(selected)}
-              {selDay >= 1 && <span className="text-slate-500 font-normal"> · día {selDay} de vida</span>}
+              {selDay >= 1 && <span className="text-slate-600 font-normal"> · día {selDay} de vida</span>}
             </p>
             {active && (
-              <button onClick={() => setAdding(selected)} aria-label="Programar en esta fecha" className={`w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center ${FOCUS}`}>
+              <button onClick={() => setAdding(selected)} aria-label="Programar en esta fecha" className={`w-11 h-11 rounded-xl bg-indigo-50 border border-indigo-300 text-indigo-800 flex items-center justify-center ${FOCUS}`}>
                 <Plus className="w-5 h-5" />
               </button>
             )}
           </div>
-          {dayTasks.length === 0 ? <p className="text-xs text-slate-500 text-center py-3">No hay actividades este día.</p> : dayTasks.map(card)}
+          {dayTasks.length === 0 ? <p className="text-xs text-slate-600 text-center py-3">No hay actividades este día.</p> : dayTasks.map(card)}
         </>
       ) : (
         <>
-          <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1">
+          <div className="flex flex-wrap gap-2">
             {(['pendientes', 'vencidas', 'completadas', 'todas'] as const).map((f) => (
-              <button key={f} onClick={() => setFilter(f)} className={`h-10 px-4 rounded-full border text-sm font-semibold shrink-0 capitalize ${filter === f ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700'} ${FOCUS}`}>
+              <button key={f} onClick={() => setFilter(f)} aria-pressed={filter === f} className={`h-11 px-4 rounded-full border text-sm font-semibold shrink-0 capitalize ${filter === f ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-300 text-slate-800'} ${FOCUS}`}>
                 {f}
               </button>
             ))}
           </div>
-          {listed.length === 0 ? <p className="text-xs text-slate-500 text-center py-3">No hay actividades con este filtro.</p> : listed.map(card)}
+          {listed.length === 0 ? <p className="text-xs text-slate-600 text-center py-3">No hay actividades con este filtro.</p> : listed.map(card)}
         </>
       )}
       {adding !== undefined && <ActividadSheet lot={lot} initialDate={adding || undefined} onClose={() => setAdding(undefined)} />}
@@ -794,7 +856,7 @@ export const AvicolaAlertsSheet: React.FC<{ onClose: () => void }> = ({ onClose 
           const lot = data.lots.find((l) => l.id === items[0].lotId);
           return (
             <div key={lotName} className="space-y-2">
-              <p className="text-[11px] font-bold uppercase text-amber-800">
+              <p className="text-xs font-bold uppercase text-amber-800">
                 {lotName}
                 {lot ? ` · Día ${lotDayAt(lot, today)}` : ''}
               </p>
@@ -810,7 +872,7 @@ export const AvicolaAlertsSheet: React.FC<{ onClose: () => void }> = ({ onClose 
     <BottomSheet dark title="Alertas de pollos" subtitle={longDate(today)} icon={<Bell className="w-5 h-5" />} iconClass="bg-amber-500/20 text-amber-400" onClose={onClose}>
       <ErrorBox error={ta.error} />
       {home.alertsCount === 0 && readyLots.length === 0 && owing.length === 0 && (
-        <EmptyState icon={<ShieldCheck className="w-7 h-7 text-emerald-500" />} title="Todo al día" hint="No hay actividades pendientes para hoy." />
+        <EmptyState icon={<ShieldCheck className="w-7 h-7 text-emerald-700" />} title="Todo al día" hint="No hay actividades pendientes para hoy." />
       )}
       {section('Vencidas', home.overdueTasks, 'text-rose-700')}
       {section('Hoy', home.todayTasks, 'text-slate-900')}
@@ -818,12 +880,12 @@ export const AvicolaAlertsSheet: React.FC<{ onClose: () => void }> = ({ onClose 
         <section className="space-y-2">
           <h4 className="text-sm font-bold text-slate-900">Avisos</h4>
           {readyLots.map((c) => (
-            <button key={c.lot.id} onClick={() => { onClose(); openLot(c.lot.id, 'ventas'); }} className={`w-full text-left p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 ${FOCUS}`}>
+            <button key={c.lot.id} onClick={() => { onClose(); openLot(c.lot.id, 'ventas'); }} className={`w-full text-left p-3 rounded-2xl bg-amber-50 border border-amber-300 text-sm text-amber-900 ${FOCUS}`}>
               <strong>{c.lot.name}</strong> llegó a su día de sacrificio · {c.birds.available} por vender
             </button>
           ))}
           {owing.map((c) => (
-            <button key={`o${c.lot.id}`} onClick={() => { onClose(); openLot(c.lot.id, 'ventas'); }} className={`w-full text-left p-3 rounded-2xl bg-violet-50 border border-violet-200 text-xs text-violet-900 ${FOCUS}`}>
+            <button key={`o${c.lot.id}`} onClick={() => { onClose(); openLot(c.lot.id, 'ventas'); }} className={`w-full text-left p-3 rounded-2xl bg-violet-50 border border-violet-300 text-sm text-violet-900 ${FOCUS}`}>
               <strong>{c.lot.name}</strong>: ventas por cobrar {usd(c.financials.pending)} ({c.financials.owingCount} {c.financials.owingCount === 1 ? 'venta' : 'ventas'})
             </button>
           ))}
@@ -831,7 +893,7 @@ export const AvicolaAlertsSheet: React.FC<{ onClose: () => void }> = ({ onClose 
       )}
       {upcoming.length > 0 && (
         <section className="space-y-2">
-          <button onClick={() => setShowNext((s) => !s)} className={`h-10 text-sm font-bold text-slate-700 flex items-center gap-1 ${FOCUS}`}>
+          <button onClick={() => setShowNext((s) => !s)} aria-expanded={showNext} className={`h-11 text-sm font-bold text-slate-700 flex items-center gap-1 ${FOCUS}`}>
             Próximos 3 días ({upcoming.length}) <ChevronRight className={`w-4 h-4 transition-transform ${showNext ? 'rotate-90' : ''}`} />
           </button>
           {showNext && upcoming.map((t) => <AvicolaTaskCard key={t.id} task={t} compact onComplete={() => ta.complete(t)} onReopen={() => ta.reopen(t)} onGoToLot={t.loteId ? () => goTo(t.loteId) : undefined} />)}
@@ -853,41 +915,35 @@ export const AvicolaCalendarSheet: React.FC<{ onClose: () => void }> = ({ onClos
   const [addFor, setAddFor] = useState<AvicolaLot | null>(null);
   const [pickLot, setPickLot] = useState(false);
   const activeLots = data.lots.filter(isLotActive);
-  const lotColors = useMemo(() => {
-    const m: Record<string, string> = {};
-    data.lots.forEach((l, i) => (m[l.id] = LOT_DOTS[i % LOT_DOTS.length]));
-    return m;
-  }, [data.lots]);
   const dayTasks = tasks
     .filter((t) => t.targetRubro === 'avicola' && t.date === selected && t.status !== 'cancelada' && (!loteId || t.loteId === loteId));
   return (
     <BottomSheet title="Calendario sanitario" subtitle="Todos los lotes de pollos" icon={<CalendarDays className="w-5 h-5" />} iconClass="bg-indigo-50 text-indigo-700" onClose={onClose}>
-      <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1">
-        <button onClick={() => setLoteId('')} className={`h-10 px-4 rounded-full border text-sm font-semibold shrink-0 ${!loteId ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700'} ${FOCUS}`}>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Ver lote">
+        <button onClick={() => setLoteId('')} aria-pressed={!loteId} className={`h-11 px-4 rounded-full border text-sm font-semibold shrink-0 ${!loteId ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-300 text-slate-800'} ${FOCUS}`}>
           Todos
         </button>
         {data.lots.map((l) => (
-          <button key={l.id} onClick={() => setLoteId(l.id)} className={`h-10 px-4 rounded-full border text-sm font-semibold shrink-0 flex items-center gap-1.5 ${loteId === l.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700'} ${FOCUS}`}>
-            <span className={`w-2 h-2 rounded-full ${lotColors[l.id]}`} />
+          <button key={l.id} onClick={() => setLoteId(l.id)} aria-pressed={loteId === l.id} className={`h-11 px-4 rounded-full border text-sm font-semibold shrink-0 flex items-center gap-1.5 ${loteId === l.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-300 text-slate-800'} ${FOCUS}`}>
             {l.name}
           </button>
         ))}
       </div>
-      <MonthCalendar tasks={tasks} lots={data.lots} loteId={loteId || undefined} lot={loteId ? data.lots.find((l) => l.id === loteId) : undefined} selected={selected} onSelect={setSelected} lotColors={loteId ? undefined : lotColors} />
+      <MonthCalendar tasks={tasks} lots={data.lots} loteId={loteId || undefined} lot={loteId ? data.lots.find((l) => l.id === loteId) : undefined} selected={selected} onSelect={setSelected} />
       <div className="flex items-center justify-between">
         <p className="text-sm font-bold text-slate-900">{longDate(selected)}</p>
         {activeLots.length > 0 && (
-          <button onClick={() => (activeLots.length === 1 ? setAddFor(activeLots[0]) : setPickLot(true))} className={`h-10 px-3 rounded-xl bg-indigo-50 text-indigo-700 text-sm font-bold flex items-center gap-1 ${FOCUS}`}>
+          <button onClick={() => (activeLots.length === 1 ? setAddFor(activeLots[0]) : setPickLot(true))} className={`h-11 px-3 rounded-xl bg-indigo-50 border border-indigo-300 text-indigo-800 text-sm font-bold flex items-center gap-1 ${FOCUS}`}>
             <Plus className="w-4 h-4" /> Programar
           </button>
         )}
       </div>
       {pickLot && (
         <div className="space-y-1">
-          <p className="text-xs text-slate-600">¿Para qué lote?</p>
+          <p className="text-sm font-semibold text-slate-800">¿Para qué lote?</p>
           <div className="flex flex-wrap gap-2">
             {activeLots.map((l) => (
-              <button key={l.id} onClick={() => { setPickLot(false); setAddFor(l); }} className={`h-10 px-4 rounded-full border border-amber-300 bg-amber-50 text-amber-900 text-sm font-semibold ${FOCUS}`}>
+              <button key={l.id} onClick={() => { setPickLot(false); setAddFor(l); }} className={`h-11 px-4 rounded-full border border-amber-300 bg-amber-50 text-amber-900 text-sm font-semibold ${FOCUS}`}>
                 {l.name}
               </button>
             ))}
@@ -896,7 +952,7 @@ export const AvicolaCalendarSheet: React.FC<{ onClose: () => void }> = ({ onClos
       )}
       <ErrorBox error={ta.error} />
       {dayTasks.length === 0 ? (
-        <p className="text-xs text-slate-500 text-center py-3">No hay actividades este día.</p>
+        <p className="text-xs text-slate-600 text-center py-3">No hay actividades este día.</p>
       ) : (
         dayTasks.map((t) => (
           <AvicolaTaskCard key={t.id} task={t} compact onComplete={() => ta.complete(t)} onReopen={() => ta.reopen(t)} onGoToLot={t.loteId ? () => { onClose(); openLot(t.loteId!, 'control', 'sanidad'); } : undefined} />

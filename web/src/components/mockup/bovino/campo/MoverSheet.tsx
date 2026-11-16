@@ -93,13 +93,12 @@ export const MoverSheet: React.FC<{
       icon={<ArrowRightLeft className="w-5 h-5" />}
       iconClass="bg-sky-100 text-sky-700"
       onClose={onClose}
+      dirty
+      error={error}
       footer={
-        <div className="space-y-2">
-          <ErrorBox error={error} />
-          <PrimaryBtn className="w-full" onClick={submit}>
-            Mover
-          </PrimaryBtn>
-        </div>
+        <PrimaryBtn className="w-full" onClick={submit}>
+          Mover
+        </PrimaryBtn>
       }
     >
       <p className="text-lg font-black text-slate-900">
@@ -118,7 +117,7 @@ export const MoverSheet: React.FC<{
       <button
         type="button"
         onClick={() => (loose && target === 'lote' ? setToLotId(undefined) : setPaddockId(undefined))}
-        className={`h-11 px-4 rounded-2xl border-2 border-slate-300 bg-white text-sm font-bold text-slate-900 ${FOCUS_B}`}
+        className={`h-12 px-4 rounded-2xl border-2 border-slate-300 bg-white text-sm font-bold text-slate-900 ${FOCUS_B}`}
       >
         Cambiar destino
       </button>

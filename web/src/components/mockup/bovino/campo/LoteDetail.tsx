@@ -6,7 +6,7 @@ import { BOVINO_LOT_TYPE_LABEL } from '../../../../models/bovinoModel';
 import { daysBetween } from '../../../../utils/dates';
 import { AnimalSearch } from '../pickers';
 import { SegmentedTabs } from '../../avicola/shared';
-import { AnimalRow, B, BottomSheet, EmptyBlock, ErrorBox, FOCUS_B, GmdChip, KV, Money, PrimaryBtn, Screen, SecondaryBtn, StatStrip, StatusChip, fd, num, plural, useDomainRunner } from '../ui';
+import { AnimalRow, B, BottomSheet, EmptyBlock, ErrorBox, FOCUS_B, GmdChip, KV, Money, PrimaryBtn, RemovableChip, Screen, SecondaryBtn, StatStrip, StatusChip, fd, num, plural, useDomainRunner } from '../ui';
 import { EventList } from '../animales/AnimalTimeline';
 import { LotMenu } from './Lotes';
 
@@ -113,7 +113,7 @@ export const LoteDetail: React.FC<{ id: string }> = ({ id }) => {
                   selectable={removing}
                   selected={sel.includes(v.id)}
                   right={v.weightKg !== null ? <span className="text-sm font-black tabular-nums text-slate-900">{num(v.weightKg)} kg</span> : undefined}
-                  onClick={() => (removing ? setSel((s) => (s.includes(v.id) ? s.filter((x) => x !== v.id) : [...s, v.id])) : navigate({ s: 'animal', id: v.id }, 'hato'))}
+                  onClick={() => (removing ? setSel((s) => (s.includes(v.id) ? s.filter((x) => x !== v.id) : [...s, v.id])) : navigate({ s: 'animal', id: v.id }))}
                 />
               ))
             )}
@@ -145,11 +145,11 @@ export const LoteDetail: React.FC<{ id: string }> = ({ id }) => {
             <div className="grid grid-cols-2 gap-3">
               <KV k="Peso promedio" v={lv.avgWeightKg !== null ? `${num(lv.avgWeightKg, 1)} kg` : '—'} />
               <div>
-                <p className="text-xs text-slate-700">GMD del lote</p>
+                <p className="text-xs text-slate-700">Ganancia diaria del lote</p>
                 <GmdChip gmd={lv.avgGmdKg} color={lv.gmdColor} />
               </div>
               {lot.type === 'ceba' && <KV k="Peso objetivo" v={`${num(lv.targetWeightKg)} kg`} />}
-              {lot.type === 'ceba' && <KV k="Faena estimada" v={lv.projectedSaleDate ? `${fd(lv.projectedSaleDate)} (${lv.daysToTarget} d)` : 'Sin GMD suficiente'} />}
+              {lot.type === 'ceba' && <KV k="Faena estimada" v={lv.projectedSaleDate ? `${fd(lv.projectedSaleDate)} (${lv.daysToTarget} d)` : 'Faltan pesajes'} />}
               <KV k="Alimento entregado" v={`${num(lv.feedKg)} kg`} />
               <KV k="Kg producidos" v={`${num(lv.kgProduced, 1)} kg`} />
               <KV k="Conversión" v={lv.feedConversion !== null ? `${num(lv.feedConversion, 1)} kg alim./kg` : '—'} />
@@ -210,21 +210,18 @@ const AddAnimalsSheet: React.FC<{ lotId: string; onClose: () => void; onAdd: (id
       icon={<Plus className="w-5 h-5" />}
       iconClass="bg-sky-100 text-sky-700"
       onClose={onClose}
+      dirty={ids.length > 0}
+      error={error}
       footer={
-        <div className="space-y-2">
-          <ErrorBox error={error} />
-          <PrimaryBtn className="w-full" disabled={!ids.length} onClick={() => onAdd(ids)}>
-            Agregar {ids.length || ''}
-          </PrimaryBtn>
-        </div>
+        <PrimaryBtn className="w-full" disabled={!ids.length} onClick={() => onAdd(ids)}>
+          Agregar {ids.length || ''}
+        </PrimaryBtn>
       }
     >
       {ids.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {ids.map((x) => (
-            <button key={x} type="button" onClick={() => setIds((l) => l.filter((y) => y !== x))} className={`h-10 px-3 rounded-full bg-sky-600 text-white text-sm font-bold ${FOCUS_B}`} aria-label={`Quitar #${index.views.get(x)?.tag}`}>
-              #{index.views.get(x)?.tag} ✕
-            </button>
+            <RemovableChip key={x} label={`#${index.views.get(x)?.tag}`} onRemove={() => setIds((l) => l.filter((y) => y !== x))} />
           ))}
         </div>
       )}

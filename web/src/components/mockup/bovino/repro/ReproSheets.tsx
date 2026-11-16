@@ -217,7 +217,7 @@ export const ServicioSheet: React.FC<{ animalId?: string; onClose: () => void }>
             setIatf(x);
             if (!x && ids.length > 1) setIds(ids.slice(0, 1));
           }}
-          label="Con protocolo IATF"
+          label="Inseminación a tiempo fijo (con protocolo)"
           hint="Inseminación a tiempo fijo: permite elegir varias vacas."
         />
       )}
@@ -229,7 +229,7 @@ export const ServicioSheet: React.FC<{ animalId?: string; onClose: () => void }>
           multi={isIatf}
           blockReason={(v) => elig.get(v.id)?.block || null}
           rank={(v) => (elig.get(v.id)?.ready ? 0 : 1)}
-          subtitle={(v) => (elig.get(v.id)?.ready ? 'Lista: PEV cumplido' : elig.get(v.id)?.warn || undefined)}
+          subtitle={(v) => (elig.get(v.id)?.ready ? 'Lista para servir' : elig.get(v.id)?.warn || undefined)}
         />
       </Field>
       {warns.length > 0 && (
@@ -273,7 +273,7 @@ export const ServicioSheet: React.FC<{ animalId?: string; onClose: () => void }>
             <RecentChoice options={members.slice(0, 5).map((m) => m.name)} value={tech} onChange={setTech} placeholder="Nombre del inseminador" ariaLabel="Inseminador" />
           </Field>
           {isIatf && (
-            <Field label="Protocolo IATF (opcional)">
+            <Field label="Protocolo de tiempo fijo (opcional)">
               <Chips options={IATF_PROTOCOLS.map((p) => ({ key: p, label: p }))} value={protocol} onChange={(x) => setProtocol(x === protocol ? '' : x)} />
             </Field>
           )}
@@ -368,7 +368,7 @@ export const DiagnosticoSheet: React.FC<{ animalId?: string; onClose: () => void
             setGest('');
           }}
           rank={(x) => (x.repro?.pendingDiagnosis ? (x.repro.diagnosisDueDate && x.repro.diagnosisDueDate <= today ? 0 : 1) : 2)}
-          subtitle={(x) => (x.repro?.pendingDiagnosis ? `Servida el ${fd(x.repro.lastServiceDate)} · palpar ${fd(x.repro.diagnosisDueDate)}` : x.repro?.pregnant ? `Preñada · FPP ${fd(x.repro.fpp)}` : undefined)}
+          subtitle={(x) => (x.repro?.pendingDiagnosis ? `Servida el ${fd(x.repro.lastServiceDate)} · palpar ${fd(x.repro.diagnosisDueDate)}` : x.repro?.pregnant ? `Preñada · parto ${fd(x.repro.fpp)}` : undefined)}
         />
       </Field>
       <Field label="Método">
@@ -404,7 +404,7 @@ export const DiagnosticoSheet: React.FC<{ animalId?: string; onClose: () => void
           {mismatch && <WarnNotice>Los días no coinciden con el último servicio ({autoGest} días). Se usará lo que escribiste.</WarnNotice>}
           {fpp && (
             <div className="rounded-2xl bg-sky-50 border-2 border-sky-300 p-4">
-              <p className="text-xl font-black text-sky-950">FPP {fdy(fpp)}</p>
+              <p className="text-xl font-black text-sky-950">Parto probable: {fdy(fpp)}</p>
               <p className="text-xl font-black text-amber-900">Secar {fdy(dry)}</p>
             </div>
           )}
@@ -416,7 +416,7 @@ export const DiagnosticoSheet: React.FC<{ animalId?: string; onClose: () => void
           {HALLAZGOS.map((h) => {
             const on = hall.includes(h);
             return (
-              <button key={h} type="button" aria-pressed={on} onClick={() => setHall(on ? hall.filter((x) => x !== h) : [...hall, h])} className={`h-12 px-4 rounded-2xl border-2 text-sm font-bold ${on ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
+              <button key={h} type="button" aria-pressed={on} onClick={() => setHall(on ? hall.filter((x) => x !== h) : [...hall, h])} className={`h-12 px-4 rounded-2xl border-2 text-sm font-bold ${on ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
                 {h}
               </button>
             );
@@ -528,7 +528,7 @@ export const PartoSheet: React.FC<{ animalId?: string; onClose: () => void }> = 
           selected={ids}
           onChange={setIds}
           rank={(x) => (x.repro?.pregnant && x.repro.fpp ? daysBetween(today, x.repro.fpp) : 9999)}
-          subtitle={(x) => (x.repro?.pregnant ? `Preñada · FPP ${fd(x.repro.fpp)}` : 'Sin preñez registrada')}
+          subtitle={(x) => (x.repro?.pregnant ? `Preñada · parto ${fd(x.repro.fpp)}` : 'Sin preñez registrada')}
         />
       </Field>
       {v && !v.repro?.pregnant && <WarnNotice>#{v.tag} no tiene preñez registrada. Se puede registrar (pudo venir preñada de otra finca); se pedirá confirmación.</WarnNotice>}
@@ -560,7 +560,7 @@ export const PartoSheet: React.FC<{ animalId?: string; onClose: () => void }> = 
             <div className="flex items-center justify-between">
               <p className="text-base font-black text-slate-900">{calves.length > 1 ? `Cría ${i + 1}` : 'Cría'}</p>
               {calves.length > 1 && (
-                <button type="button" aria-label="Quitar cría" onClick={() => setCalves((cs) => cs.filter((_, j) => j !== i))} className="w-11 h-11 rounded-xl flex items-center justify-center text-rose-700">
+                <button type="button" aria-label="Quitar cría" onClick={() => setCalves((cs) => cs.filter((_, j) => j !== i))} className="w-12 h-12 rounded-xl flex items-center justify-center text-rose-700">
                   <Trash2 className="w-5 h-5" />
                 </button>
               )}
@@ -618,7 +618,7 @@ export const PartoSheet: React.FC<{ animalId?: string; onClose: () => void }> = 
       )}
       <p className="text-xs text-slate-700">
         Cada cría viva se crea como animal (categoría Cría, madre #{v?.tag || '—'}, lote de la madre). Sin arete se asigna uno automático.
-        {perms.reproduccion ? ' La vaca pasa a En ordeño y empieza a correr su PEV.' : ''}
+        {perms.reproduccion ? ' La vaca pasa a En ordeño y empieza a contar la espera para volver a servirla.' : ''}
       </p>
       {confirmEl}
     </FormSheet>
@@ -665,13 +665,12 @@ export const SecadoSheet: React.FC<{ animalId: string; onClose: () => void }> = 
       title={`Secar #${v.tag}`}
       subtitle={v.repro?.fpp ? `Parto probable ${fd(v.repro.fpp)}` : undefined}
       onClose={onClose}
+      dirty={!!itemId || !!text.trim()}
+      error={error}
       footer={
-        <div className="space-y-2">
-          <ErrorBox error={error} />
-          <PrimaryBtn className="w-full" onClick={save}>
-            Registrar secado
-          </PrimaryBtn>
-        </div>
+        <PrimaryBtn className="w-full" onClick={save}>
+          Registrar secado
+        </PrimaryBtn>
       }
     >
       {!v.repro?.lactating && <BlockedNotice title={`#${v.tag} no está en ordeño`}>Solo se secan vacas en lactancia.</BlockedNotice>}
@@ -713,13 +712,12 @@ export const CalostroSheet: React.FC<{ animalId: string; onClose: () => void }> 
       title={`Calostro · #${v.tag}`}
       question="¿Cuándo tomó calostro?"
       onClose={onClose}
+      dirty={!!liters}
+      error={error}
       footer={
-        <div className="space-y-2">
-          <ErrorBox error={error} />
-          <PrimaryBtn className="w-full" onClick={save}>
-            Guardar calostro
-          </PrimaryBtn>
-        </div>
+        <PrimaryBtn className="w-full" onClick={save}>
+          Guardar calostro
+        </PrimaryBtn>
       }
     >
       <Field label="Horas de vida al tomarlo">

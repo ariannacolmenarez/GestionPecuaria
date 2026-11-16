@@ -8,14 +8,18 @@
  * Sin estado de dominio propio: todo pasa por ctrl.bovinoActions (bovinoDomain).
  * La ruta vive en App.tsx (usePhoneNavigation) para que el Atrás de la cabecera y
  * el de Android compartan popRoute(). Las pantallas de la Etapa B se cargan desde
- * stageB.tsx (archivos propios con "Próximamente" hasta que se implementen).
+ * stageB.tsx (carga diferida).
+ * Navegación: navigate() siempre APILA (los saltos de contexto —Hato › Pesaje, ficha ›
+ * Parto, Agenda › Manga— vuelven con Atrás a donde estaba el usuario). Cada pantalla
+ * guarda su estado de lista y su scroll por screenKey (viewState.ts) para el regreso.
  */
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FinancialMovement, SanitaryTask, WarehouseItem } from '../../../models/FarmModel';
 import type { BovinoConfig } from '../../../models/bovinoModel';
 import { bovinoWarehouseItems, type BovinoAgendaItem, type BovinoData, type BovinoHomeSummary, type BovinoIndex } from '../../../models/bovinoCalc';
 import { BovinoContext, type BovinoActions, type BovinoCtx, type BovinoMember, type BovinoSelectors, type BovinoSheet } from './context';
-import { isSectionRoot, popRoute, pushRoute, rootRoute, routeTo, topScreen, type BovinoFocusRequest, type BovinoRoute, type BovinoScreen, type BovinoSection } from './routes';
+import { isSectionRoot, popRoute, pushRoute, rootRoute, routeTo, screenKeyOf, topScreen, type BovinoFocusRequest, type BovinoRoute, type BovinoScreen, type BovinoSection } from './routes';
+import { clearView, readView, writeView } from './viewState';
 import { permsForRole } from './perms';
 import { BovinoNav } from './BovinoNav';
 import { SubHeader } from './SubHeader';
@@ -85,14 +89,27 @@ export const BovinoModule: React.FC<BovinoModuleProps> = (p) => {
   const perms = useMemo(() => permsForRole(p.member.role), [p.member.role]);
   const bovinoItems = useMemo(() => bovinoWarehouseItems(p.warehouseItems), [p.warehouseItems]);
 
-  const navigate = useCallback(
-    (screen: BovinoScreen, section?: BovinoSection) => {
-      if (section && section !== route.section) onRouteChange(routeTo(section, screen));
-      else onRouteChange(pushRoute(route, screen));
+  const [fabRoot, setFabRoot] = useState<HTMLElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  /** Entrar a una pantalla (no volver): empieza sin el estado guardado de la última visita. */
+  const go = useCallback(
+    (next: BovinoRoute) => {
+      if (next === route) return;
+      clearView(screenKeyOf(next));
+      onRouteChange(next);
     },
     [route, onRouteChange]
   );
-  const goSection = useCallback((s: BovinoSection) => onRouteChange(rootRoute(s)), [onRouteChange]);
+  const navigate = useCallback(
+    (screen: BovinoScreen, section?: BovinoSection) => {
+      // Siempre se apila: Atrás regresa a la pantalla de origen (spec UX fase 2).
+      if (screen.s === 'root') go(rootRoute(section || route.section));
+      else go(pushRoute(route, screen));
+    },
+    [route, go]
+  );
+  const goSection = useCallback((s: BovinoSection) => go(rootRoute(s)), [go]);
   const back = useCallback(() => {
     const next = popRoute(route);
     if (next) onRouteChange(next);
@@ -103,8 +120,8 @@ export const BovinoModule: React.FC<BovinoModuleProps> = (p) => {
   // Petición externa (Home de la granja, alertas, RubroPanels): se consume una sola vez
   useEffect(() => {
     if (!focus) return;
-    if (focus.abrirManga) onRouteChange(routeTo('hato', { s: 'manga' }));
-    else if (focus.section || focus.screen) onRouteChange(routeTo(focus.section || route.section, focus.screen));
+    if (focus.abrirManga) go(routeTo('hato', { s: 'manga' }));
+    else if (focus.section || focus.screen) go(routeTo(focus.section || route.section, focus.screen));
     if (focus.nuevoAlta && perms.altaAnimales) setSheet({ kind: 'alta' });
     if (focus.nuevaActividad && perms.manejo) setSheet({ kind: 'actividad' });
     onFocusHandled?.();
@@ -135,14 +152,31 @@ export const BovinoModule: React.FC<BovinoModuleProps> = (p) => {
       exitModule: onExit,
       openSheet: setSheet,
       closeSheet,
+      fabRoot,
     }),
-    [p.data, p.index, p.home, p.agenda, p.config, p.tasks, p.movements, p.warehouseItems, bovinoItems, p.today, p.actions, p.selectors, perms, p.member, p.farmName, p.members, route, navigate, goSection, back, onExit, closeSheet]
+    [p.data, p.index, p.home, p.agenda, p.config, p.tasks, p.movements, p.warehouseItems, bovinoItems, p.today, p.actions, p.selectors, perms, p.member, p.farmName, p.members, route, navigate, goSection, back, onExit, closeSheet, fabRoot]
   );
 
   const sc = topScreen(route);
   const root = isSectionRoot(route);
   const stageB = stageBKeyOf(sc, root && route.section === 'repro');
-  const screenKey = `${route.section}:${route.stack.length}:${JSON.stringify(sc)}`;
+  const screenKey = screenKeyOf(route);
+
+  // Al volver a una pantalla, recupera su scroll (reintenta unos cuadros mientras carga el contenido diferido).
+  useLayoutEffect(() => {
+    const y = readView<number>(`${screenKey}|scroll`) || 0;
+    if (!scrollRef.current || y <= 0) return;
+    let tries = 0;
+    let id = 0;
+    const apply = () => {
+      const node = scrollRef.current;
+      if (!node) return;
+      node.scrollTop = y;
+      if (Math.abs(node.scrollTop - y) > 2 && tries++ < 30) id = requestAnimationFrame(apply);
+    };
+    apply();
+    return () => cancelAnimationFrame(id);
+  }, [screenKey]);
 
   let body: React.ReactNode;
   if (stageB) body = <StageBScreen k={stageB} screen={sc} />;
@@ -189,8 +223,17 @@ export const BovinoModule: React.FC<BovinoModuleProps> = (p) => {
     <BovinoContext.Provider value={ctx}>
       <div id="bovino-module" className="flex-1 flex flex-col min-h-0 bg-slate-50 text-slate-900">
         {root && <SubHeader />}
-        <div key={screenKey} className="flex-1 min-h-0 overflow-y-auto relative">
-          <Suspense fallback={<Loading />}>{body}</Suspense>
+        <div className="flex-1 min-h-0 relative flex flex-col">
+          <div
+            key={screenKey}
+            ref={scrollRef}
+            onScroll={(e) => writeView(`${screenKey}|scroll`, e.currentTarget.scrollTop)}
+            className="flex-1 min-h-0 overflow-y-auto relative"
+          >
+            <Suspense fallback={<Loading />}>{body}</Suspense>
+          </div>
+          {/* Botón flotante fuera del scroll: siempre visible encima de la barra inferior */}
+          <div ref={setFabRoot} className="absolute bottom-4 right-4 z-20" />
         </div>
         <BovinoNav />
       </div>

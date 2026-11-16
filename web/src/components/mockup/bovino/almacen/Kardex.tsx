@@ -1,4 +1,4 @@
-/** Detalle de insumo con su kardex (entradas y salidas con destino, usuario y monto). */
+/** Detalle de insumo con sus movimientos (kardex) (entradas y salidas con destino, usuario y monto). */
 import React, { useMemo, useState } from 'react';
 import { Package, Search, Trash2 } from 'lucide-react';
 import type { BovinoStockInEvent, BovinoStockOutEvent } from '../../../../models/bovinoModel';
@@ -86,7 +86,7 @@ export const Kardex: React.FC<{ id: string }> = ({ id }) => {
       </section>
 
       <section className="space-y-2">
-        <p className="text-base font-black text-slate-900">Kardex</p>
+        <p className="text-base font-black text-slate-900">Movimientos del insumo</p>
         <ChipFilter options={[{ key: 'mes', label: 'Este mes' }, { key: '3m', label: '3 meses' }, { key: 'todo', label: 'Todo' }]} value={range} onChange={setRange} ariaLabel="Periodo" />
         {moves.length === 0 ? (
           <p className="text-sm text-slate-800 bg-white rounded-2xl border-2 border-slate-200 p-4">Sin movimientos en el periodo.</p>

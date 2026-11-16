@@ -2,13 +2,15 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useStat
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { runTopBackHandler } from './utils/backButton';
-import { Info, CloudOff } from 'lucide-react';
+import { CloudOff, CheckCircle2, AlertTriangle, XCircle, X, Loader2 } from 'lucide-react';
+import { onSnapshotsInSync, waitForPendingWrites } from 'firebase/firestore';
+import { db } from './firebase';
 
 // ============================================================================
 // ARQUITECTURA MODELO - VISTA - CONTROLADOR (MVC)
 // ============================================================================
 // 1. CONTROLADOR (Controller): orquestación de estado, dominio y persistencia Firebase
-import { useFarmController, FarmController } from './controllers/FarmController';
+import { useFarmController, FarmController, type ToastTone } from './controllers/FarmController';
 
 // 2. VISTAS (Views): componentes de presentación desacoplados
 import {
@@ -44,7 +46,9 @@ const DocumentationView = lazy(() => import('./views/doc/DocumentationView').the
 const MvcArchitectureView = lazy(() => import('./views/mvc/MvcArchitectureView').then((m) => ({ default: m.MvcArchitectureView })));
 
 const ViewFallback: React.FC = () => (
-  <div className="flex-1 flex items-center justify-center text-xs text-slate-400 p-6">Cargando…</div>
+  <div role="status" className="flex-1 flex items-center justify-center gap-3 p-6 bg-white text-base font-semibold text-slate-700">
+    <Loader2 className="w-6 h-6 animate-spin text-emerald-700" aria-hidden="true" /> Cargando…
+  </div>
 );
 
 /** Rubro de un almacén o balance. */
@@ -60,8 +64,8 @@ const asRubro = (r: unknown): Rubro => (r === 'avicola' || r === 'bovino' ? r : 
 
 /** Navegación interna del teléfono: pestaña del menú porcino, almacén y balance por rubro. */
 function usePhoneNavigation(ctrl: FarmController) {
-  const { mockupScreen, setMockupScreen, setShowAlertsModal, openAvicola, openAvicolaLot, openBovino } = ctrl;
-  const [porcinoTab, setPorcinoTab] = useState<PorcinoTab>('porcinos');
+  const { mockupScreen, setMockupScreen, showAlertsModal, setShowAlertsModal, openAvicola, openAvicolaLot, openBovino } = ctrl;
+  const [porcinoTab, setPorcinoTab] = useState<PorcinoTab>('atajos');
   const [warehouse, setWarehouse] = useState<RubroPanel | null>(null);
   const [balance, setBalance] = useState<RubroPanel | null>(null);
   const [activities, setActivities] = useState<RubroPanel | null>(null);
@@ -148,21 +152,50 @@ function usePhoneNavigation(ctrl: FarmController) {
   /**
    * Almacén por rubro. Dentro de un módulo se abre solo el de ese rubro; desde el Home de la
    * granja se abre el rubro pedido (o porcino) con selector para cambiar de rubro.
+   * El almacén bovino es una pantalla del módulo bovino (submódulos, lotes y vencimientos).
    */
   const openWarehouse = useCallback(
     (rubro?: Rubro) => {
       setBalance(null);
       setActivities(null);
-      // Dentro del módulo bovino el almacén es una pantalla propia (submódulos, lotes y vencimientos)
       if (currentRubro === 'bovino') {
         setWarehouse(null);
         setBovinoRoute(routeTo('mas', { s: 'almacen' }));
         return;
       }
+      if (!currentRubro && rubro === 'bovino') {
+        setWarehouse(null);
+        openBovino();
+        setBovinoRoute(routeTo('mas', { s: 'almacen' }));
+        return;
+      }
       setWarehouse(currentRubro ? { rubro: currentRubro, locked: true } : { rubro: asRubro(rubro), locked: false });
     },
-    [currentRubro]
+    [currentRubro, openBovino]
   );
+
+  /** Almacén de un rubro concreto desde cualquier pantalla (p. ej. un insumo crítico en Alertas). */
+  const openWarehouseOf = useCallback(
+    (rubro: Rubro) => {
+      setBalance(null);
+      setActivities(null);
+      if (rubro === 'bovino') {
+        setWarehouse(null);
+        openBovino();
+        setBovinoRoute(routeTo('mas', { s: 'almacen' }));
+        return;
+      }
+      setWarehouse({ rubro, locked: false });
+    },
+    [openBovino]
+  );
+
+  /** Actividades de un rubro (panel con pestañas por rubro). */
+  const openActivities = useCallback((rubro: Rubro) => {
+    setWarehouse(null);
+    setBalance(null);
+    setActivities({ rubro, locked: false });
+  }, []);
 
   /** Balance por rubro (mismas reglas que el almacén). En el menú porcino se usa su pestaña Balance. */
   const openBalance = useCallback(
@@ -183,8 +216,14 @@ function usePhoneNavigation(ctrl: FarmController) {
     [currentRubro]
   );
 
+  /**
+   * Barra inferior global. Regla única: Actividades, Balance y Almacén abren SIEMPRE el panel
+   * por rubro (RubroPanels), preseleccionado en el rubro de la pantalla actual (porcino en el Home)
+   * y con pestañas para cambiar de rubro. (En el módulo bovino esta barra no se muestra: BovinoNav.)
+   */
   const onNavigate = useCallback(
     (screen: BottomNavScreen) => {
+      const rubro: Rubro = currentRubro ?? 'porcino';
       switch (screen) {
         case 'home':
           closePanels();
@@ -194,56 +233,46 @@ function usePhoneNavigation(ctrl: FarmController) {
           openPorcino();
           break;
         case 'sanitario':
-          // En el módulo avícola, "Actividades" abre el calendario de los lotes de pollos
-          if (mockupScreen === 'avicola') {
-            goAvicola({ openCalendar: true });
-            break;
-          }
-          // En el módulo bovino, "Actividades" es la Agenda del día del hato
-          if (mockupScreen === 'bovino') {
-            setBovinoRoute(rootRoute('agenda'));
-            break;
-          }
-          // Desde el Home de la granja: modal de actividades con pestañas por rubro
-          if (mockupScreen === 'home') {
-            setWarehouse(null);
-            setBalance(null);
-            setActivities({ rubro: 'porcino', locked: false });
-            break;
-          }
-          openPorcino(screen);
+          openActivities(rubro);
           break;
         case 'balance':
-          openBalance();
+          setWarehouse(null);
+          setActivities(null);
+          setBalance({ rubro, locked: false });
           break;
         case 'almacen':
-          openWarehouse();
+          setBalance(null);
+          setActivities(null);
+          setWarehouse({ rubro, locked: false });
           break;
         case 'alertas':
           setShowAlertsModal(true);
           break;
       }
     },
-    [openPorcino, openWarehouse, openBalance, goAvicola, closePanels, mockupScreen, setMockupScreen, setShowAlertsModal]
+    [openPorcino, openActivities, closePanels, currentRubro, setMockupScreen, setShowAlertsModal]
   );
 
-  const activeScreen: BottomNavScreen = activities
-    ? 'sanitario'
-    : warehouse
-    ? 'almacen'
-    : balance
-      ? 'balance'
-      : mockupScreen === 'home' || mockupScreen === 'avicola' || mockupScreen === 'bovino'
-        ? 'home'
-        : porcinoTab === 'sanitario' || porcinoTab === 'balance'
-          ? porcinoTab
-          : 'porcino';
+  // Pestaña activa: el panel abierto; "Granja" solo en el Home; dentro de un módulo, ninguna.
+  const activeScreen: BottomNavScreen | null = showAlertsModal
+    ? 'alertas'
+    : activities
+      ? 'sanitario'
+      : warehouse
+        ? 'almacen'
+        : balance
+          ? 'balance'
+          : mockupScreen === 'home'
+            ? 'home'
+            : null;
 
   return {
     porcinoTab,
     setPorcinoTab,
     openPorcino,
     openWarehouse,
+    openWarehouseOf,
+    openActivities,
     openBalance,
     warehouse,
     setWarehouse,
@@ -272,11 +301,12 @@ type PhoneNav = ReturnType<typeof usePhoneNavigation>;
 
 /**
  * Botón Atrás de Android (Capacitor). Orden:
- * 1) hoja abierta del módulo avícola → se cierra;
- * 2) modal global (alertas, miembros, ajustes) → se cierra;
- * 3) lote → Home avícola → Home de la granja; almacén → pantalla de origen;
+ * 1) la capa superior de la pila global (utils/backButton): hojas avícolas/bovinas, alertas,
+ *    miembros, ajustes, almacén, balance, actividades y sus diálogos internos. Cada uno se
+ *    registra al abrirse (useBackClose / useBackHandler) y pregunta antes de descartar datos;
+ * 2) lote → Home avícola → Home de la granja;
  *    bovino: subpantalla → raíz de la sección → Hato → Home de la granja (popRoute);
- * 4) en el Home de la granja → sale de la app.
+ * 3) en el Home de la granja → sale de la app.
  */
 function useHardwareBackButton(ctrl: FarmController, nav: PhoneNav, enabled: boolean) {
   const latest = useRef({ ctrl, nav });
@@ -287,11 +317,6 @@ function useHardwareBackButton(ctrl: FarmController, nav: PhoneNav, enabled: boo
     const sub = CapacitorApp.addListener('backButton', () => {
       const { ctrl: c, nav: n } = latest.current;
       if (runTopBackHandler()) return;
-      if (c.showAlertsModal) return c.setShowAlertsModal(false);
-      if (c.showMembersModal) return c.setShowMembersModal(false);
-      if (c.showSettingsModal) return c.setShowSettingsModal(false);
-      // Almacén o balance abiertos: se cierran primero
-      if (n.warehouse || n.balance || n.activities) return n.closePanels();
       if (c.mockupScreen === 'avicola') {
         if (c.selectedAvicolaLotId) c.openAvicolaLot(null);
         else c.setMockupScreen('home');
@@ -331,10 +356,59 @@ function useOnline(): boolean {
   return online;
 }
 
+/**
+ * ¿Hay escrituras en el teléfono que aún no llegan a la nube? Se revisa cada vez que Firestore
+ * avisa que las consultas están al día (onSnapshotsInSync, que también salta tras cada escritura
+ * local) y al cambiar la conexión: waitForPendingWrites termina enseguida si no hay nada pendiente;
+ * si tarda más de 1,5 s se muestra "Subiendo cambios…" hasta que termine.
+ */
+function usePendingWrites(online: boolean): boolean {
+  const [pending, setPending] = useState(false);
+  useEffect(() => {
+    let seq = 0;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const check = () => {
+      const my = ++seq;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (alive && my === seq) setPending(true);
+      }, 1500);
+      waitForPendingWrites(db).then(
+        () => {
+          if (!alive || my !== seq) return;
+          if (timer) clearTimeout(timer);
+          setPending(false);
+        },
+        () => undefined
+      );
+    };
+    let unsub: () => void = () => undefined;
+    try {
+      unsub = onSnapshotsInSync(db, check);
+    } catch {
+      // sin Firestore (pruebas): solo se usa el estado online/offline
+    }
+    check();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+      unsub();
+    };
+  }, [online]);
+  return pending;
+}
+
+/** Conexión + cambios sin subir, para el encabezado, ajustes y el aviso al cerrar sesión. */
+export interface SyncState {
+  online: boolean;
+  pendingSync: boolean;
+}
+
 // ============================================================================
 // CONTENIDO DEL TELÉFONO (compartido por modo nativo y modo navegador)
 // ============================================================================
-const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSession }> = ({ ctrl, nav, session }) => {
+const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSession; sync: SyncState }> = ({ ctrl, nav, session, sync }) => {
   const { summary, mockupScreen, setMockupScreen, todayPendingTasks, overduePendingTasks, today } = ctrl;
   const bannerTasks = useMemo(() => [...overduePendingTasks, ...todayPendingTasks], [overduePendingTasks, todayPendingTasks]);
   const farmName = summary.name || 'Mi Granja';
@@ -367,7 +441,7 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSe
     [ctrl.warehouseItems, nav.currentRubro]
   );
   const avicolaLot = inAvicola ? ctrl.selectedAvicolaLot : null;
-  const online = useOnline();
+  const { online } = sync;
   const headerTitle =
     mockupScreen === 'home' ? farmName : inAvicola ? avicolaLot?.name || 'Pollos de Engorde' : inBovino ? bovinoTitle : 'Menú Porcino';
 
@@ -391,11 +465,14 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSe
         onOpenSettings={() => ctrl.setShowSettingsModal(true)}
         showBack={mockupScreen !== 'home'}
         onBack={onBack}
+        online={online}
+        pendingSync={sync.pendingSync}
+        showMembers={mockupScreen === 'home'}
       />
 
       {!online && (
-        <div role="status" className="bg-amber-100 text-amber-900 text-[11px] font-semibold px-3 py-1.5 flex items-center gap-1.5 shrink-0">
-          <CloudOff className="w-3.5 h-3.5 shrink-0" /> Sin conexión: lo que registres se guarda en el teléfono y se subirá a la nube al volver la señal.
+        <div role="status" className="bg-amber-100 text-amber-950 text-sm font-semibold px-3 py-2 flex items-start gap-2 shrink-0">
+          <CloudOff className="w-5 h-5 shrink-0" aria-hidden="true" /> Sin señal: lo que registres se guarda en el teléfono y se sube solo al volver la conexión.
         </div>
       )}
 
@@ -420,7 +497,7 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSe
             bovinoHome={ctrl.bovinoHome}
             tasksCountToday={todayPendingTasks.length}
             overdueTasksCount={overduePendingTasks.length}
-            onNavigateToPorcino={() => nav.openPorcino('porcinos')}
+            onNavigateToPorcino={() => nav.openPorcino('atajos')}
             onNavigateToBovino={() => nav.goBovino()}
             onOpenBovinoCategory={(category) => nav.goBovino({ section: 'hato', screen: { s: 'animales', filtro: { category } } })}
             hideBovinoFinance={!bovinoCan(session.member.role, 'ver_costos')}
@@ -528,6 +605,10 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSe
         onOpenBovino={nav.goBovino}
       />
 
+      {/* Alertas, miembros y ajustes: dentro del teléfono y ANTES de la capa de superposición,
+          para que sus diálogos de confirmación (portal a #phone-overlay-root) queden encima. */}
+      <GlobalModals ctrl={ctrl} nav={nav} session={session} sync={sync} />
+
       {/* Capa de superposición del teléfono: las hojas del módulo avícola se montan aquí (portal). */}
       <div id="phone-overlay-root" className="absolute inset-0 z-50 pointer-events-none" />
     </>
@@ -537,7 +618,7 @@ const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSe
 // ============================================================================
 // MODALES GLOBALES (compartidos)
 // ============================================================================
-const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSession }> = ({ ctrl, nav, session }) => {
+const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSession; sync: SyncState }> = ({ ctrl, nav, session, sync }) => {
   return (
     <>
       {ctrl.showAlertsModal && (
@@ -546,22 +627,19 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: App
           warehouseItems={ctrl.warehouseItems}
           currentDate={ctrl.today}
           onClose={() => ctrl.setShowAlertsModal(false)}
-          onNavigateToCalendar={() => {
+          onNavigateToCalendar={(rubro) => {
             ctrl.setShowAlertsModal(false);
-            nav.openPorcino('sanitario');
+            if (rubro === 'bovino') nav.goBovino({ section: 'agenda' });
+            else nav.openActivities(rubro);
           }}
           avicolaLots={ctrl.avicolaLots}
           onOpenAvicolaLot={(loteId) => {
             ctrl.setShowAlertsModal(false);
             nav.goAvicolaLotSanidad(loteId);
           }}
-          onNavigateToAvicolaCalendar={() => {
+          onNavigateToWarehouse={(rubro) => {
             ctrl.setShowAlertsModal(false);
-            nav.goAvicola({ openCalendar: true });
-          }}
-          onNavigateToWarehouse={() => {
-            ctrl.setShowAlertsModal(false);
-            nav.openWarehouse();
+            nav.openWarehouseOf(rubro);
           }}
           onOpenBovino={() => {
             ctrl.setShowAlertsModal(false);
@@ -569,10 +647,6 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: App
           }}
           onToggleTaskStatus={ctrl.handleToggleTaskStatus}
           onCompleteTask={ctrl.handleCompleteTask}
-          onSimulateNotification={() => {
-            ctrl.setShowPushBanner(true);
-            ctrl.triggerToast('🔔 Notificación push emitida al teléfono: Tareas Sanitarias de Hoy.');
-          }}
         />
       )}
 
@@ -584,6 +658,8 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: App
           onClose={() => ctrl.setShowMembersModal(false)}
           onSignOut={session.signOut}
           notify={ctrl.triggerToast}
+          online={sync.online}
+          pendingSync={sync.pendingSync}
         />
       )}
 
@@ -592,11 +668,12 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: App
           farmName={ctrl.summary.name}
           location={ctrl.summary.location}
           onClose={() => ctrl.setShowSettingsModal(false)}
-          onResync={ctrl.handleRestoreSampleData}
           userEmail={session.member.email || session.user.email || undefined}
           userName={session.member.name}
           userRole={session.member.role}
           onSignOut={session.signOut}
+          online={sync.online}
+          pendingSync={sync.pendingSync}
         />
       )}
 
@@ -604,19 +681,41 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: App
   );
 };
 
-const Toast: React.FC<{ message: string | null; placement: 'top' | 'bottom' }> = ({ message, placement }) =>
-  message ? (
+const TOAST_TONE: Record<ToastTone, { cls: string; Icon: React.ElementType }> = {
+  success: { cls: 'bg-emerald-700 text-white', Icon: CheckCircle2 },
+  warning: { cls: 'bg-amber-600 text-white', Icon: AlertTriangle },
+  error: { cls: 'bg-rose-700 text-white', Icon: XCircle },
+};
+
+/**
+ * Aviso flotante con tono (éxito / aviso / error) y botón para cerrarlo.
+ * En el teléfono (nativo) va abajo, encima de la barra de navegación, para no tapar el encabezado.
+ */
+const Toast: React.FC<{ message: string | null; tone: ToastTone; placement: 'native' | 'desktop'; onDismiss: () => void }> = ({ message, tone, placement, onDismiss }) => {
+  if (!message) return null;
+  const { cls, Icon } = TOAST_TONE[tone] || TOAST_TONE.success;
+  const isError = tone === 'error';
+  return (
     <div
-      role="status"
-      className={
-        placement === 'top'
-          ? 'fixed top-16 right-4 left-4 z-60 bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-top-4'
-          : 'fixed bottom-6 right-6 z-60 bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4'
-      }
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? 'assertive' : 'polite'}
+      className={`fixed z-60 ${cls} pl-4 pr-1 py-1 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 ${
+        placement === 'native' ? 'left-4 right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))]' : 'bottom-6 right-6 left-6 sm:left-auto sm:max-w-md'
+      }`}
     >
-      <Info className="w-4 h-4 shrink-0" /> {message}
+      <Icon className="w-5 h-5 shrink-0" aria-hidden="true" />
+      <span className="flex-1 min-w-0 py-2 leading-snug">{message}</span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Cerrar aviso"
+        className="w-11 h-11 shrink-0 rounded-lg flex items-center justify-center hover:bg-black/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      >
+        <X className="w-5 h-5" />
+      </button>
     </div>
-  ) : null;
+  );
+};
 
 /** La app solo se monta con una sesión válida (miembro de la granja) y los datos ya en la nube. */
 export default function App() {
@@ -646,6 +745,9 @@ function FarmApp({ session }: { session: AppSession }) {
   const nav = usePhoneNavigation(ctrl);
   const isNative = Capacitor.isNativePlatform();
   useHardwareBackButton(ctrl, nav, isNative);
+  const online = useOnline();
+  const pendingSync = usePendingWrites(online);
+  const sync = useMemo<SyncState>(() => ({ online, pendingSync }), [online, pendingSync]);
 
   // ==========================================================================
   // MODO NATIVO (Capacitor Android / iOS): el teléfono ocupa toda la pantalla
@@ -656,15 +758,15 @@ function FarmApp({ session }: { session: AppSession }) {
         id="app-root-container"
         className="relative flex flex-col h-screen w-screen bg-slate-900 text-slate-100 overflow-hidden font-sans select-none"
       >
-        <Toast message={ctrl.infoToast} placement="top" />
-        <PhoneShell ctrl={ctrl} nav={nav} session={session} />
-        <GlobalModals ctrl={ctrl} nav={nav} session={session} />
+        <Toast message={ctrl.infoToast} tone={ctrl.infoToastTone} placement="native" onDismiss={ctrl.dismissToast} />
+        <PhoneShell ctrl={ctrl} nav={nav} session={session} sync={sync} />
       </div>
     );
   }
 
   // ==========================================================================
   // MODO NAVEGADOR / ESCRITORIO: teléfono dentro de un marco + documentación
+  // (las vistas 'mvc' y 'documentation' solo existen aquí: nunca en la app nativa)
   // ==========================================================================
   const { currentView, setCurrentView } = ctrl;
   return (
@@ -691,13 +793,13 @@ function FarmApp({ session }: { session: AppSession }) {
         </div>
       </div>
 
-      <Toast message={ctrl.infoToast} placement="bottom" />
+      <Toast message={ctrl.infoToast} tone={ctrl.infoToastTone} placement="desktop" onDismiss={ctrl.dismissToast} />
 
       <div className="flex-1 overflow-hidden relative flex">
         {currentView === 'mockup' && (
           <div className="flex-1 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-2 sm:p-4">
             <MobileDeviceFrameView isExpanded={ctrl.isExpanded} onToggleExpand={() => ctrl.setIsExpanded(!ctrl.isExpanded)}>
-              <PhoneShell ctrl={ctrl} nav={nav} session={session} />
+              <PhoneShell ctrl={ctrl} nav={nav} session={session} sync={sync} />
             </MobileDeviceFrameView>
           </div>
         )}
@@ -716,8 +818,6 @@ function FarmApp({ session }: { session: AppSession }) {
           {currentView === 'documentation' && <DocumentationView />}
         </Suspense>
       </div>
-
-      <GlobalModals ctrl={ctrl} nav={nav} session={session} />
     </div>
   );
 }

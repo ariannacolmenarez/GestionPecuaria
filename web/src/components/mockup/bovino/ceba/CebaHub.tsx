@@ -13,10 +13,11 @@ import { useBovino } from '../context';
 import { AnimalRow, BottomSheet, Can, ChipFilter, EmptyBlock, GmdChip, PrimaryBtn, Screen, SecondaryBtn, StatStrip, StatusChip, fd, fdy, num, usd } from '../ui';
 import { Card, LineRow, ProgressBar } from '../kit';
 import { PesajeLoteSheet, PesajeRapido } from './PesajeRapido';
+import { LotPickerSheet } from '../pickers';
 import { RacionSheet } from './RacionSheet';
 import { VentaGanadoSheet } from '../finanzas/VentaGanadoSheet';
 
-type Sheet = { k: 'pesaje'; animalIds?: string[] } | { k: 'pesajeLote' } | { k: 'racion' } | { k: 'venta'; ids: string[] } | { k: 'gmd'; color: GmdColor } | null;
+type Sheet = { k: 'pesaje'; animalIds?: string[] } | { k: 'elegirLote' } | { k: 'pesajeLote' } | { k: 'racion' } | { k: 'venta'; ids: string[] } | { k: 'gmd'; color: GmdColor } | null;
 type FechaFiltro = 'todos' | 'mes' | 'tres';
 type SexoFiltro = 'todos' | 'macho' | 'hembra';
 
@@ -25,7 +26,7 @@ const GMD_BAR: Record<GmdColor, string> = { verde: 'bg-emerald-600', amarillo: '
 
 export default function CebaHub({ screen }: StageBProps) {
   const sc = screen.s === 'ceba' ? screen : { s: 'ceba' as const };
-  const { data, index, home, selectors, navigate, openSheet, perms, today, config } = useBovino();
+  const { data, index, home, selectors, navigate, openSheet, perms, today, config, back } = useBovino();
   const cebaLots = useMemo(() => data.lots.filter((l) => l.status === 'abierto' && l.type === 'ceba').sort((a, b) => a.name.localeCompare(b.name)), [data.lots]);
   const [lotId, setLotId] = useState<string | undefined>(sc.loteId || cebaLots[0]?.id);
   const [sheet, setSheet] = useState<Sheet>(null);
@@ -35,11 +36,25 @@ export default function CebaHub({ screen }: StageBProps) {
   useEffect(() => {
     if (!lotId && cebaLots[0]) setLotId(cebaLots[0].id);
   }, [cebaLots, lotId]);
-  // Pesaje rápido pedido desde el Hato o desde la lista de animales
+  // Pesaje rápido / ración pedidos desde el Hato, la Agenda o la lista de animales: con varios
+  // lotes de ceba primero se elige el lote. Al cerrar se vuelve a la pantalla de origen.
+  const [fromRoute, setFromRoute] = useState(false);
   useEffect(() => {
-    if (sc.pesar && (sc.animalIds?.length || sc.loteId || cebaLots.length)) setSheet({ k: 'pesaje', animalIds: sc.animalIds });
-    else if (sc.racion) setSheet({ k: 'racion' });
+    if (sc.pesar && (sc.animalIds?.length || sc.loteId || cebaLots.length)) {
+      setFromRoute(true);
+      setSheet(!sc.animalIds?.length && !sc.loteId && cebaLots.length > 1 ? { k: 'elegirLote' } : { k: 'pesaje', animalIds: sc.animalIds });
+    } else if (sc.racion) {
+      setFromRoute(true);
+      setSheet({ k: 'racion' });
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const closeSheet = () => {
+    setSheet(null);
+    if (fromRoute) {
+      setFromRoute(false);
+      back();
+    }
+  };
 
   const lot = lotId ? index.lotsById.get(lotId) : undefined;
   const lv = lotId ? selectors.lotView(lotId) : null;
@@ -101,7 +116,7 @@ export default function CebaHub({ screen }: StageBProps) {
         <EmptyBlock
           icon={<Scale className="w-8 h-8" />}
           title="Sin lotes de ceba"
-          text="Crea un lote con propósito Ceba para ver la GMD, la conversión y la proyección a faena."
+          text="Crea un lote con propósito Ceba para ver cuánto engordan, el alimento y la fecha estimada de venta."
           cta={perms.moverLotes ? 'Crear lote' : undefined}
           onCta={() => openSheet({ kind: 'lote' })}
         />
@@ -113,7 +128,7 @@ export default function CebaHub({ screen }: StageBProps) {
             </PrimaryBtn>
           </Card>
         )}
-        {sheet?.k === 'pesaje' && <PesajeRapido animalIds={sheet.animalIds} onClose={() => setSheet(null)} />}
+        {sheet?.k === 'pesaje' && <PesajeRapido animalIds={sheet.animalIds} onClose={closeSheet} />}
       </Screen>
     );
 
@@ -140,7 +155,7 @@ export default function CebaHub({ screen }: StageBProps) {
             items={[
               { label: 'Animales', value: num(lv.heads) },
               { label: 'Peso prom.', value: lv.avgWeightKg !== null ? `${num(lv.avgWeightKg, 0)} kg` : '—' },
-              { label: 'GMD lote', value: lv.avgGmdKg !== null ? num(lv.avgGmdKg, 2) : '—', tone: lv.gmdColor === 'verde' ? 'text-emerald-700' : lv.gmdColor === 'amarillo' ? 'text-amber-700' : lv.gmdColor === 'rojo' ? 'text-rose-700' : undefined },
+              { label: 'kg/día', value: lv.avgGmdKg !== null ? num(lv.avgGmdKg, 2) : '—', tone: lv.gmdColor === 'verde' ? 'text-emerald-700' : lv.gmdColor === 'amarillo' ? 'text-amber-700' : lv.gmdColor === 'rojo' ? 'text-rose-700' : undefined },
               { label: 'Faena est.', value: lv.projectedSaleDate ? fd(lv.projectedSaleDate) : '—' },
             ]}
           />
@@ -159,13 +174,13 @@ export default function CebaHub({ screen }: StageBProps) {
           <Card title="Proyección a faena" right={lv.avgGmdKg !== null ? <GmdChip gmd={lv.avgGmdKg} color={lv.gmdColor} /> : undefined}>
             <p className="text-sm text-slate-900">
               Peso objetivo <strong>{num(lv.targetWeightKg)} kg</strong> · promedio actual <strong>{lv.avgWeightKg !== null ? `${num(lv.avgWeightKg, 0)} kg` : 'sin pesajes'}</strong>
-              {lv.avgGmdKg !== null ? ` · GMD ${num(lv.avgGmdKg, 2)}` : ''}
+              {lv.avgGmdKg !== null ? ` · gana ${num(lv.avgGmdKg, 2)} kg/día` : ''}
             </p>
             <ProgressBar pct={progress} tone={progress >= 100 ? 'emerald' : 'sky'} label="Avance hacia el peso objetivo" />
             {projDays !== null && lv.projectedSaleDate ? (
               <p className="text-lg font-black text-sky-900">{projDays === 0 ? 'Ya alcanzó el peso objetivo' : `Faltan ${num(projDays)} días · ${fdy(lv.projectedSaleDate)}`}</p>
             ) : lv.avgWeightKg !== null && lv.avgGmdKg !== null && lv.avgGmdKg <= 0 ? (
-              <p className="text-sm font-black text-rose-800 bg-rose-50 border-2 border-rose-200 rounded-xl p-2">Con la GMD actual no alcanza el peso objetivo.</p>
+              <p className="text-sm font-black text-rose-800 bg-rose-50 border-2 border-rose-200 rounded-xl p-2">Con la ganancia diaria actual no alcanza el peso objetivo.</p>
             ) : (
               <p className="text-sm text-slate-800">Faltan pesajes para calcular la proyección (se necesitan dos pesajes).</p>
             )}
@@ -197,12 +212,12 @@ export default function CebaHub({ screen }: StageBProps) {
             {lv.feedKg === 0 && <p className="text-xs text-slate-700">Registra las raciones (o las salidas de alimento al lote) para calcular la conversión.</p>}
           </Card>
 
-          <Card title="Distribución de GMD">
+          <Card title="Ganancia diaria por animal">
             {(['verde', 'amarillo', 'rojo', 'sin_dato'] as GmdColor[]).map((c) => {
               const n = dist[c].length;
               const pct = members.length ? (n / members.length) * 100 : 0;
               return (
-                <button key={c} type="button" disabled={!n} onClick={() => setSheet({ k: 'gmd', color: c })} className="w-full flex items-center gap-3 min-h-11 text-left disabled:opacity-60">
+                <button key={c} type="button" disabled={!n} onClick={() => setSheet({ k: 'gmd', color: c })} className="w-full flex items-center gap-3 min-h-12 text-left disabled:opacity-60">
                   <span className="w-20 text-sm font-bold text-slate-900">{GMD_LABEL[c]}</span>
                   <span className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden">
                     <span className={`block h-full ${GMD_BAR[c]}`} style={{ width: `${pct}%` }} />
@@ -252,25 +267,38 @@ export default function CebaHub({ screen }: StageBProps) {
           </Card>
 
           <Can do="cerrarLote">
-            <SecondaryBtn className="w-full" onClick={() => navigate({ s: 'liquidacion', loteId: lot.id }, 'mas')}>
+            <SecondaryBtn className="w-full" onClick={() => navigate({ s: 'liquidacion', loteId: lot.id })}>
               <DollarSign className="w-4 h-4" /> Liquidar y cerrar el lote
             </SecondaryBtn>
           </Can>
         </>
       )}
 
-      {sheet?.k === 'pesaje' && <PesajeRapido lotId={sheet.animalIds?.length ? undefined : lotId} animalIds={sheet.animalIds} onClose={() => setSheet(null)} />}
+      {sheet?.k === 'elegirLote' && (
+        <LotPickerSheet
+          title="¿Qué lote vas a pesar?"
+          lotType="ceba"
+          selectedId={lotId ?? null}
+          onClose={closeSheet}
+          onPick={(id) => {
+            if (!id) return;
+            setLotId(id);
+            setSheet({ k: 'pesaje' });
+          }}
+        />
+      )}
+      {sheet?.k === 'pesaje' && <PesajeRapido lotId={sheet.animalIds?.length ? undefined : lotId} animalIds={sheet.animalIds} onClose={closeSheet} />}
       {sheet?.k === 'pesajeLote' && lotId && <PesajeLoteSheet lotId={lotId} onClose={() => setSheet(null)} />}
-      {sheet?.k === 'racion' && <RacionSheet lotId={lotId} onClose={() => setSheet(null)} />}
+      {sheet?.k === 'racion' && <RacionSheet lotId={lotId} onClose={closeSheet} />}
       {sheet?.k === 'venta' && <VentaGanadoSheet animalIds={sheet.ids} onClose={() => setSheet(null)} />}
       {sheet?.k === 'gmd' && (
-        <BottomSheet title={`GMD ${GMD_LABEL[sheet.color]}`} subtitle={`${dist[sheet.color].length} animales`} icon={<Scale className="w-5 h-5" />} iconClass="bg-sky-100 text-sky-700" onClose={() => setSheet(null)}>
+        <BottomSheet title={`Ganancia diaria: ${GMD_LABEL[sheet.color]}`} subtitle={`${dist[sheet.color].length} animales`} icon={<Scale className="w-5 h-5" />} iconClass="bg-sky-100 text-sky-700" onClose={() => setSheet(null)}>
           <ul className="space-y-2">
             {dist[sheet.color].map((v) => (
               <li key={v.id}>
                 <AnimalRow
                   v={v}
-                  subtitle={`${v.weightKg !== null ? `${num(v.weightKg, 0)} kg` : 'Sin peso'} · ${v.gmdKg !== null ? `${num(v.gmdKg, 2)} kg/d` : 'sin GMD'}${v.weightDate ? ` · ${fd(v.weightDate)}` : ''}`}
+                  subtitle={`${v.weightKg !== null ? `${num(v.weightKg, 0)} kg` : 'Sin peso'} · ${v.gmdKg !== null ? `${num(v.gmdKg, 2)} kg/d` : 'sin dato'}${v.weightDate ? ` · ${fd(v.weightDate)}` : ''}`}
                   onClick={() => {
                     setSheet(null);
                     navigate({ s: 'animal', id: v.id });

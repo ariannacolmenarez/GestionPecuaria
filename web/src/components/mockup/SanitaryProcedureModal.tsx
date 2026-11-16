@@ -1,9 +1,21 @@
-import React, { useMemo, useState } from 'react';
-import { X, Calendar, User, ShieldCheck, Stethoscope, AlertCircle, CheckCircle2, Package } from 'lucide-react';
+import React, { useId, useMemo, useRef, useState } from 'react';
+import { Calendar, User, ShieldCheck, Stethoscope, AlertCircle, CheckCircle2, Package } from 'lucide-react';
 import { SanitaryTask, WarehouseItem } from '../../types';
-import { todayISO } from '../../utils/dates';
+import { todayISO, formatShortDate } from '../../utils/dates';
 import { round2 } from '../../models/porcinoRules';
 import { ModalActionReturn, runModalAction, toNumber } from './modalResult';
+import {
+  Btn,
+  ErrorBox,
+  FieldError,
+  FieldLabel,
+  ModalHeader,
+  Overlay,
+  fieldClass,
+  inputClass,
+  useBackClose,
+  useFocusFirstInvalid,
+} from '../common/ui';
 
 /** Datos opcionales al completar la tarea (se pasan a porcinoActions.completeSanitaryTask). */
 export interface CompleteTaskOptions {
@@ -28,27 +40,37 @@ interface SanitaryProcedureModalProps {
 
 const NO_ITEM = '';
 
+const fmtDate = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? formatShortDate(d) : d || '—');
+
 export const SanitaryProcedureModal: React.FC<SanitaryProcedureModalProps> = ({
   task,
   onClose,
   onComplete,
   warehouseItems,
 }) => {
+  const uid = useId();
+  const titleId = `${uid}-title`;
+  const bodyRef = useRef<HTMLDivElement>(null);
   const canPickItem = Array.isArray(warehouseItems);
   const usableItems = useMemo(
     () => (warehouseItems || []).filter((i) => i.category !== 'alimentos' || i.id === task?.warehouseItemId),
     [warehouseItems, task?.warehouseItemId]
   );
 
+  const initialQty = task?.warehouseQuantity !== undefined ? String(task.warehouseQuantity) : '';
   const [itemId, setItemId] = useState<string>(task?.warehouseItemId || NO_ITEM);
-  const [quantity, setQuantity] = useState<string>(
-    task?.warehouseQuantity !== undefined ? String(task.warehouseQuantity) : ''
-  );
+  const [quantity, setQuantity] = useState<string>(initialQty);
   const [date, setDate] = useState(todayISO());
   const [notes, setNotes] = useState('');
+  const [errors, setErrors] = useState<{ date?: string; qty?: string }>({});
   const [error, setError] = useState<string | null>(null);
+  const [submitCount, setSubmitCount] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isDone, setIsDone] = useState(false);
+
+  const dirty = !isDone && (!!notes.trim() || quantity !== initialQty || itemId !== (task?.warehouseItemId || NO_ITEM));
+  const { requestClose, confirmDialog } = useBackClose(!!task, onClose, dirty);
+  useFocusFirstInvalid(bodyRef, errors.date || errors.qty || null, submitCount);
 
   if (!task) return null;
 
@@ -60,20 +82,15 @@ export const SanitaryProcedureModal: React.FC<SanitaryProcedureModalProps> = ({
 
   const handleComplete = async () => {
     setError(null);
-    if (!date || date > todayISO()) {
-      setError('La fecha de realización no puede ser futura.');
-      return;
-    }
+    const next: { date?: string; qty?: string } = {};
+    if (!date || date > todayISO()) next.date = 'La fecha no puede ser futura.';
     if (selectedItem) {
-      if (qtyNum <= 0) {
-        setError('Indica la cantidad del insumo utilizada.');
-        return;
-      }
-      if (qtyNum > stock) {
-        setError(`Stock insuficiente de ${selectedItem.name}: hay ${stock} ${selectedItem.unit}.`);
-        return;
-      }
+      if (qtyNum <= 0) next.qty = 'Indica cuánto insumo usaste.';
+      else if (qtyNum > stock) next.qty = `No alcanza: hay ${stock} ${selectedItem.unit} de ${selectedItem.name}.`;
     }
+    setErrors(next);
+    setSubmitCount((c) => c + 1);
+    if (next.date || next.qty) return;
     const options: CompleteTaskOptions = {
       date,
       notes: notes.trim() || undefined,
@@ -91,172 +108,160 @@ export const SanitaryProcedureModal: React.FC<SanitaryProcedureModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+    <Overlay className="bg-black/60 flex items-end sm:items-center justify-center sm:p-4" onBackdrop={requestClose}>
       <div
         id="sanitary-procedure-dialog"
-        className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-xl overflow-hidden flex flex-col max-h-[94%] sm:max-h-[90vh]"
       >
-        {/* Header */}
-        <div className="bg-blue-600 text-white p-4 flex items-start justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-white/10 rounded-xl">
-              <Stethoscope className="w-5 h-5 text-blue-100" />
-            </div>
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-200">
-                Protocolo Veterinario
-              </span>
-              <h3 className="font-bold text-base leading-tight text-white mt-0.5">{task.title}</h3>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        <ModalHeader
+          rubro="porcino"
+          icon={<Stethoscope />}
+          title={task.title}
+          subtitle="Actividad sanitaria"
+          titleId={titleId}
+          onClose={requestClose}
+        />
 
         {isDone ? (
-          <div className="p-8 text-center space-y-3">
-            <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-7 h-7" />
+          <div className="p-6 text-center space-y-3 overflow-y-auto">
+            <div className="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
             </div>
-            <h4 className="font-bold text-slate-800 text-base">¡Actividad Completada!</h4>
-            <p className="text-xs text-slate-600">
+            <h3 className="font-bold text-slate-900 text-lg">Actividad completada</h3>
+            <p className="text-sm text-slate-700">
               {selectedItem
-                ? `Se descontaron ${qtyNum} ${selectedItem.unit} de ${selectedItem.name} y se imputó el costo ($${costPreview.toFixed(2)}).`
-                : 'La tarea quedó registrada como realizada en el calendario y en la trazabilidad.'}
+                ? `Se descontaron ${qtyNum} ${selectedItem.unit} de ${selectedItem.name} del almacén (costo $${costPreview.toFixed(2)}).`
+                : 'Quedó marcada como hecha en el calendario y en la historia del animal.'}
             </p>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
-            >
-              Cerrar
-            </button>
+            <Btn rubro="porcino" size="lg" block onClick={onClose}>
+              Volver al calendario
+            </Btn>
           </div>
         ) : (
           <>
-            {/* Content */}
-            <div className="p-4 space-y-3.5 overflow-y-auto text-xs">
-              {/* Metadata badges */}
+            <div ref={bodyRef} className="flex-1 min-h-0 p-4 space-y-4 overflow-y-auto text-sm">
+              {/* Datos de la tarea */}
               <div className="grid grid-cols-2 gap-2">
-                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="text-[10px] text-slate-400 block font-medium">Fecha Programada</span>
-                  <span className="font-bold text-slate-800 flex items-center gap-1 mt-0.5">
-                    <Calendar className="w-3.5 h-3.5 text-blue-600" /> {task.date}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <span className="text-xs text-slate-600 block font-semibold">Fecha programada</span>
+                  <span className="font-bold text-slate-900 flex items-center gap-1.5 mt-0.5">
+                    <Calendar className="w-4 h-4 text-rose-700" aria-hidden="true" /> {fmtDate(task.date)}
                   </span>
                 </div>
-                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="text-[10px] text-slate-400 block font-medium">Responsable</span>
-                  <span className="font-bold text-slate-800 flex items-center gap-1 mt-0.5 truncate">
-                    <User className="w-3.5 h-3.5 text-blue-600" /> {task.responsible || '—'}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 min-w-0">
+                  <span className="text-xs text-slate-600 block font-semibold">Responsable</span>
+                  <span className="font-bold text-slate-900 flex items-center gap-1.5 mt-0.5 truncate">
+                    <User className="w-4 h-4 text-rose-700 shrink-0" aria-hidden="true" /> {task.responsible || '—'}
                   </span>
                 </div>
               </div>
 
-              {/* Grupo objetivo & Dosis */}
-              <div className="bg-blue-50/60 rounded-xl p-3 border border-blue-100 space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500 font-medium">Grupo Objetivo:</span>
-                  <span className="font-bold text-slate-800">{task.targetGroup}</span>
+              <dl className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-2">
+                <div className="flex justify-between items-start gap-3">
+                  <dt className="text-slate-600 font-medium">Grupo</dt>
+                  <dd className="font-bold text-slate-900 text-right">{task.targetGroup}</dd>
                 </div>
                 {task.targetAnimal && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500 font-medium">Animal / Lote:</span>
-                    <span className="font-bold text-slate-800">{task.targetAnimal}</span>
+                  <div className="flex justify-between items-start gap-3">
+                    <dt className="text-slate-600 font-medium">Animal o lote</dt>
+                    <dd className="font-bold text-slate-900 text-right">{task.targetAnimal}</dd>
                   </div>
                 )}
                 {task.medicamentUsed && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500 font-medium">Medicamento:</span>
-                    <span className="font-bold text-blue-700">{task.medicamentUsed}</span>
+                  <div className="flex justify-between items-start gap-3">
+                    <dt className="text-slate-600 font-medium">Medicamento</dt>
+                    <dd className="font-bold text-slate-900 text-right">{task.medicamentUsed}</dd>
                   </div>
                 )}
                 {task.dosage && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500 font-medium">Dosis Recomendada:</span>
-                    <span className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-blue-200">
-                      {task.dosage}
-                    </span>
+                  <div className="flex justify-between items-start gap-3">
+                    <dt className="text-slate-600 font-medium">Dosis</dt>
+                    <dd className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded-lg border border-slate-300 text-right">{task.dosage}</dd>
                   </div>
                 )}
-              </div>
+              </dl>
 
               {/* Procedimiento */}
               <div>
-                <h4 className="font-bold text-slate-900 mb-1.5 flex items-center gap-1 text-xs">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  Procedimiento Operativo Específico
-                </h4>
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-slate-700 leading-relaxed">
-                  {task.procedure || 'Sin procedimiento detallado.'}
+                <h3 className="font-bold text-slate-900 mb-1.5 flex items-center gap-1.5 text-sm">
+                  <ShieldCheck className="w-5 h-5 text-emerald-700" aria-hidden="true" />
+                  Cómo hacerlo
+                </h3>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-slate-800 leading-relaxed whitespace-pre-line">
+                  {task.procedure || 'Sin pasos escritos.'}
                 </div>
               </div>
 
               {!isClosed && (
-                <div className="space-y-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Fecha de realización:</label>
-                      <input
-                        type="date"
-                        max={todayISO()}
-                        value={date}
-                        onChange={(e) => setDate(e.target.value)}
-                        className="w-full px-2 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Observaciones:</label>
-                      <input
-                        type="text"
-                        value={notes}
-                        placeholder="Opcional"
-                        onChange={(e) => setNotes(e.target.value)}
-                        className="w-full px-2 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-900"
-                      />
-                    </div>
+                <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <div>
+                    <FieldLabel htmlFor={`${uid}-date`}>¿Cuándo se hizo?</FieldLabel>
+                    <input
+                      id={`${uid}-date`}
+                      type="date"
+                      max={todayISO()}
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      aria-invalid={!!errors.date}
+                      aria-describedby={errors.date ? `${uid}-date-err` : undefined}
+                      className={fieldClass(!!errors.date)}
+                    />
+                    <FieldError id={`${uid}-date-err`} error={errors.date} />
+                  </div>
+                  <div>
+                    <FieldLabel htmlFor={`${uid}-notes`}>Observaciones (opcional)</FieldLabel>
+                    <input
+                      id={`${uid}-notes`}
+                      type="text"
+                      value={notes}
+                      placeholder="Ej: un animal con fiebre"
+                      onChange={(e) => setNotes(e.target.value)}
+                      className={inputClass}
+                    />
                   </div>
 
                   {canPickItem && (
-                    <div className="space-y-1.5">
-                      <label className="block text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                        <Package className="w-3.5 h-3.5 text-slate-500" /> Insumo de almacén utilizado:
-                      </label>
-                      <select
-                        value={itemId}
-                        onChange={(e) => setItemId(e.target.value)}
-                        className="w-full px-2 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-900"
-                      >
-                        <option value={NO_ITEM}>Ninguno (no descontar stock)</option>
+                    <div className="space-y-2">
+                      <FieldLabel htmlFor={`${uid}-item`}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Package className="w-4 h-4 text-slate-700" aria-hidden="true" /> Insumo del almacén usado
+                        </span>
+                      </FieldLabel>
+                      <select id={`${uid}-item`} value={itemId} onChange={(e) => setItemId(e.target.value)} className={inputClass}>
+                        <option value={NO_ITEM}>Ninguno (no descontar)</option>
                         {usableItems.map((i) => (
                           <option key={i.id} value={i.id}>
-                            {i.name} — stock {i.quantity} {i.unit}
+                            {i.name} — hay {i.quantity} {i.unit}
                           </option>
                         ))}
                       </select>
                       {selectedItem && (
-                        <div className="grid grid-cols-2 gap-2 items-end">
-                          <div>
-                            <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                              Cantidad usada ({selectedItem.unit}):
-                            </label>
-                            <input
-                              type="number"
-                              step="any"
-                              min="0"
-                              max={stock}
-                              value={quantity}
-                              placeholder="0"
-                              onChange={(e) => setQuantity(e.target.value)}
-                              className="w-full px-2 py-1.5 border border-slate-300 rounded-lg bg-white font-bold text-slate-900"
-                            />
-                          </div>
-                          <span className="text-[10px] text-slate-600 pb-1.5">
-                            Costo imputado: <strong>${costPreview.toFixed(2)}</strong>
-                          </span>
+                        <div>
+                          <label htmlFor={`${uid}-qty`} className="block text-sm font-semibold text-slate-900 mb-1">
+                            Cantidad usada ({selectedItem.unit})
+                          </label>
+                          <input
+                            id={`${uid}-qty`}
+                            type="number"
+                            inputMode="decimal"
+                            step="any"
+                            min="0"
+                            max={stock}
+                            enterKeyHint="done"
+                            value={quantity}
+                            placeholder="Ej: 2"
+                            onChange={(e) => setQuantity(e.target.value)}
+                            aria-invalid={!!errors.qty}
+                            aria-describedby={errors.qty ? `${uid}-qty-err` : undefined}
+                            className={fieldClass(!!errors.qty, 'font-bold')}
+                          />
+                          <FieldError id={`${uid}-qty-err`} error={errors.qty} />
+                          <p className="text-xs text-slate-700 mt-1">
+                            Costo: <strong>${costPreview.toFixed(2)}</strong>
+                          </p>
                         </div>
                       )}
                     </div>
@@ -266,56 +271,52 @@ export const SanitaryProcedureModal: React.FC<SanitaryProcedureModalProps> = ({
 
               {/* Qué ocurre al completar (coincide con lo que hace el sistema) */}
               {!isClosed && (
-                <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200/80 flex items-start gap-2 text-amber-900">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <p className="text-[11px] leading-tight">
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-300 flex items-start gap-2 text-amber-900">
+                  <AlertCircle className="w-5 h-5 text-amber-700 shrink-0" aria-hidden="true" />
+                  <p className="text-xs leading-snug">
                     {selectedItem
-                      ? `Al marcarla como realizada se descontarán ${qtyNum || 0} ${selectedItem.unit} de ${selectedItem.name} del almacén, se registrará el evento en la trazabilidad y su costo se imputará al animal o lote${
-                          selectedItem.expensedOnPurchase ? ' (la compra ya fue registrada como egreso).' : ' y como egreso en el balance.'
+                      ? `Al marcarla como hecha se descontarán ${qtyNum || 0} ${selectedItem.unit} de ${selectedItem.name} del almacén, quedará en la historia del animal y su costo se cargará al animal o lote${
+                          selectedItem.expensedOnPurchase ? ' (la compra ya se anotó como gasto).' : ' y como gasto en el balance.'
                         }`
-                      : 'Al marcarla como realizada se registrará la fecha de cierre y el evento en la trazabilidad. No se descontará stock del almacén.'}
+                      : 'Al marcarla como hecha se guarda la fecha y queda en la historia del animal. No se descuenta nada del almacén.'}
                   </p>
                 </div>
               )}
 
               {task.status === 'cancelada' && (
-                <div className="p-2.5 bg-slate-100 rounded-xl border border-slate-200 text-slate-700 text-[11px]">
+                <div className="p-3 bg-slate-100 rounded-xl border border-slate-300 text-slate-800 text-sm">
                   Tarea cancelada{task.cancelReason ? `: ${task.cancelReason}` : '.'}
-                </div>
-              )}
-
-              {error && (
-                <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-[11px] font-bold text-rose-800">
-                  {error}
                 </div>
               )}
             </div>
 
-            {/* Footer */}
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center gap-2">
-              <button
-                onClick={onClose}
-                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 font-bold text-slate-600 hover:bg-slate-100 text-xs transition-colors"
-              >
-                Cerrar
-              </button>
+            {/* Pie fijo */}
+            <div className="shrink-0 p-3 border-t border-slate-200 bg-white space-y-2">
+              <ErrorBox error={error} />
               {!isClosed ? (
-                <button
-                  onClick={handleComplete}
-                  disabled={isSaving}
-                  className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-                >
-                  <CheckCircle2 className="w-4 h-4" /> {isSaving ? 'Guardando...' : 'Marcar Realizada'}
-                </button>
+                <div className="grid grid-cols-[auto_1fr] gap-2">
+                  <Btn variant="secondary" size="lg" onClick={requestClose}>
+                    Cerrar
+                  </Btn>
+                  <Btn rubro="porcino" size="lg" block onClick={handleComplete} disabled={isSaving} icon={<CheckCircle2 />}>
+                    {isSaving ? 'Guardando…' : 'Marcar como hecha'}
+                  </Btn>
+                </div>
               ) : (
-                <span className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center justify-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" /> {task.status === 'cancelada' ? 'Cancelada' : 'Ya Completada'}
-                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <span className="min-h-12 px-3 rounded-xl bg-emerald-100 text-emerald-900 font-bold text-sm flex items-center justify-center gap-1.5">
+                    <CheckCircle2 className="w-5 h-5" aria-hidden="true" /> {task.status === 'cancelada' ? 'Cancelada' : 'Ya está hecha'}
+                  </span>
+                  <Btn variant="secondary" size="lg" onClick={onClose}>
+                    Cerrar
+                  </Btn>
+                </div>
               )}
             </div>
           </>
         )}
+        {confirmDialog}
       </div>
-    </div>
+    </Overlay>
   );
 };

@@ -1,9 +1,22 @@
-import React, { useMemo, useState } from 'react';
-import { X, Plus, Trash2, Utensils, Layers, Heart, Baby, Activity, ShieldCheck, Info, Save } from 'lucide-react';
+import React, { useId, useMemo, useRef, useState } from 'react';
+import { Plus, Trash2, Utensils, Layers, Heart, Baby, Activity, ShieldCheck, Info, Save, Pencil } from 'lucide-react';
 import { ProductionFeedingPlan, ProductionFeedingPhase, ProductionType } from '../../types';
 import { newId } from '../../utils/ids';
 import { round2 } from '../../models/porcinoRules';
 import { toNumber } from './modalResult';
+import {
+  Btn,
+  ConfirmDialog,
+  ErrorBox,
+  FieldError,
+  FieldLabel,
+  ModalHeader,
+  Overlay,
+  fieldClass,
+  inputClass,
+  useBackClose,
+  useFocusFirstInvalid,
+} from '../common/ui';
 
 interface FeedingPlanConfigModalProps {
   plans: ProductionFeedingPlan[];
@@ -22,12 +35,30 @@ const normalizePhases = (phases: ProductionFeedingPhase[]): ProductionFeedingPha
     weightRangeKg: `${toNumber(ph.minWeightKg)} kg - ${toNumber(ph.maxWeightKg)} kg`,
   }));
 
+const getProductionBadge = (type: ProductionType) => {
+  switch (type) {
+    case 'engorde':
+      return { label: 'Engorde', icon: Layers };
+    case 'maternidad':
+      return { label: 'Maternidad', icon: Heart };
+    case 'lechones':
+      return { label: 'Lechones', icon: Baby };
+    default:
+      return { label: 'Verracos', icon: Activity };
+  }
+};
+
+type PhaseErrors = Partial<Record<'stage' | 'feed' | 'min' | 'max' | 'days' | 'daily', string>>;
+
 export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
   plans,
   initialType = 'engorde',
   onClose,
   onUpdatePlans,
 }) => {
+  const uid = useId();
+  const titleId = `${uid}-title`;
+  const formRef = useRef<HTMLFormElement>(null);
   const [selectedType, setSelectedType] = useState<ProductionType>(initialType);
   // Edición en estado local: solo se persiste al pulsar "Guardar cambios"
   const [localPlans, setLocalPlans] = useState<ProductionFeedingPlan[]>(() =>
@@ -39,8 +70,11 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
   const [savedNotice, setSavedNotice] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [phaseErrors, setPhaseErrors] = useState<PhaseErrors>({});
+  const [submits, setSubmits] = useState(0);
+  const [toDelete, setToDelete] = useState<ProductionFeedingPhase | null>(null);
 
-  // New Phase Form State
+  // Nueva etapa
   const [newStageName, setNewStageName] = useState('');
   const [newFeedName, setNewFeedName] = useState('');
   const [newMinWeight, setNewMinWeight] = useState('');
@@ -50,6 +84,12 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
   const [newDailyKg, setNewDailyKg] = useState('');
   const [newAnimalState, setNewAnimalState] = useState('');
   const [newDescription, setNewDescription] = useState('');
+
+  const typedNewPhase =
+    showNewPhaseForm &&
+    !!(newStageName.trim() || newFeedName.trim() || newMinWeight || newMaxWeight || newDurationDays || newDailyKg || newAnimalState.trim() || newDescription.trim() || newDaysRange.trim());
+  const { requestClose, confirmDialog } = useBackClose(true, onClose, isDirty || typedNewPhase);
+  useFocusFirstInvalid(formRef, (Object.values(phaseErrors).find(Boolean) as string | undefined) || null, submits);
 
   const currentPlan = useMemo(
     () => localPlans.find((p) => p.productionType === selectedType) || localPlans[0],
@@ -81,22 +121,21 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
     ev.preventDefault();
     setFormError(null);
     if (!currentPlan) return;
-    if (!newStageName.trim() || !newFeedName.trim()) {
-      setFormError('Indica el nombre de la etapa y el alimento.');
-      return;
-    }
     const min = toNumber(newMinWeight);
     const max = toNumber(newMaxWeight);
     const duration = Math.max(1, Math.round(toNumber(newDurationDays, 1)));
     const daily = toNumber(newDailyKg);
-    if (min < 0 || max <= 0 || min > max) {
-      setFormError('El peso mínimo debe ser menor o igual al máximo (y ambos positivos).');
-      return;
-    }
-    if (daily <= 0) {
-      setFormError('El consumo diario debe ser mayor a 0.');
-      return;
-    }
+    const next: PhaseErrors = {};
+    if (!newStageName.trim()) next.stage = 'Escribe el nombre de la etapa.';
+    if (!newFeedName.trim()) next.feed = 'Escribe qué alimento se da.';
+    if (newMinWeight === '' || min < 0) next.min = 'Escribe el peso de inicio.';
+    if (max <= 0) next.max = 'Escribe el peso final.';
+    else if (min > max) next.max = 'Debe ser mayor o igual al peso de inicio.';
+    if (!newDurationDays || toNumber(newDurationDays) < 1) next.days = 'Escribe cuántos días dura (1 o más).';
+    if (daily <= 0) next.daily = 'Escribe cuántos kg come al día.';
+    setPhaseErrors(next);
+    setSubmits((n) => n + 1);
+    if (Object.keys(next).length > 0) return;
 
     const newPhase: ProductionFeedingPhase = {
       id: newId('phase'),
@@ -139,7 +178,7 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
     setFormError(null);
     if (invalidPhase) {
       setFormError(
-        `Revisa la etapa "${invalidPhase.ph.stageName}" de ${invalidPhase.plan.typeName}: peso mínimo mayor al máximo o duración inválida.`
+        `Revisa la etapa "${invalidPhase.ph.stageName}" de ${invalidPhase.plan.typeName}: el peso de inicio es mayor que el final o los días no son válidos.`
       );
       return;
     }
@@ -149,77 +188,63 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
       setIsDirty(false);
       setSavedNotice(true);
     } catch (err: any) {
-      setFormError(err?.message || 'No se pudo guardar la configuración.');
+      setFormError(err?.message || 'No se pudo guardar el plan.');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleClose = () => {
-    if (isDirty && !window.confirm('Hay cambios sin guardar. ¿Deseas descartarlos?')) return;
-    onClose();
-  };
-
   const numInput = (v: string) => toNumber(v);
+  const pErr = (k: keyof PhaseErrors) => (phaseErrors[k] ? `${uid}-p-${k}` : undefined);
+  /** Muestra vacío en lugar de 0 (el usuario no tiene que borrar el cero). */
+  const shown = (v: number | undefined) => (v ? v : '');
 
-  const getProductionBadge = (type: ProductionType) => {
-    switch (type) {
-      case 'engorde':
-        return { label: 'Engorde Comercial', icon: Layers, color: 'text-emerald-700' };
-      case 'maternidad':
-        return { label: 'Maternidad y Cerdas', icon: Heart, color: 'text-rose-700' };
-      case 'lechones':
-        return { label: 'Lechones Lactantes', icon: Baby, color: 'text-amber-700' };
-      default:
-        return { label: 'Verracos Sementales', icon: Activity, color: 'text-blue-700' };
-    }
-  };
+  const numberField = (
+    key: keyof PhaseErrors,
+    label: string,
+    value: string,
+    set: (v: string) => void,
+    opts: { placeholder: string; mode: 'decimal' | 'numeric'; step?: string }
+  ) => (
+    <div>
+      <FieldLabel htmlFor={`${uid}-n-${key}`}>{label}</FieldLabel>
+      <input
+        id={`${uid}-n-${key}`}
+        type="number"
+        inputMode={opts.mode}
+        step={opts.step}
+        min="0"
+        placeholder={opts.placeholder}
+        value={value}
+        onChange={(e) => set(e.target.value)}
+        aria-invalid={!!phaseErrors[key]}
+        aria-describedby={pErr(key)}
+        className={fieldClass(!!phaseErrors[key], 'font-bold')}
+      />
+      <FieldError id={pErr(key)} error={phaseErrors[key]} />
+    </div>
+  );
 
   return (
-    <div
-      id="feeding-plan-config-modal-overlay"
-      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150 overflow-y-auto"
-    >
+    <Overlay className="bg-black/70 flex items-end sm:items-center justify-center sm:p-4" onBackdrop={requestClose}>
       <div
         id="feeding-plan-config-card"
-        className="bg-white text-slate-900 w-full max-w-3xl rounded-3xl overflow-hidden shadow-2xl border border-slate-200 my-auto flex flex-col max-h-[92vh]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white text-slate-900 w-full max-w-3xl rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[94%] sm:max-h-[92vh]"
       >
-        {/* Header */}
-        <div className="bg-slate-900 text-white p-4 shrink-0 flex items-center justify-between border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-              <Utensils className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
-                Configuración del Plan de Alimentación por Producción
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                Ajuste de raciones, alimentos, rangos de peso y días por etapa productiva
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={handleClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        <ModalHeader
+          rubro="porcino"
+          icon={<Utensils />}
+          title="Plan de alimentación"
+          subtitle="Alimento, kg por día y pesos de cada etapa"
+          titleId={titleId}
+          onClose={requestClose}
+        />
 
-        {/* Informative Banner */}
-        <div className="p-3 bg-amber-50 border-b border-amber-200 flex items-start gap-2.5 text-amber-950 shrink-0">
-          <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-          <p className="text-[11px] leading-relaxed">
-            <strong>Parámetros Nutricionales:</strong> Las etapas aquí configuradas determinan
-            automáticamente la ración diaria (kg/día), el alimento correspondiente y el peso esperado
-            que se mostrará en la trazabilidad individual de cada animal. Los cambios se aplican al pulsar
-            <strong> Guardar cambios</strong>.
-          </p>
-        </div>
-
-        {/* Production Type Selector Tabs */}
-        <div className="bg-slate-100 p-2 flex items-center gap-1.5 border-b border-slate-200 shrink-0 overflow-x-auto">
+        {/* Tipo de producción: todas visibles */}
+        <div role="tablist" aria-label="Tipo de producción" className="bg-slate-100 p-2 grid grid-cols-2 sm:grid-cols-4 gap-2 border-b border-slate-200 shrink-0">
           {localPlans.map((p) => {
             const badge = getProductionBadge(p.productionType);
             const IconComponent = badge.icon;
@@ -227,420 +252,340 @@ export const FeedingPlanConfigModal: React.FC<FeedingPlanConfigModalProps> = ({
             return (
               <button
                 key={p.productionType}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
                 onClick={() => {
                   setSelectedType(p.productionType);
                   setShowNewPhaseForm(false);
                   setEditingPhaseId(null);
+                  setPhaseErrors({});
                 }}
-                className={`flex-1 py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  isSelected
-                    ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-300'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                className={`min-h-11 px-2 rounded-xl flex items-center justify-center gap-1.5 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 ${
+                  isSelected ? 'bg-rose-600 text-white' : 'bg-white text-slate-800 border border-slate-300 hover:bg-slate-50'
                 }`}
               >
-                <IconComponent className="w-3.5 h-3.5" />
+                <IconComponent className="w-4 h-4" aria-hidden="true" />
                 <span>{badge.label}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Scrollable Phase List */}
         {!currentPlan ? (
-          <div className="flex-1 p-8 text-center text-xs text-slate-500">
-            No hay planes de alimentación configurados.
-          </div>
+          <div className="flex-1 p-8 text-center text-sm text-slate-700">No hay planes de alimentación configurados.</div>
         ) : (
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-          {formError && (
-            <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-[11px] font-bold text-rose-800">
-              {formError}
-            </div>
-          )}
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="font-black text-sm text-slate-900">{currentPlan.typeName}</h4>
-              <p className="text-[11px] text-slate-500">{currentPlan.description}</p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowNewPhaseForm(!showNewPhaseForm)}
-              className="flex items-center gap-1 text-[11px] font-bold text-amber-900 hover:text-amber-950 bg-amber-100 px-3 py-1.5 rounded-xl transition-colors cursor-pointer shadow-2xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{showNewPhaseForm ? 'Cancelar' : 'Añadir Etapa Nutricional'}</span>
-            </button>
-          </div>
-
-          {/* Form to Add New Phase */}
-          {showNewPhaseForm && (
-            <form
-              onSubmit={handleAddPhase}
-              className="p-4 bg-amber-50/80 border border-amber-300 rounded-2xl space-y-3 animate-in fade-in"
-            >
-              <span className="font-bold text-xs text-amber-950 block">
-                Nueva Etapa Nutricional para {currentPlan.typeName}
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 text-sm">
+            <p className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-2 text-amber-950 text-xs leading-snug">
+              <Info className="w-4 h-4 text-amber-800 shrink-0 mt-px" aria-hidden="true" />
+              <span>
+                Estas etapas definen cuánto come cada animal al día, qué alimento y el peso esperado que verás en su ficha.
+                Los cambios valen al tocar <strong>Guardar cambios</strong>.
               </span>
+            </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Nombre de la Etapa *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: Crecimiento y Desarrollo Ceba"
-                    value={newStageName}
-                    onChange={(e) => setNewStageName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Alimento Administrado *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: Alimento Crecimiento Ceba 16% PB"
-                    value={newFeedName}
-                    onChange={(e) => setNewFeedName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-semibold"
-                  />
-                </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="font-black text-base text-slate-900">{currentPlan.typeName}</h3>
+                {currentPlan.description && <p className="text-xs text-slate-700">{currentPlan.description}</p>}
               </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Peso Mínimo (kg) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    required
-                    placeholder="Ej. 20"
-                    value={newMinWeight}
-                    onChange={(e) => setNewMinWeight(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Peso Máximo (kg) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    required
-                    placeholder="Ej. 40"
-                    value={newMaxWeight}
-                    onChange={(e) => setNewMaxWeight(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Días de Duración *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    placeholder="Ej. 30"
-                    value={newDurationDays}
-                    onChange={(e) => setNewDurationDays(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Consumo Diario (kg/d) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.05"
-                    min="0"
-                    required
-                    placeholder="Ej. 1.5"
-                    value={newDailyKg}
-                    onChange={(e) => setNewDailyKg(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Rango de Días (Texto referencial)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: Días 51 - 95 (45 días)"
-                    value={newDaysRange}
-                    onChange={(e) => setNewDaysRange(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                    Estado Fisiológico del Animal *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: Máxima Deposición de Tejido Magro"
-                    value={newAnimalState}
-                    onChange={(e) => setNewAnimalState(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                  Descripción Nutricional / Recomendaciones
-                </label>
-                <input
-                  type="text"
-                  placeholder="Objetivo metabólico, suplementación o indicaciones especiales..."
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowNewPhaseForm(false)}
-                  className="px-3 py-1.5 text-slate-600 font-bold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
-                >
-                  Añadir Etapa
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Phases list */}
-          <div className="space-y-3">
-            {currentPhases.length === 0 && (
-              <div className="p-6 text-center text-slate-500 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                Este plan no tiene etapas. Añade la primera etapa nutricional.
-              </div>
-            )}
-            {currentPhases.map((phase) => (
-              <div
-                key={phase.id}
-                className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-all space-y-3"
+              <Btn
+                variant="secondary"
+                icon={<Plus />}
+                aria-expanded={showNewPhaseForm}
+                onClick={() => {
+                  setShowNewPhaseForm(!showNewPhaseForm);
+                  setPhaseErrors({});
+                }}
               >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] font-black text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
-                        Fase {phase.phaseNumber}
-                      </span>
-                      <span className="font-mono text-[10px] font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
-                        {phase.daysRange}
-                      </span>
-                      <h5 className="font-black text-slate-900 text-sm">{phase.stageName}</h5>
-                    </div>
-                    <span className="text-[11px] text-slate-600 block mt-0.5">
-                      Estado: <strong className="text-slate-800">{phase.animalState}</strong>
-                    </span>
-                  </div>
+                {showNewPhaseForm ? 'Cerrar' : 'Añadir etapa'}
+              </Btn>
+            </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditingPhaseId(editingPhaseId === phase.id ? null : phase.id)}
-                      className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
-                    >
-                      {editingPhaseId === phase.id ? 'Cerrar Edición' : 'Editar Valores'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePhase(phase.id)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                      title="Eliminar etapa"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+            {/* Nueva etapa */}
+            {showNewPhaseForm && (
+              <form ref={formRef} onSubmit={handleAddPhase} noValidate className="p-3 bg-amber-50 border-2 border-amber-300 rounded-2xl space-y-3">
+                <p className="font-bold text-sm text-amber-950">Nueva etapa para {currentPlan.typeName}</p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <FieldLabel htmlFor={`${uid}-stage`}>Nombre de la etapa *</FieldLabel>
+                    <input
+                      id={`${uid}-stage`}
+                      type="text"
+                      placeholder="Ej: Crecimiento"
+                      value={newStageName}
+                      onChange={(e) => setNewStageName(e.target.value)}
+                      aria-invalid={!!phaseErrors.stage}
+                      aria-describedby={pErr('stage')}
+                      className={fieldClass(!!phaseErrors.stage, 'font-semibold')}
+                    />
+                    <FieldError id={pErr('stage')} error={phaseErrors.stage} />
+                  </div>
+                  <div>
+                    <FieldLabel htmlFor={`${uid}-feed`}>Alimento *</FieldLabel>
+                    <input
+                      id={`${uid}-feed`}
+                      type="text"
+                      placeholder="Ej: Crecimiento 16% proteína"
+                      value={newFeedName}
+                      onChange={(e) => setNewFeedName(e.target.value)}
+                      aria-invalid={!!phaseErrors.feed}
+                      aria-describedby={pErr('feed')}
+                      className={fieldClass(!!phaseErrors.feed, 'font-semibold')}
+                    />
+                    <FieldError id={pErr('feed')} error={phaseErrors.feed} />
                   </div>
                 </div>
 
-                {/* Inline Quick Editor if toggled */}
-                {editingPhaseId === phase.id ? (
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5 animate-in fade-in">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
-                          Alimento Asignado:
-                        </label>
-                        <input
-                          type="text"
-                          value={phase.feedName}
-                          onChange={(e) => handleUpdatePhase(phase.id, { feedName: e.target.value })}
-                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg font-semibold text-slate-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
-                          Estado Fisiológico:
-                        </label>
-                        <input
-                          type="text"
-                          value={phase.animalState}
-                          onChange={(e) => handleUpdatePhase(phase.id, { animalState: e.target.value })}
-                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg text-slate-900"
-                        />
-                      </div>
-                    </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {numberField('min', 'Peso inicio (kg) *', newMinWeight, setNewMinWeight, { placeholder: 'Ej. 20', mode: 'decimal', step: '0.5' })}
+                  {numberField('max', 'Peso final (kg) *', newMaxWeight, setNewMaxWeight, { placeholder: 'Ej. 40', mode: 'decimal', step: '0.5' })}
+                  {numberField('days', 'Días que dura *', newDurationDays, setNewDurationDays, { placeholder: 'Ej. 30', mode: 'numeric' })}
+                  {numberField('daily', 'Kg por día *', newDailyKg, setNewDailyKg, { placeholder: 'Ej. 1.5', mode: 'decimal', step: '0.05' })}
+                </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
-                          Peso Mín (kg):
-                        </label>
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={phase.minWeightKg}
-                          min="0"
-                          onChange={(e) => handleUpdatePhase(phase.id, { minWeightKg: numInput(e.target.value) })}
-                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
-                          Peso Máx (kg):
-                        </label>
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={phase.maxWeightKg}
-                          min="0"
-                          onChange={(e) => handleUpdatePhase(phase.id, { maxWeightKg: numInput(e.target.value) })}
-                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
-                          Días etapa:
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={phase.durationDays}
-                          onChange={(e) => handleUpdatePhase(phase.id, { durationDays: Math.max(1, Math.round(numInput(e.target.value))) })}
-                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
-                          Kg / día:
-                        </label>
-                        <input
-                          type="number"
-                          step="0.05"
-                          value={phase.dailyConsumptionKg}
-                          min="0"
-                          onChange={(e) => handleUpdatePhase(phase.id, { dailyConsumptionKg: Math.max(0, numInput(e.target.value)) })}
-                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
-                        />
-                      </div>
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <FieldLabel htmlFor={`${uid}-range`}>Días (texto de referencia)</FieldLabel>
+                    <input
+                      id={`${uid}-range`}
+                      type="text"
+                      placeholder="Ej: Días 51 a 95"
+                      value={newDaysRange}
+                      onChange={(e) => setNewDaysRange(e.target.value)}
+                      className={inputClass}
+                    />
                   </div>
-                ) : (
-                  /* Standard Phase Display (Matching Requisito 7 & current visual design) */
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <span className="text-[10px] text-slate-500 block">Alimento</span>
-                      <strong className="text-slate-900 font-bold block text-[11px] truncate" title={phase.feedName}>
-                        {phase.feedName}
-                      </strong>
-                    </div>
-
-                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <span className="text-[10px] text-slate-500 block">Rango de Peso</span>
-                      <strong className="text-slate-900 font-bold block text-[11px]">
-                        {phase.weightRangeKg}
-                      </strong>
-                    </div>
-
-                    <div className="bg-amber-50/80 p-2.5 rounded-xl border border-amber-200">
-                      <span className="text-[10px] text-amber-800 block">Consumo Diario</span>
-                      <strong className="text-amber-950 font-black block text-[11px]">
-                        {phase.dailyConsumptionKg} kg / día
-                      </strong>
-                    </div>
-
-                    <div className="bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200">
-                      <span className="text-[10px] text-emerald-800 block">Total en la Etapa</span>
-                      <strong className="text-emerald-950 font-black block text-[11px]">
-                        {phase.totalFeedKg} kg / animal
-                      </strong>
-                    </div>
+                  <div>
+                    <FieldLabel htmlFor={`${uid}-state`}>Estado del animal</FieldLabel>
+                    <input
+                      id={`${uid}-state`}
+                      type="text"
+                      placeholder="Ej: Ganando carne"
+                      value={newAnimalState}
+                      onChange={(e) => setNewAnimalState(e.target.value)}
+                      className={inputClass}
+                    />
                   </div>
-                )}
+                </div>
 
-                {phase.description && (
-                  <p className="text-[11px] text-slate-500 italic bg-slate-50/60 p-2 rounded-lg">
-                    {phase.description}
-                  </p>
-                )}
-              </div>
-            ))}
+                <div>
+                  <FieldLabel htmlFor={`${uid}-desc`}>Recomendaciones</FieldLabel>
+                  <input
+                    id={`${uid}-desc`}
+                    type="text"
+                    placeholder="Ej: dar en dos comidas, agua siempre limpia"
+                    value={newDescription}
+                    onChange={(e) => setNewDescription(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+
+                <div className="grid grid-cols-[auto_1fr] gap-2 pt-1">
+                  <Btn variant="secondary" onClick={() => setShowNewPhaseForm(false)}>
+                    Cancelar
+                  </Btn>
+                  <Btn type="submit" rubro="porcino" block icon={<Plus />}>
+                    Añadir etapa
+                  </Btn>
+                </div>
+              </form>
+            )}
+
+            {/* Etapas */}
+            <ul className="space-y-3">
+              {currentPhases.length === 0 && (
+                <li className="p-6 text-center text-slate-700 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+                  Este plan no tiene etapas. Añade la primera.
+                </li>
+              )}
+              {currentPhases.map((phase) => {
+                const editing = editingPhaseId === phase.id;
+                return (
+                  <li key={phase.id} className="p-3.5 bg-white rounded-2xl border border-slate-200 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md">Etapa {phase.phaseNumber}</span>
+                          <span className="text-xs font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded-md">{phase.daysRange}</span>
+                        </div>
+                        <h4 className="font-black text-slate-900 text-base mt-1">{phase.stageName}</h4>
+                        <span className="text-xs text-slate-700 block">
+                          Estado: <strong className="text-slate-900">{phase.animalState}</strong>
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setEditingPhaseId(editing ? null : phase.id)}
+                          aria-expanded={editing}
+                          className="min-h-11 px-3 inline-flex items-center gap-1.5 text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+                        >
+                          <Pencil className="w-4 h-4" aria-hidden="true" />
+                          {editing ? 'Listo' : 'Editar'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setToDelete(phase)}
+                          aria-label={`Eliminar etapa ${phase.stageName}`}
+                          className="min-w-11 min-h-11 flex items-center justify-center text-rose-600 hover:bg-rose-50 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600"
+                        >
+                          <Trash2 className="w-5 h-5" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {editing ? (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <FieldLabel htmlFor={`${phase.id}-feed`}>Alimento</FieldLabel>
+                            <input
+                              id={`${phase.id}-feed`}
+                              type="text"
+                              value={phase.feedName}
+                              onChange={(e) => handleUpdatePhase(phase.id, { feedName: e.target.value })}
+                              className={`${inputClass} font-semibold`}
+                            />
+                          </div>
+                          <div>
+                            <FieldLabel htmlFor={`${phase.id}-state`}>Estado del animal</FieldLabel>
+                            <input
+                              id={`${phase.id}-state`}
+                              type="text"
+                              value={phase.animalState}
+                              onChange={(e) => handleUpdatePhase(phase.id, { animalState: e.target.value })}
+                              className={inputClass}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div>
+                            <FieldLabel htmlFor={`${phase.id}-min`}>Peso inicio (kg)</FieldLabel>
+                            <input
+                              id={`${phase.id}-min`}
+                              type="number"
+                              inputMode="decimal"
+                              step="0.5"
+                              min="0"
+                              placeholder="0"
+                              value={shown(phase.minWeightKg)}
+                              onChange={(e) => handleUpdatePhase(phase.id, { minWeightKg: numInput(e.target.value) })}
+                              className={`${inputClass} font-bold`}
+                            />
+                          </div>
+                          <div>
+                            <FieldLabel htmlFor={`${phase.id}-max`}>Peso final (kg)</FieldLabel>
+                            <input
+                              id={`${phase.id}-max`}
+                              type="number"
+                              inputMode="decimal"
+                              step="0.5"
+                              min="0"
+                              placeholder="0"
+                              value={shown(phase.maxWeightKg)}
+                              aria-invalid={toNumber(phase.minWeightKg) > toNumber(phase.maxWeightKg)}
+                              onChange={(e) => handleUpdatePhase(phase.id, { maxWeightKg: numInput(e.target.value) })}
+                              className={fieldClass(toNumber(phase.minWeightKg) > toNumber(phase.maxWeightKg), 'font-bold')}
+                            />
+                            {toNumber(phase.minWeightKg) > toNumber(phase.maxWeightKg) && (
+                              <FieldError error="Debe ser mayor o igual al peso de inicio." />
+                            )}
+                          </div>
+                          <div>
+                            <FieldLabel htmlFor={`${phase.id}-days`}>Días que dura</FieldLabel>
+                            <input
+                              id={`${phase.id}-days`}
+                              type="number"
+                              inputMode="numeric"
+                              min="1"
+                              value={phase.durationDays}
+                              onChange={(e) => handleUpdatePhase(phase.id, { durationDays: Math.max(1, Math.round(numInput(e.target.value))) })}
+                              className={`${inputClass} font-bold`}
+                            />
+                          </div>
+                          <div>
+                            <FieldLabel htmlFor={`${phase.id}-daily`}>Kg por día</FieldLabel>
+                            <input
+                              id={`${phase.id}-daily`}
+                              type="number"
+                              inputMode="decimal"
+                              step="0.05"
+                              min="0"
+                              placeholder="0"
+                              value={shown(phase.dailyConsumptionKg)}
+                              onChange={(e) => handleUpdatePhase(phase.id, { dailyConsumptionKg: Math.max(0, numInput(e.target.value)) })}
+                              className={`${inputClass} font-bold`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 min-w-0">
+                          <dt className="text-xs text-slate-600">Alimento</dt>
+                          <dd className="text-slate-900 font-bold text-sm break-words">{phase.feedName}</dd>
+                        </div>
+                        <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                          <dt className="text-xs text-slate-600">Peso</dt>
+                          <dd className="text-slate-900 font-bold text-sm">{phase.weightRangeKg}</dd>
+                        </div>
+                        <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                          <dt className="text-xs text-amber-900">Come al día</dt>
+                          <dd className="text-amber-950 font-black text-sm">{phase.dailyConsumptionKg} kg</dd>
+                        </div>
+                        <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                          <dt className="text-xs text-emerald-900">Total en la etapa</dt>
+                          <dd className="text-emerald-950 font-black text-sm">{phase.totalFeedKg} kg por animal</dd>
+                        </div>
+                      </dl>
+                    )}
+
+                    {phase.description && <p className="text-xs text-slate-700 italic bg-slate-50 p-2 rounded-lg">{phase.description}</p>}
+                  </li>
+                );
+              })}
+            </ul>
           </div>
-        </div>
-
         )}
 
-        {/* Footer */}
-        <div className="bg-slate-50 p-3.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
-          <div className="flex items-center gap-1.5 text-slate-600 text-[11px]">
-            <ShieldCheck className={`w-4 h-4 ${isDirty ? 'text-amber-600' : 'text-emerald-600'}`} />
-            <span>
-              {isDirty
-                ? 'Cambios sin guardar'
-                : savedNotice
-                ? 'Configuración guardada'
-                : 'Configuración sincronizada con alimentación y trazabilidad'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleClose}
-              className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl font-bold transition-colors cursor-pointer"
-            >
+        {/* Pie fijo */}
+        <div className="bg-white p-3 border-t border-slate-200 shrink-0 space-y-2">
+          <ErrorBox error={formError} />
+          <p className={`text-xs font-semibold flex items-center gap-1.5 ${isDirty ? 'text-amber-800' : 'text-emerald-800'}`} aria-live="polite">
+            <ShieldCheck className="w-4 h-4" aria-hidden="true" />
+            {isDirty ? 'Tienes cambios sin guardar' : savedNotice ? 'Plan guardado' : 'No hay cambios para guardar'}
+          </p>
+          <div className="grid grid-cols-[auto_1fr] gap-2">
+            <Btn variant="secondary" size="lg" onClick={requestClose}>
               {isDirty ? 'Cancelar' : 'Cerrar'}
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={!isDirty || isSaving}
-              className="px-5 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <Save className="w-4 h-4" /> {isSaving ? 'Guardando...' : 'Guardar cambios'}
-            </button>
+            </Btn>
+            <Btn rubro="porcino" size="lg" block onClick={handleSave} disabled={!isDirty || isSaving} icon={<Save />}>
+              {isSaving ? 'Guardando…' : 'Guardar cambios'}
+            </Btn>
           </div>
         </div>
+
+        {toDelete && (
+          <ConfirmDialog
+            title="¿Eliminar esta etapa?"
+            message={
+              <p>
+                Se quitará la etapa <strong>{toDelete.stageName}</strong> del plan. Podrás deshacerlo cerrando sin guardar.
+              </p>
+            }
+            confirmLabel="Eliminar"
+            danger
+            onConfirm={() => {
+              handleDeletePhase(toDelete.id);
+              setToDelete(null);
+            }}
+            onCancel={() => setToDelete(null)}
+          />
+        )}
+        {confirmDialog}
       </div>
-    </div>
+    </Overlay>
   );
 };

@@ -186,8 +186,8 @@ export default function ConfigBovina(_p: StageBProps) {
         {footer(['localCurrency', 'exchangeRate'])}
       </Section>
 
-      <Section title="Reproducción" hint={`PEV ${config.pevDays} d · gestación ${config.gestationDays} d · secado ${config.dryOffDaysBeforeCalving} d antes`} open={open === 'repro'} onToggle={() => toggle('repro')}>
-        <NumRow label="Período de espera voluntario (PEV)" k="pevDays" d={d} set={set} unit="días" ro={ro} />
+      <Section title="Reproducción" hint={`Servir desde ${config.pevDays} d tras el parto · gestación ${config.gestationDays} d · secado ${config.dryOffDaysBeforeCalving} d antes`} open={open === 'repro'} onToggle={() => toggle('repro')}>
+        <NumRow label="Días de espera tras el parto para volver a servir" k="pevDays" d={d} set={set} unit="días" ro={ro} />
         <NumRow label="Días de gestación" hint="Entre 260 y 300." k="gestationDays" d={d} set={set} unit="días" ro={ro} />
         <NumRow label="Secar antes del parto" k="dryOffDaysBeforeCalving" d={d} set={set} unit="días" ro={ro} />
         <NumRow label="Del servicio a la palpación" k="diagnosisDaysAfterService" d={d} set={set} unit="días" ro={ro} />
@@ -196,10 +196,10 @@ export default function ConfigBovina(_p: StageBProps) {
         {footer(['pevDays', 'gestationDays', 'dryOffDaysBeforeCalving', 'diagnosisDaysAfterService', 'calvingAlertDays', 'minServiceAgeDays'])}
       </Section>
 
-      <Section title="Ceba" hint={`Faena ${config.targetSaleWeightKg} kg · GMD óptima ≥ ${config.gmdGreenKg}`} open={open === 'ceba'} onToggle={() => toggle('ceba')}>
+      <Section title="Ceba" hint={`Faena ${config.targetSaleWeightKg} kg · ganancia óptima ≥ ${config.gmdGreenKg} kg/día`} open={open === 'ceba'} onToggle={() => toggle('ceba')}>
         <NumRow label="Peso objetivo de faena" k="targetSaleWeightKg" d={d} set={set} unit="kg" ro={ro} />
-        <NumRow label="GMD óptima desde (verde)" k="gmdGreenKg" d={d} set={set} unit="kg/d" decimal ro={ro} />
-        <NumRow label="GMD baja desde (amarillo)" hint="Por debajo es pérdida o estancamiento (rojo)." k="gmdYellowKg" d={d} set={set} unit="kg/d" decimal ro={ro} />
+        <NumRow label="Ganancia diaria óptima desde (verde)" k="gmdGreenKg" d={d} set={set} unit="kg/d" decimal ro={ro} />
+        <NumRow label="Ganancia diaria baja desde (amarillo)" hint="Por debajo es pérdida o estancamiento (rojo)." k="gmdYellowKg" d={d} set={set} unit="kg/d" decimal ro={ro} />
         <NumRow label="Intervalo sugerido de pesaje" k="weighIntervalDays" d={d} set={set} unit="días" ro={ro} />
         {footer(['targetSaleWeightKg', 'gmdGreenKg', 'gmdYellowKg', 'weighIntervalDays'])}
       </Section>
@@ -234,7 +234,7 @@ export default function ConfigBovina(_p: StageBProps) {
         ))}
         <NumRow label="Litros máximos por ordeño" k="maxLitersPerMilking" d={d} set={set} unit="L" decimal ro={ro} />
         <NumRow label="Litros máximos por vaca al día" k="maxLitersPerCowDay" d={d} set={set} unit="L" decimal ro={ro} />
-        <NumRow label="GMD máxima creíble" k="maxGmdKg" d={d} set={set} unit="kg/d" decimal ro={ro} />
+        <NumRow label="Ganancia diaria máxima creíble" k="maxGmdKg" d={d} set={set} unit="kg/d" decimal ro={ro} />
         {footer(['maxWeight', 'maxLitersPerMilking', 'maxLitersPerCowDay', 'maxGmdKg'])}
       </Section>
 
@@ -325,7 +325,7 @@ const PlanSanitario: React.FC<{ ro: boolean }> = ({ ro }) => {
               </p>
             </div>
             {!ro && (
-              <button type="button" aria-label="Quitar actividad" onClick={() => { setPlan((x) => x.filter((_, j) => j !== i)); setDirty(true); }} className={`w-11 h-11 rounded-xl flex items-center justify-center text-rose-700 ${FOCUS_B}`}>
+              <button type="button" aria-label="Quitar actividad" onClick={() => { setPlan((x) => x.filter((_, j) => j !== i)); setDirty(true); }} className={`w-12 h-12 rounded-xl flex items-center justify-center text-rose-700 ${FOCUS_B}`}>
                 <Trash2 className="w-5 h-5" />
               </button>
             )}
@@ -346,7 +346,7 @@ const PlanSanitario: React.FC<{ ro: boolean }> = ({ ro }) => {
                   {BOVINO_CATEGORIES.map((c: BovinoCategoryKey) => {
                     const on = p.categories.includes(c);
                     return (
-                      <button key={c} type="button" aria-pressed={on} onClick={() => upd(i, { categories: on ? p.categories.filter((x) => x !== c) : [...p.categories, c] })} className={`h-10 px-3 rounded-xl border-2 text-xs font-bold ${on ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
+                      <button key={c} type="button" aria-pressed={on} onClick={() => upd(i, { categories: on ? p.categories.filter((x) => x !== c) : [...p.categories, c] })} className={`h-12 px-3 rounded-xl border-2 text-sm font-bold ${on ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}>
                         {BOVINO_CATEGORY_LABEL[c]}
                       </button>
                     );
@@ -386,7 +386,7 @@ const PlanSanitario: React.FC<{ ro: boolean }> = ({ ro }) => {
               .map((p) => {
                 const on = sel.includes(p.id);
                 return (
-                  <button key={p.id} type="button" aria-pressed={on} onClick={() => setSel(on ? sel.filter((x) => x !== p.id) : [...sel, p.id])} className={`min-h-10 px-3 rounded-xl border-2 text-xs font-bold text-left ${on ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
+                  <button key={p.id} type="button" aria-pressed={on} onClick={() => setSel(on ? sel.filter((x) => x !== p.id) : [...sel, p.id])} className={`min-h-12 px-3 rounded-xl border-2 text-sm font-bold text-left ${on ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}>
                     {p.name}
                   </button>
                 );

@@ -61,7 +61,7 @@ export const AlmacenBovino: React.FC<{ sub?: AlmacenSub }> = ({ sub: sub0 }) => 
                   setSub(id);
                   setF('todos');
                 }}
-                className={`h-12 px-4 rounded-full border-2 text-sm font-bold flex items-center gap-2 shrink-0 ${on ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}
+                className={`h-12 px-4 rounded-full border-2 text-sm font-bold flex items-center gap-2 shrink-0 ${on ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}
               >
                 <Icon className="w-5 h-5" />
                 {label}

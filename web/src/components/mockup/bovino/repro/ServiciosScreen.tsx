@@ -8,7 +8,7 @@ import { AreteInput, ChipFilter, EmptyBlock, FOCUS_B, PrimaryBtn, Screen, Status
 import { PeriodFilter, periodRange, type Period } from '../kit';
 import { ServicioSheet } from './ReproSheets';
 
-const METHOD_LABEL: Record<BovinoServiceEvent['method'], string> = { monta: 'Monta natural', ia: 'IA', iatf: 'IATF', te: 'Transf. embriones' };
+const METHOD_LABEL: Record<BovinoServiceEvent['method'], string> = { monta: 'Monta natural', ia: 'Inseminación', iatf: 'Inseminación a tiempo fijo', te: 'Transf. embriones' };
 type Tipo = 'todos' | 'monta' | 'ia' | 'te';
 
 export default function ServiciosScreen({ screen }: StageBProps) {
@@ -50,7 +50,7 @@ export default function ServiciosScreen({ screen }: StageBProps) {
         onChange={setTipo}
         options={[
           { key: 'todos', label: 'Todos' },
-          { key: 'ia', label: 'IA / IATF' },
+          { key: 'ia', label: 'Inseminación' },
           { key: 'monta', label: 'Monta' },
           { key: 'te', label: 'TE' },
         ]}
@@ -64,7 +64,7 @@ export default function ServiciosScreen({ screen }: StageBProps) {
             const v = index.views.get(e.animalId || '');
             return (
               <li key={e.id}>
-                <button type="button" onClick={() => v && navigate({ s: 'animal', id: v.id }, 'hato')} className={`w-full min-h-16 bg-white rounded-2xl border-2 border-slate-200 px-3 py-2 flex items-center gap-3 text-left ${FOCUS_B}`}>
+                <button type="button" onClick={() => v && navigate({ s: 'animal', id: v.id })} className={`w-full min-h-16 bg-white rounded-2xl border-2 border-slate-200 px-3 py-2 flex items-center gap-3 text-left ${FOCUS_B}`}>
                   <span className="text-lg font-black tabular-nums text-slate-900 min-w-[3.5rem]">#{v?.tag || '?'}</span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm font-bold text-slate-900">

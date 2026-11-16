@@ -72,7 +72,7 @@ const Keypad: React.FC<{ onKey: (k: string) => void; decimal: boolean; okLabel: 
 );
 
 const Big: React.FC<{ on: boolean; onClick: () => void; children: React.ReactNode; tone?: 'sky' | 'emerald' | 'slate' | 'amber' }> = ({ on, onClick, children, tone = 'sky' }) => {
-  const onCls = tone === 'emerald' ? 'bg-emerald-600 border-emerald-600 text-white' : tone === 'amber' ? 'bg-amber-400 border-amber-400 text-slate-950' : tone === 'slate' ? 'bg-slate-800 border-slate-800 text-white' : 'bg-sky-600 border-sky-600 text-white';
+  const onCls = tone === 'emerald' ? 'bg-emerald-600 border-emerald-600 text-white' : tone === 'amber' ? 'bg-amber-400 border-amber-400 text-slate-950' : tone === 'slate' ? 'bg-slate-800 border-slate-800 text-white' : 'bg-sky-700 border-sky-700 text-white';
   return (
     <button type="button" aria-pressed={on} onClick={onClick} className={`min-h-16 px-4 rounded-2xl border-2 text-left text-lg font-black ${on ? onCls : 'bg-white border-slate-400 text-slate-950'} ${FOCUS_B}`}>
       {children}
@@ -243,12 +243,10 @@ export default function ModoManga({ screen }: StageBProps) {
       resetAnimal();
       return;
     }
+    // Cada acción del dominio ya muestra su aviso de "guardado": no se agrega otro por animal.
     runSteps(steps, (o) => {
       if (o.saved > 0) setWorked((x) => [...x.filter((y) => y.id !== v.id), rec]);
-      if (!o.stopped) {
-        actions.notify(`#${v.tag} guardado`);
-        resetAnimal();
-      }
+      if (!o.stopped) resetAnimal();
     });
   };
 
@@ -257,8 +255,10 @@ export default function ModoManga({ screen }: StageBProps) {
     resetAnimal();
   };
 
+  /** Hay un peso escrito para el animal actual que aún no se guardó. */
+  const unsavedKg = phase === 'captura' && !!cur && kg.trim() !== '';
   const requestExit = () => {
-    if (phase === 'captura' && worked.length) setAskExit(true);
+    if (phase === 'captura' && (worked.length || unsavedKg)) setAskExit(true);
     else if (phase === 'captura') setPhase('setup');
     else back();
   };
@@ -311,7 +311,7 @@ export default function ModoManga({ screen }: StageBProps) {
               ['agenda', 'Agenda de hoy'],
             ] as [Grupo, string][]
           ).map(([k, l]) => (
-            <button key={k} type="button" aria-pressed={grupo === k} onClick={() => setGrupo(k)} className={`min-h-14 rounded-2xl border-2 text-base font-black ${grupo === k ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-400 text-slate-950'} ${FOCUS_B}`}>
+            <button key={k} type="button" aria-pressed={grupo === k} onClick={() => setGrupo(k)} className={`min-h-14 rounded-2xl border-2 text-base font-black ${grupo === k ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-400 text-slate-950'} ${FOCUS_B}`}>
               {l}
             </button>
           ))}
@@ -328,7 +328,7 @@ export default function ModoManga({ screen }: StageBProps) {
           </div>
         )}
         <p className="text-base font-bold text-slate-900">{groupIds.length} animales en el grupo.</p>
-        <button type="button" disabled={!pesar && !tratDia && !todosItem && !palpar} onClick={() => setPhase('captura')} className={`w-full ${BIG} bg-sky-600 text-white disabled:opacity-40 ${FOCUS_B}`}>
+        <button type="button" disabled={!pesar && !tratDia && !todosItem && !palpar} onClick={() => setPhase('captura')} className={`w-full ${BIG} bg-sky-700 text-white disabled:opacity-40 ${FOCUS_B}`}>
           Empezar
         </button>
       </div>
@@ -360,7 +360,7 @@ export default function ModoManga({ screen }: StageBProps) {
               <div className="rounded-3xl border-2 border-slate-300 p-4 space-y-2">
                 <div className="flex items-end justify-between gap-2">
                   <p className="text-5xl font-black tabular-nums text-slate-950 leading-none">#{cur.tag}</p>
-                  <button type="button" onClick={resetAnimal} className={`h-11 px-3 rounded-xl border-2 border-slate-300 text-sm font-bold ${FOCUS_B}`}>
+                  <button type="button" onClick={resetAnimal} className={`h-12 px-4 rounded-xl border-2 border-slate-300 text-sm font-bold ${FOCUS_B}`}>
                     Otro arete
                   </button>
                 </div>
@@ -478,7 +478,7 @@ export default function ModoManga({ screen }: StageBProps) {
         <div className="shrink-0 border-t-2 border-slate-200 p-3 space-y-2 bg-white">
           {(!cur || (showWeigh && target === 'peso')) && <Keypad onKey={onKey} decimal={target === 'peso'} okLabel={!cur ? 'OK' : 'Guardar y siguiente'} okDisabled={!cur && !matches.length} />}
           {cur && !(showWeigh && target === 'peso') && (
-            <button type="button" onClick={saveNext} className={`w-full ${BIG} bg-sky-600 text-white ${FOCUS_B}`}>
+            <button type="button" onClick={saveNext} className={`w-full ${BIG} bg-sky-700 text-white ${FOCUS_B}`}>
               Guardar y siguiente
             </button>
           )}
@@ -510,7 +510,7 @@ export default function ModoManga({ screen }: StageBProps) {
           </div>
           <div className="rounded-2xl border-2 border-slate-300 p-3">
             <p className="text-4xl font-black tabular-nums">{weighed.length}</p>
-            <p className="text-sm font-bold text-slate-800">Pesados{gmds.length ? ` · GMD ${num(gmds.reduce((s, g) => s + g, 0) / gmds.length, 2)}` : ''}</p>
+            <p className="text-sm font-bold text-slate-800">Pesados{gmds.length ? ` · ganancia ${num(gmds.reduce((s, g) => s + g, 0) / gmds.length, 2)} kg/día` : ''}</p>
           </div>
         </div>
         {byProduct.size > 0 && (
@@ -539,7 +539,7 @@ export default function ModoManga({ screen }: StageBProps) {
             </button>
           </div>
         )}
-        <button type="button" onClick={back} className={`w-full ${BIG} bg-sky-600 text-white ${FOCUS_B}`}>
+        <button type="button" onClick={back} className={`w-full ${BIG} bg-sky-700 text-white ${FOCUS_B}`}>
           Terminar
         </button>
       </div>
@@ -614,13 +614,13 @@ export default function ModoManga({ screen }: StageBProps) {
       {askExit && (
         <ConfirmDialog
           title="¿Terminar la jornada?"
-          message={`${worked.length} animales guardados. Todo lo guardado ya quedó registrado.`}
-          confirmLabel="Terminar"
+          message={`${unsavedKg && cur ? `El peso escrito de #${cur.tag} NO se ha guardado y se perderá. ` : ''}${worked.length} ${worked.length === 1 ? 'animal guardado' : 'animales guardados'}. Todo lo guardado ya quedó registrado.`}
+          confirmLabel={unsavedKg ? 'Salir sin guardar' : 'Terminar'}
           onCancel={() => setAskExit(false)}
           onConfirm={() => {
             setAskExit(false);
             resetAnimal();
-            setPhase('resumen');
+            setPhase(worked.length ? 'resumen' : 'setup');
           }}
         />
       )}

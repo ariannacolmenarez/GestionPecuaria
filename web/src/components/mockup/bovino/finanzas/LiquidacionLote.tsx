@@ -37,7 +37,7 @@ export const LiquidationResult: React.FC<{ q: BovinoLotLiquidation }> = ({ q }) 
       <div className="grid grid-cols-2 gap-2">
         <KpiCard label="Costo por kg ganado" value={usd(q.costPerKgProducedUsd)} hint="Sin la compra" />
         <KpiCard label="Días de ciclo" value={num(q.days)} hint={`${fd(q.openedAt)} → ${fd(q.closedAt)}`} />
-        <KpiCard label="GMD del ciclo" value={q.avgDailyGainKg !== null ? `${num(q.avgDailyGainKg, 2)} kg/d` : '—'} />
+        <KpiCard label="Ganancia diaria del ciclo" value={q.avgDailyGainKg !== null ? `${num(q.avgDailyGainKg, 2)} kg/d` : '—'} />
         <KpiCard label="Conversión" value={q.feedConversion !== null ? num(q.feedConversion, 1) : '—'} hint="kg alimento / kg ganado" />
         <KpiCard label="Kilos" value={`${num(q.kgIn, 0)} → ${num(q.kgOut, 0)}`} hint={`Ganados ${num(q.kgProduced, 0)} kg`} />
         <KpiCard label="Cabezas" value={`${q.headsIn}`} hint={`Vendidas ${q.headsSold} · muertas ${q.headsDead} · activas ${q.headsActive}`} />
@@ -73,7 +73,7 @@ export default function LiquidacionLote({ screen }: StageBProps) {
           <Lock className="w-4 h-4" /> {lot.name} liquidado el {fd(lot.closedAt)} · solo lectura
         </div>
         {saved ? <LiquidationResult q={saved.snapshot} /> : preview && <LiquidationResult q={preview} />}
-        <SecondaryBtn className="w-full" onClick={() => navigate({ s: 'exportar' }, 'mas')}>
+        <SecondaryBtn className="w-full" onClick={() => navigate({ s: 'exportar' })}>
           <FileDown className="w-4 h-4" /> Exportar PDF
         </SecondaryBtn>
       </Screen>

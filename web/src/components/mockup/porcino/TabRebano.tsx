@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Activity, Baby, Binary, Plus, Truck } from 'lucide-react';
+import { Baby, Binary, ChevronRight, Plus, Search, Truck } from 'lucide-react';
 import { LactatingLitter, PorcinoAnimal, PorcinoCategory } from '../../../types';
 import {
   AnimalMovementLedger,
@@ -11,6 +11,7 @@ import {
   isActiveAnimal,
   headCount,
 } from '../../../models/PorcinoCalculations';
+import { inputClass } from '../../common/ui';
 import { metric, money } from './shared';
 import { CategoryIcon, iconCategoryOf } from './CategoryIcon';
 
@@ -33,27 +34,52 @@ export interface TabRebanoProps {
 
 type TraceFilter = 'todos' | 'engorde' | 'maternidad' | 'verracos' | 'bajas';
 
-const CategoryCard: React.FC<{
+const FILTER_LABEL: Record<TraceFilter, string> = {
+  todos: 'Todos',
+  engorde: 'Engorde',
+  maternidad: 'Madres',
+  verracos: 'Verracos',
+  bajas: 'Vendidos / muertos',
+};
+
+const CATEGORY_LABEL: Record<string, string> = {
+  engorde: 'Engorde',
+  maternidad: 'Madre',
+  verracos: 'Verraco',
+  lechones: 'Lechones',
+};
+
+const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2';
+
+/** Fila de grupo: icono, nombre, cantidad grande y 1–2 datos en palabras. */
+const GroupRow: React.FC<{
   title: string;
-  category: 'engorde' | 'maternidad' | 'verracos';
+  category: 'engorde' | 'maternidad' | 'verracos' | 'lechones';
   count: number;
-  subtitle: string;
-  badge: string;
-  badgeClass: string;
+  unit: string;
+  details: string[];
   onClick: () => void;
-}> = ({ title, category, count, subtitle, badge, badgeClass, onClick }) => (
-  <div
+}> = ({ title, category, count, unit, details, onClick }) => (
+  <button
+    type="button"
     onClick={onClick}
-    className="bg-slate-200/70 hover:bg-slate-200 border border-slate-300/80 rounded-xl p-2.5 flex flex-col items-center justify-between cursor-pointer transition-all hover:scale-[1.02] shadow-xs"
+    className={`w-full min-h-16 px-3 py-2.5 flex items-center gap-3 text-left hover:bg-slate-50 active:bg-slate-100 ${FOCUS}`}
   >
-    <span className="text-xs font-bold text-slate-800 text-center mb-1">{title}</span>
-    <CategoryIcon category={category} size="lg" className="mb-2 shadow-xs" />
-    <div className="text-center w-full">
-      <span className="text-xl font-black text-slate-900 block leading-tight">{count}</span>
-      <span className="text-[10px] text-slate-600 font-semibold block">{subtitle}</span>
-      <span className={`text-[9px] px-1 py-0.2 rounded font-bold mt-0.5 inline-block ${badgeClass}`}>{badge}</span>
-    </div>
-  </div>
+    <CategoryIcon category={category} />
+    <span className="flex-1 min-w-0">
+      <span className="block text-base font-bold text-slate-900">{title}</span>
+      {details.map((d) => (
+        <span key={d} className="block text-xs text-slate-600 leading-snug">
+          {d}
+        </span>
+      ))}
+    </span>
+    <span className="text-right shrink-0">
+      <span className="block text-xl font-bold text-slate-900 leading-tight">{count}</span>
+      <span className="block text-xs text-slate-600">{unit}</span>
+    </span>
+    <ChevronRight aria-hidden="true" className="w-5 h-5 text-slate-600 shrink-0" />
+  </button>
 );
 
 export const TabRebano: React.FC<TabRebanoProps> = ({
@@ -73,6 +99,7 @@ export const TabRebano: React.FC<TabRebanoProps> = ({
   onSelectAnimal,
 }) => {
   const [filter, setFilter] = useState<TraceFilter>('todos');
+  const [search, setSearch] = useState('');
 
   const active = useMemo(() => animals.filter(isActiveAnimal), [animals]);
   const filterCounts = useMemo(
@@ -86,253 +113,225 @@ export const TabRebano: React.FC<TabRebanoProps> = ({
     [animals, active]
   );
   const visible = useMemo(() => {
-    if (filter === 'bajas') return animals.filter((a) => !isActiveAnimal(a));
-    return active.filter((a) => filter === 'todos' || a.category === filter);
-  }, [animals, active, filter]);
+    const base = filter === 'bajas' ? animals.filter((a) => !isActiveAnimal(a)) : active.filter((a) => filter === 'todos' || a.category === filter);
+    const q = search.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((a) => [a.code, a.penLocation, a.breed].some((f) => !!f && String(f).toLowerCase().includes(q)));
+  }, [animals, active, filter, search]);
 
   const isEmptyFarm = animals.length === 0 && litters.length === 0;
   const entradas = ledgerTotal.entradasNacimientos + ledgerTotal.entradasCompras + ledgerTotal.entradasDestete;
   const salidas = ledgerTotal.salidasMatadero + ledgerTotal.salidasVentas + ledgerTotal.salidasMortalidad;
+  const noLitters = counters.camadasActivasCount === 0;
+  const noActive = active.length === 0;
 
   return (
     <div className="space-y-4 animate-in fade-in duration-150">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-black text-slate-800 tracking-tight">Rebaño Porcino Activo</h3>
-          <p className="text-[11px] text-slate-500">
-            Total en granja: <strong>{counters.totalPorcino}</strong> animales
+      <div>
+        <h3 className="text-base font-bold text-slate-900">
+          {counters.totalPorcino} cerdos en la granja
+        </h3>
+        {(entradas > 0 || salidas > 0) && (
+          <p className="text-xs text-slate-600">
+            Desde el inicio: entraron {entradas} · salieron {salidas}
           </p>
-        </div>
-
-        <div className="flex gap-1.5 flex-wrap justify-end">
-          <button
-            onClick={onOpenCensus}
-            className="flex items-center gap-1 text-xs font-bold bg-rose-50 text-rose-800 hover:bg-rose-100 px-2.5 py-1 rounded-lg border border-rose-200 transition-colors cursor-pointer shadow-xs"
-            title="Auditoría de Censo y Contadores en Vivo"
-          >
-            <Binary className="w-3.5 h-3.5 text-rose-600" /> Censo en Vivo
-          </button>
-          <button
-            onClick={() => onOpenSale('engorde')}
-            disabled={active.length === 0}
-            className="flex items-center gap-1 text-xs font-bold bg-emerald-50 text-emerald-800 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Salida a Matadero / Liquidación de Venta"
-          >
-            <Truck className="w-3.5 h-3.5 text-emerald-600" /> Salida a Matadero
-          </button>
-          <button
-            onClick={onOpenWeaning}
-            disabled={counters.camadasActivasCount === 0}
-            className="flex items-center gap-1 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 px-2.5 py-1 rounded-lg border border-rose-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title={counters.camadasActivasCount === 0 ? 'No hay camadas en lactancia' : 'Registrar destete de una camada'}
-          >
-            <Baby className="w-3.5 h-3.5" /> Destete
-          </button>
-        </div>
+        )}
       </div>
 
+      <div className="grid grid-cols-3 gap-2">
+        <button
+          type="button"
+          onClick={onOpenCensus}
+          className={`min-h-11 px-2 rounded-xl border-2 border-slate-300 bg-white text-slate-900 text-sm font-bold inline-flex items-center justify-center gap-1.5 hover:bg-slate-50 ${FOCUS}`}
+        >
+          <Binary aria-hidden="true" className="w-4 h-4 shrink-0" /> Conteo
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenSale('engorde')}
+          disabled={noActive}
+          aria-describedby={noActive ? 'rebano-sin-animales' : undefined}
+          className={`min-h-11 px-2 rounded-xl bg-emerald-700 text-white text-sm font-bold inline-flex items-center justify-center gap-1.5 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed ${FOCUS}`}
+        >
+          <Truck aria-hidden="true" className="w-4 h-4 shrink-0" /> Vender
+        </button>
+        <button
+          type="button"
+          onClick={onOpenWeaning}
+          disabled={noLitters}
+          aria-describedby={noLitters ? 'rebano-sin-camadas' : undefined}
+          className={`min-h-11 px-2 rounded-xl bg-rose-600 text-white text-sm font-bold inline-flex items-center justify-center gap-1.5 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed ${FOCUS}`}
+        >
+          <Baby aria-hidden="true" className="w-4 h-4 shrink-0" /> Destete
+        </button>
+      </div>
+      {(noActive || noLitters) && !isEmptyFarm && (
+        <div className="text-xs text-slate-600 space-y-0.5 -mt-2">
+          {noActive && <p id="rebano-sin-animales">Vender: no hay animales activos.</p>}
+          {noLitters && <p id="rebano-sin-camadas">Destete: no hay camadas criando (registra primero un parto).</p>}
+        </div>
+      )}
+
       {isEmptyFarm && (
-        <div className="bg-white rounded-2xl p-4 border border-dashed border-rose-300 text-center space-y-2">
-          <p className="text-sm font-bold text-slate-800">Tu granja está lista para empezar</p>
-          <p className="text-[11px] text-slate-500">
-            Aún no hay animales registrados. Da de alta tu primer lote de engorde, una cerda reproductora o un verraco.
-          </p>
-          <div className="flex flex-wrap justify-center gap-1.5 pt-1">
+        <div className="bg-white rounded-2xl p-4 border-2 border-dashed border-rose-300 text-center space-y-3">
+          <p className="text-base font-bold text-slate-900">Tu granja está lista para empezar</p>
+          <p className="text-sm text-slate-700">Aún no hay animales. Registra tu primer lote de engorde, una cerda o un verraco.</p>
+          <div className="grid gap-2">
             <button
+              type="button"
               onClick={() => onOpenCategory('engorde')}
-              className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200 cursor-pointer"
+              className={`min-h-11 inline-flex items-center justify-center gap-1.5 text-sm font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-3 rounded-xl border border-emerald-300 ${FOCUS}`}
             >
-              <Plus className="w-3.5 h-3.5" /> Lote de engorde
+              <Plus aria-hidden="true" className="w-4 h-4" /> Lote de engorde
             </button>
             <button
+              type="button"
               onClick={() => onOpenCategory('maternidad')}
-              className="inline-flex items-center gap-1 text-xs font-bold text-rose-800 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl border border-rose-200 cursor-pointer"
+              className={`min-h-11 inline-flex items-center justify-center gap-1.5 text-sm font-bold text-rose-900 bg-rose-50 hover:bg-rose-100 px-3 rounded-xl border border-rose-300 ${FOCUS}`}
             >
-              <Plus className="w-3.5 h-3.5" /> Cerda reproductora
+              <Plus aria-hidden="true" className="w-4 h-4" /> Cerda madre
             </button>
             <button
+              type="button"
               onClick={onOpenNewBoar}
-              className="inline-flex items-center gap-1 text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 cursor-pointer"
+              className={`min-h-11 inline-flex items-center justify-center gap-1.5 text-sm font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 rounded-xl border border-blue-300 ${FOCUS}`}
             >
-              <Plus className="w-3.5 h-3.5" /> Verraco
+              <Plus aria-hidden="true" className="w-4 h-4" /> Verraco
             </button>
           </div>
         </div>
       )}
 
-      {/* GridView de 3 columnas con métricas reales */}
-      <div className="grid grid-cols-3 gap-2.5">
-        <CategoryCard
+      {/* Grupos: una fila por grupo con su cantidad y datos clave en palabras */}
+      <section aria-label="Grupos" className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-200 overflow-hidden">
+        <GroupRow
           title="Engorde"
           category="engorde"
           count={counters.engorde}
-          subtitle={`${counters.lotesEngordeCount} lotes • ${metric(engorde.pesoPromedioKg, ' kg')}`}
-          badge={`GDP: ${metric(engorde.gananciaDiariaPesoGdpKg, ' kg/d', 2)}`}
-          badgeClass="text-emerald-700 bg-emerald-100/70"
+          unit="cerdos"
+          details={[
+            `${counters.lotesEngordeCount} lotes · peso promedio ${metric(engorde.pesoPromedioKg, ' kg')}`,
+            `Ganancia diaria: ${metric(engorde.gananciaDiariaPesoGdpKg, ' kg', 2)}`,
+          ]}
           onClick={() => onOpenCategory('engorde')}
         />
-        <CategoryCard
-          title="Maternidad"
+        <GroupRow
+          title="Madres"
           category="maternidad"
           count={counters.productoras}
-          subtitle={`${counters.maternidadGestantes}g / ${counters.maternidadLactantes}l`}
-          badge={`LNV: ${metric(maternidad.promedioLechonesNacidosVivos, ' lech.', 1)}`}
-          badgeClass="text-rose-700 bg-rose-100/70"
+          unit="cerdas"
+          details={[
+            `${counters.maternidadGestantes} preñadas · ${counters.maternidadLactantes} criando`,
+            `Nacidos vivos por parto: ${metric(maternidad.promedioLechonesNacidosVivos, '', 1)}`,
+          ]}
           onClick={() => onOpenCategory('maternidad')}
         />
-        <CategoryCard
+        <GroupRow
           title="Verracos"
           category="verracos"
           count={counters.verracos}
-          subtitle="Padrillos"
-          badge={`${verracos.totalMontasRegistradas} montas`}
-          badgeClass="text-blue-700 bg-blue-100/70"
+          unit="machos"
+          details={[`${verracos.totalMontasRegistradas} montas registradas`]}
           onClick={() => onOpenCategory('verracos')}
         />
-      </div>
+        <GroupRow
+          title="Lechones criando"
+          category="lechones"
+          count={counters.lechones}
+          unit="vivos"
+          details={
+            noLitters
+              ? ['Sin camadas criando']
+              : [
+                  `${counters.camadasActivasCount} camadas · peso ${metric(lechones.pesoPromedioActualKg, ' kg', 1)} · destete en ~${lechones.diasPromedioAlDestete} días`,
+                  `Muertos: ${lechones.mortalidadAcumulada} (${metric(lechones.tasaMortalidadPercent, '%', 1)})`,
+                ]
+          }
+          onClick={() => onOpenCategory('lechones')}
+        />
+      </section>
 
-      {/* Lechones en lactancia */}
-      <div
-        onClick={() => onOpenCategory('lechones')}
-        className="bg-white hover:bg-amber-50/40 rounded-2xl p-3.5 border border-amber-200/90 shadow-xs flex items-center justify-between cursor-pointer transition-all hover:scale-[1.01]"
-      >
-        <div className="flex items-center gap-3">
-          <CategoryIcon category="lechones" className="rounded-xl shadow-xs" />
-          <div>
-            <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-              <span>Lechones en Lactancia</span>
-              <span className="text-[10px] font-bold px-1.5 py-0.2 bg-amber-200 text-amber-900 rounded">Ver Camadas</span>
-            </h4>
-            <p className="text-[11px] text-slate-500">
-              {counters.camadasActivasCount === 0
-                ? 'Sin camadas en lactancia'
-                : `${counters.camadasActivasCount} camadas activas • ${metric(lechones.pesoPromedioActualKg, ' kg', 1)} prom. • Destete en ~${lechones.diasPromedioAlDestete}d`}
-            </p>
-          </div>
+      {/* Lista de animales con búsqueda por arete */}
+      <section aria-labelledby="rebano-lista" className="space-y-2.5">
+        <h3 id="rebano-lista" className="text-base font-bold text-slate-900">
+          Buscar un animal
+        </h3>
+        <div className="relative">
+          <Search aria-hidden="true" className="w-5 h-5 text-slate-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Arete, corral o raza"
+            aria-label="Buscar por arete, corral o raza"
+            className={`${inputClass} pl-10`}
+          />
         </div>
-        <div className="text-right">
-          <span className="text-lg font-black text-amber-950">{counters.lechones}</span>
-          <span className="text-[10px] text-amber-700 font-semibold block">lechones vivos</span>
-          <span className="text-[9px] text-slate-400 block font-medium">
-            Bajas: {lechones.mortalidadAcumulada} ({metric(lechones.tasaMortalidadPercent, '%', 1)})
-          </span>
-        </div>
-      </div>
-
-      {/* Conciliación de movimientos */}
-      <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200 shadow-xs space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5 text-rose-600" />
-            Conciliación de Movimientos del Rebaño
-          </span>
-          <span className="text-[10px] font-black text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
-            Censo Conciliado
-          </span>
-        </div>
-        <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
-          <div className="bg-white p-2 rounded-xl border border-slate-200">
-            <span className="text-slate-400 block">Censo Inicial</span>
-            <strong className="text-slate-800 text-xs block">{ledgerTotal.censoInicial}</strong>
-          </div>
-          <div className="bg-white p-2 rounded-xl border border-emerald-200 text-emerald-800">
-            <span className="text-emerald-600 block">(+) Entradas</span>
-            <strong className="text-emerald-700 text-xs block">+{entradas}</strong>
-          </div>
-          <div className="bg-white p-2 rounded-xl border border-rose-200 text-rose-800">
-            <span className="text-rose-600 block">(-) Salidas</span>
-            <strong className="text-rose-700 text-xs block">-{salidas}</strong>
-          </div>
-          <div className="bg-rose-900 text-white p-2 rounded-xl border border-rose-950">
-            <span className="text-rose-200 block">(=) Total Activo</span>
-            <strong className="text-white text-xs block">{ledgerTotal.censoFinalActual}</strong>
-          </div>
-        </div>
-      </div>
-
-      {/* Trazabilidad */}
-      <div className="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-xs space-y-2.5">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-xs font-bold text-slate-800 block">Trazabilidad de Animales Registrados</span>
-            <span className="text-[10px] text-slate-400">
-              Inspecciona historial clínico, pesajes, partos, montas y traslados
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar text-[10px] font-bold">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar por grupo">
           {(['todos', 'engorde', 'maternidad', 'verracos', 'bajas'] as const).map((cat) => (
             <button
+              type="button"
               key={cat}
               onClick={() => setFilter(cat)}
-              className={`px-2.5 py-1 rounded-lg capitalize transition-colors cursor-pointer whitespace-nowrap ${
-                filter === cat ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              aria-pressed={filter === cat}
+              className={`min-h-10 px-3 rounded-xl text-xs font-bold transition-colors ${FOCUS} ${
+                filter === cat ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border border-slate-300 hover:bg-slate-50'
               }`}
             >
-              {cat === 'bajas' ? 'Vendidos / bajas' : cat} ({filterCounts[cat]})
+              {FILTER_LABEL[cat]} ({filterCounts[cat]})
             </button>
           ))}
         </div>
 
-        <div className="space-y-2">
-          {visible.length === 0 ? (
-            <p className="text-[11px] text-slate-400 italic text-center py-3">
-              {animals.length === 0 ? 'Todavía no hay animales registrados.' : 'No hay animales en este filtro.'}
-            </p>
-          ) : (
-            visible.map((a) => {
+        {visible.length === 0 ? (
+          <p className="text-sm text-slate-700 text-center py-4 bg-white rounded-2xl border border-slate-200">
+            {animals.length === 0
+              ? 'Todavía no hay animales registrados.'
+              : search.trim()
+                ? `Ningún animal coincide con «${search.trim()}».`
+                : 'No hay animales en este grupo.'}
+          </p>
+        ) : (
+          <ul className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-200 overflow-hidden">
+            {visible.map((a) => {
               const activeAnimal = isActiveAnimal(a);
               const heads = headCount(a);
               return (
-                <div
-                  key={a.id}
-                  onClick={() => onSelectAnimal(a)}
-                  className={`p-2.5 rounded-xl border flex items-center justify-between text-xs cursor-pointer transition-all group ${
-                    activeAnimal
-                      ? 'bg-slate-50 hover:bg-emerald-50/40 border-slate-100 hover:border-emerald-300'
-                      : 'bg-slate-100/70 border-slate-200 opacity-75'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <CategoryIcon category={iconCategoryOf(a)} label={a.code} />
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <strong className="text-slate-900 font-bold group-hover:text-emerald-700 transition-colors">
-                          {a.code}
-                        </strong>
-                        <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-200 px-1.5 py-0.2 rounded">
-                          {a.category}
-                        </span>
-                        {heads > 1 && (
-                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded">
-                            {heads} cab.
-                          </span>
-                        )}
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectAnimal(a)}
+                    className={`w-full min-h-16 px-3 py-2.5 flex items-center gap-3 text-left hover:bg-slate-50 active:bg-slate-100 ${FOCUS} ${
+                      activeAnimal ? '' : 'bg-slate-50'
+                    }`}
+                  >
+                    <CategoryIcon category={iconCategoryOf(a)} />
+                    <span className="flex-1 min-w-0">
+                      <span className="flex items-center gap-1.5 flex-wrap">
+                        <strong className="text-base text-slate-900">{a.code}</strong>
                         {!activeAnimal && (
-                          <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded">
+                          <span className="text-xs font-bold text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded">
                             {a.isSoldToSlaughter || a.healthStatus === 'Matadero' ? 'Vendido' : 'Baja'}
                           </span>
                         )}
-                        <span className="text-[10px] text-slate-400 font-medium">
-                          {(a.traceability?.length ?? 0)} eventos
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">{a.stage || a.healthStatus}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-black text-slate-800 group-hover:text-emerald-700 transition-colors">
-                      {metric(a.currentWeightKg, ' kg')}
+                      </span>
+                      <span className="block text-xs text-slate-600 truncate">
+                        {CATEGORY_LABEL[a.category] || a.category}
+                        {heads > 1 ? ` · ${heads} cerdos` : ''}
+                        {a.stage || a.healthStatus ? ` · ${a.stage || a.healthStatus}` : ''}
+                      </span>
                     </span>
-                    <p className="text-[10px] text-slate-400">Costo: ${money(a.accumulatedCostUsd)}</p>
-                  </div>
-                </div>
+                    <span className="text-right shrink-0">
+                      <span className="block text-sm font-bold text-slate-900">{metric(a.currentWeightKg, ' kg')}</span>
+                      <span className="block text-xs text-slate-600">${money(a.accumulatedCostUsd)}</span>
+                    </span>
+                  </button>
+                </li>
               );
-            })
-          )}
-        </div>
-      </div>
+            })}
+          </ul>
+        )}
+      </section>
     </div>
   );
 };

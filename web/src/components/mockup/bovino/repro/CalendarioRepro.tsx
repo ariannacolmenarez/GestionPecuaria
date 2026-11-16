@@ -69,7 +69,7 @@ export default function CalendarioRepro(_p: StageBProps) {
           <p className="text-base font-black text-slate-900">{fdw(day)}</p>
           {dayEvs.length === 0 && <p className="text-sm text-slate-800">Sin eventos.</p>}
           {dayEvs.map((e, i) => (
-            <button key={i} type="button" onClick={() => navigate({ s: 'animal', id: e.animalId }, 'hato')} className={`w-full min-h-12 flex items-center gap-3 text-left ${FOCUS_B}`}>
+            <button key={i} type="button" onClick={() => navigate({ s: 'animal', id: e.animalId })} className={`w-full min-h-12 flex items-center gap-3 text-left ${FOCUS_B}`}>
               <span className={`w-3 h-3 rounded-full ${DOT[e.kind]}`} />
               <span className="text-lg font-black tabular-nums text-slate-900">#{e.tag}</span>
               <span className="flex-1 text-sm text-slate-900">{e.text}</span>

@@ -87,7 +87,7 @@ export const PaddockPickerSheet: React.FC<{
               <TextField value={name} onChange={setName} placeholder="Nombre del potrero" ariaLabel="Nombre del potrero" />
               <BigNumberInput decimal size="md" value={area} onChange={setArea} unit="ha" ariaLabel="Área en hectáreas" placeholder="Área (opcional)" />
               <ErrorBox error={error} />
-              <button type="button" onClick={create} disabled={!name.trim()} className={`w-full h-12 rounded-2xl bg-sky-600 text-white font-bold disabled:opacity-50 ${FOCUS_B}`}>
+              <button type="button" onClick={create} disabled={!name.trim()} className={`w-full h-12 rounded-2xl bg-sky-700 text-white font-bold disabled:opacity-50 ${FOCUS_B}`}>
                 Crear y elegir
               </button>
             </>
@@ -114,15 +114,17 @@ export const LotPickerSheet: React.FC<{
   allowNone?: string;
   excludeId?: string;
   allowCreate?: boolean;
-}> = ({ title = 'Elige el lote', selectedId, onPick, onClose, allowNone, excludeId, allowCreate }) => {
+  /** Solo lotes de este tipo (p. ej. 'ceba' para el pesaje rápido). */
+  lotType?: string;
+}> = ({ title = 'Elige el lote', selectedId, onPick, onClose, allowNone, excludeId, allowCreate, lotType }) => {
   const { home, index, perms, actions } = useBovino();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [type, setType] = useState<'ceba' | 'leche' | 'cria' | 'levante' | 'otro'>('ceba');
   const { error, run, confirmEl } = useDomainRunner();
-  const lots = home.lots.filter((l) => l.lot.id !== excludeId);
+  const lots = home.lots.filter((l) => l.lot.id !== excludeId && (!lotType || l.lot.type === lotType));
   return (
-    <BottomSheet title={title} icon={<Users className="w-5 h-5" />} iconClass="bg-sky-100 text-sky-700" onClose={onClose}>
+    <BottomSheet title={title} icon={<Users className="w-5 h-5" />} iconClass="bg-sky-100 text-sky-700" onClose={onClose} dirty={creating && !!name.trim()}>
       <ul className="space-y-2">
         {allowNone && (
           <li>
@@ -158,7 +160,7 @@ export const LotPickerSheet: React.FC<{
               <TextField value={name} onChange={setName} placeholder="Nombre del lote (ej. Ceba 3)" ariaLabel="Nombre del lote" />
               <div className="flex flex-wrap gap-2">
                 {(['ceba', 'leche', 'cria', 'levante', 'otro'] as const).map((t) => (
-                  <button key={t} type="button" onClick={() => setType(t)} className={`h-11 px-4 rounded-2xl border-2 text-sm font-bold ${type === t ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}>
+                  <button key={t} type="button" onClick={() => setType(t)} className={`h-12 px-4 rounded-2xl border-2 text-sm font-bold ${type === t ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}>
                     {BOVINO_LOT_TYPE_LABEL[t]}
                   </button>
                 ))}
@@ -168,7 +170,7 @@ export const LotPickerSheet: React.FC<{
                 type="button"
                 disabled={!name.trim()}
                 onClick={() => run(() => actions.createLot({ name, type }), (res) => res.meta?.lotId && onPick(res.meta.lotId))}
-                className={`w-full h-12 rounded-2xl bg-sky-600 text-white font-bold disabled:opacity-50 ${FOCUS_B}`}
+                className={`w-full h-12 rounded-2xl bg-sky-700 text-white font-bold disabled:opacity-50 ${FOCUS_B}`}
               >
                 Crear y elegir
               </button>

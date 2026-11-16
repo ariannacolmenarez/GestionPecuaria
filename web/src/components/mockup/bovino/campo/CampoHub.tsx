@@ -21,7 +21,7 @@ export const CampoHub: React.FC = () => {
       <div className="grid grid-cols-2 gap-3">
         <Tile icon={<Users className="w-6 h-6" />} title="Lotes" detail={`${num(home.lots.length)} activos`} onClick={() => navigate({ s: 'lotes' })} />
         <Tile icon={<MapIcon className="w-6 h-6" />} title="Potreros" detail={home.paddocks.length ? `${occupied} ocupados · ${available} disponibles` : 'Sin potreros'} onClick={() => navigate({ s: 'potreros' })} />
-        <Tile icon={<Scale className="w-6 h-6" />} title="Ceba" detail={home.ceba.avgGmdKg !== null ? `GMD ${num(home.ceba.avgGmdKg, 2)} kg/d` : 'Pesajes y GMD'} onClick={() => navigate({ s: 'ceba' })} />
+        <Tile icon={<Scale className="w-6 h-6" />} title="Ceba" detail={home.ceba.avgGmdKg !== null ? `Gana ${num(home.ceba.avgGmdKg, 2)} kg/día` : 'Pesajes y engorde'} onClick={() => navigate({ s: 'ceba' })} />
         <Tile icon={<Milk className="w-6 h-6" />} title="Leche" detail={milk.liters > 0 ? `${num(milk.liters, 1)} L hoy` : 'Ordeño y curva'} onClick={() => navigate({ s: 'leche' })} />
         <Tile icon={<Syringe className="w-6 h-6" />} title="Sanidad" detail={retiros ? `${retiros} con retiro` : 'Tratamientos y retiros'} onClick={() => navigate({ s: 'sanidad' })} badge={retiros} />
         <Tile icon={<ArrowLeftRight className="w-6 h-6" />} title="Entradas y salidas" detail={`${num(movesMonth)} este mes`} onClick={() => navigate({ s: 'movimientosHato' })} />

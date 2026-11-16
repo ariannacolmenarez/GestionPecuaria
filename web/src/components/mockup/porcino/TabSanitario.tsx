@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, Plus } from 'lucide-react';
+import { Calendar as CalendarIcon, Check, ChevronLeft, ChevronRight, Layers, List, Plus, RotateCcw, Search } from 'lucide-react';
 import { SanitaryTask } from '../../../types';
-import { daysInMonth, MONTH_NAMES_ES, monthPrefixOf, parseISODate } from '../../../utils/dates';
+import { daysInMonth, formatShortDate, MONTH_NAMES_ES, monthPrefixOf, parseISODate } from '../../../utils/dates';
+import { ConfirmDialog, inputClass } from '../../common/ui';
 
 export interface TabSanitarioProps {
   tasks: SanitaryTask[];
   today: string;
   onAddActivity: (dateISO: string) => void;
-  /** Si se omite, no se muestra el botón "Configurar Lotes". */
+  /** Si se omite, no se muestra el botón "Lotes y planes". */
   onOpenBatchConfig?: () => void;
   /** Texto del botón de nueva actividad. */
   addLabel?: string;
@@ -15,7 +16,7 @@ export interface TabSanitarioProps {
   onToggleTask: (task: SanitaryTask) => void;
 }
 
-type StatusFilter = 'todos' | 'pendientes' | 'vencidas' | 'completadas';
+type StatusFilter = 'hoy' | 'pendientes' | 'completadas' | 'todos';
 type DisplayStatus = 'completada' | 'pendiente' | 'vencida' | 'cancelada';
 
 const isPending = (t: SanitaryTask) => t.status === 'pendiente' || t.status === 'retrasada';
@@ -26,12 +27,21 @@ function displayStatus(t: SanitaryTask, today: string): DisplayStatus {
   return t.date < today ? 'vencida' : 'pendiente';
 }
 
+const STATUS_LABEL: Record<DisplayStatus, string> = {
+  completada: 'Hecha',
+  pendiente: 'Pendiente',
+  vencida: 'Atrasada',
+  cancelada: 'Cancelada',
+};
+
 const STATUS_CLASS: Record<DisplayStatus, string> = {
   completada: 'bg-emerald-100 text-emerald-800',
-  pendiente: 'bg-amber-100 text-amber-800',
+  pendiente: 'bg-amber-100 text-amber-900',
   vencida: 'bg-rose-100 text-rose-800',
-  cancelada: 'bg-slate-200 text-slate-600',
+  cancelada: 'bg-slate-200 text-slate-700',
 };
+
+const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
@@ -44,63 +54,57 @@ const TaskCard: React.FC<{
 }> = ({ task, today, showDate, onSelect, onToggle }) => {
   const st = displayStatus(task, today);
   return (
-    <div className="bg-white hover:bg-blue-50/30 p-3.5 rounded-2xl border border-slate-200 transition-all shadow-xs space-y-2">
-      <div className="flex items-start justify-between gap-2">
-        <div className="space-y-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {showDate && (
-              <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md border border-blue-200">
-                📅 {task.date}
-              </span>
-            )}
-            <h5 className="font-bold text-slate-900 text-xs">{task.title}</h5>
-            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${STATUS_CLASS[st]}`}>{st}</span>
-            {task.batchCode && (
-              <span className="text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded">
-                Lote: {task.batchCode}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-600">
-            <span>
-              Lote/Grupo: <strong className="text-slate-800">{task.targetGroup}</strong>
-            </span>
-            <span>
-              Animal: <strong className="text-blue-700">{task.targetAnimal || 'Todo el lote'}</strong>
-            </span>
-          </div>
-          {task.dosage && (
-            <p className="text-[10px] text-blue-700 font-semibold">
-              Dosis: {task.dosage}
-              {task.medicamentUsed ? ` (${task.medicamentUsed})` : ''}
-            </p>
-          )}
-          {task.responsible && <p className="text-[10px] text-slate-400">Responsable: {task.responsible}</p>}
-          {task.status === 'cancelada' && task.cancelReason && (
-            <p className="text-[10px] text-slate-500 italic">Cancelada: {task.cancelReason}</p>
-          )}
+    <div className={`bg-white rounded-2xl border p-3.5 space-y-3 ${st === 'vencida' ? 'border-rose-300' : 'border-slate-200'}`}>
+      <button type="button" onClick={onSelect} className={`w-full text-left space-y-1.5 rounded-xl ${FOCUS}`}>
+        <div className="flex items-start justify-between gap-2">
+          <h5 className="font-bold text-slate-900 text-base leading-snug">{task.title}</h5>
+          <span className={`shrink-0 text-xs font-bold px-2 py-1 rounded-full ${STATUS_CLASS[st]}`}>{STATUS_LABEL[st]}</span>
         </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-700">
+          {showDate && (
+            <span className="inline-flex items-center gap-1 font-semibold">
+              <CalendarIcon aria-hidden="true" className="w-4 h-4 text-slate-600" />
+              {task.date === today ? 'Hoy' : formatShortDate(task.date)}
+            </span>
+          )}
+          <span>
+            <strong className="text-slate-900">{task.targetAnimal || task.targetGroup || 'Todo el lote'}</strong>
+            {task.targetAnimal && task.targetGroup ? ` · ${task.targetGroup}` : ''}
+          </span>
+          {task.batchCode && <span>Lote {task.batchCode}</span>}
+        </div>
+        {task.dosage && (
+          <p className="text-sm text-blue-800 font-semibold">
+            Dosis: {task.dosage}
+            {task.medicamentUsed ? ` (${task.medicamentUsed})` : ''}
+          </p>
+        )}
+        {task.responsible && <p className="text-xs text-slate-600">Responsable: {task.responsible}</p>}
+        {task.status === 'cancelada' && task.cancelReason && (
+          <p className="text-xs text-slate-600 italic">Cancelada: {task.cancelReason}</p>
+        )}
+        <span className="inline-flex items-center gap-1 text-sm font-bold text-blue-800">
+          Ver detalle <ChevronRight aria-hidden="true" className="w-4 h-4" />
+        </span>
+      </button>
+      {task.status !== 'cancelada' &&
+        (task.status === 'completada' ? (
           <button
-            onClick={onSelect}
-            className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+            type="button"
+            onClick={onToggle}
+            className={`w-full min-h-11 px-4 rounded-xl text-sm font-bold text-slate-800 bg-white border-2 border-slate-300 hover:bg-slate-50 inline-flex items-center justify-center gap-2 ${FOCUS}`}
           >
-            Ver Detalle
+            <RotateCcw aria-hidden="true" className="w-4 h-4" /> Reabrir
           </button>
-          {task.status !== 'cancelada' && (
-            <button
-              onClick={onToggle}
-              className={`text-[9px] font-bold px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                task.status === 'completada'
-                  ? 'text-slate-500 bg-slate-100 hover:bg-slate-200'
-                  : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
-              }`}
-            >
-              {task.status === 'completada' ? 'Reabrir' : '✓ Completar'}
-            </button>
-          )}
-        </div>
-      </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onToggle}
+            className={`w-full min-h-11 px-4 rounded-xl text-sm font-bold text-white bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 inline-flex items-center justify-center gap-2 ${FOCUS}`}
+          >
+            <Check aria-hidden="true" className="w-5 h-5" /> Completar
+          </button>
+        ))}
     </div>
   );
 };
@@ -115,12 +119,20 @@ export const TabSanitario: React.FC<TabSanitarioProps> = ({
   addLabel,
 }) => {
   const todayDate = parseISODate(today) ?? new Date();
-  const [viewMode, setViewMode] = useState<'calendario' | 'listado'>('calendario');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('pendientes');
+  // Por defecto: lista de lo que toca hoy y lo atrasado (lo que hay que hacer ya)
+  const [viewMode, setViewMode] = useState<'calendario' | 'listado'>('listado');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('hoy');
   const [search, setSearch] = useState('');
   const [calYear, setCalYear] = useState<number>(todayDate.getFullYear());
   const [calMonth, setCalMonth] = useState<number>(todayDate.getMonth() + 1); // 1-12
   const [selectedDate, setSelectedDate] = useState<string>(today);
+  const [reopenTask, setReopenTask] = useState<SanitaryTask | null>(null);
+
+  // Completar es directo; reabrir pide confirmación (deshace un registro)
+  const toggle = (task: SanitaryTask) => {
+    if (task.status === 'completada') setReopenTask(task);
+    else onToggleTask(task);
+  };
 
   const isCurrentMonth = calYear === todayDate.getFullYear() && calMonth === todayDate.getMonth() + 1;
 
@@ -163,17 +175,14 @@ export const TabSanitario: React.FC<TabSanitarioProps> = ({
   const leadingBlanks = (new Date(calYear, calMonth - 1, 1).getDay() + 6) % 7; // lunes primero
   const totalDays = daysInMonth(calYear, calMonth);
 
-  const selectedDayTasks = useMemo(
-    () => tasks.filter((t) => t.date === selectedDate),
-    [tasks, selectedDate]
-  );
+  const selectedDayTasks = useMemo(() => tasks.filter((t) => t.date === selectedDate), [tasks, selectedDate]);
 
   const counts = useMemo(
     () => ({
-      todos: tasks.length,
+      hoy: tasks.filter((t) => isPending(t) && t.date <= today).length,
       pendientes: tasks.filter(isPending).length,
-      vencidas: tasks.filter((t) => isPending(t) && t.date < today).length,
       completadas: tasks.filter((t) => t.status === 'completada').length,
+      todos: tasks.length,
     }),
     [tasks, today]
   );
@@ -183,8 +192,8 @@ export const TabSanitario: React.FC<TabSanitarioProps> = ({
     const list = tasks.filter((t) => {
       const okStatus =
         statusFilter === 'todos' ||
+        (statusFilter === 'hoy' && isPending(t) && t.date <= today) ||
         (statusFilter === 'pendientes' && isPending(t)) ||
-        (statusFilter === 'vencidas' && isPending(t) && t.date < today) ||
         (statusFilter === 'completadas' && t.status === 'completada');
       if (!okStatus) return false;
       if (!q) return true;
@@ -197,90 +206,96 @@ export const TabSanitario: React.FC<TabSanitarioProps> = ({
 
   const selectedDay = parseISODate(selectedDate);
   const selectedLabel = selectedDay
-    ? `${selectedDay.getDate()} de ${MONTH_NAMES_ES[selectedDay.getMonth()]} de ${selectedDay.getFullYear()}`
+    ? `${selectedDay.getDate()} de ${MONTH_NAMES_ES[selectedDay.getMonth()]}`
     : selectedDate;
 
   return (
     <div className="space-y-3 animate-in fade-in duration-150">
       <div className={`grid gap-2 ${onOpenBatchConfig ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <button
+          type="button"
           onClick={() => onAddActivity(selectedDate >= today ? selectedDate : today)}
-          className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl flex items-center justify-center gap-1.5 font-bold text-xs shadow-xs transition-colors cursor-pointer"
+          className={`min-h-12 px-3 bg-blue-700 hover:bg-blue-800 text-white rounded-xl flex items-center justify-center gap-2 font-bold text-sm transition-colors ${FOCUS}`}
         >
-          <Plus className="w-4 h-4 shrink-0" />
-          <span className="truncate">{addLabel || 'Programar Actividad'}</span>
+          <Plus aria-hidden="true" className="w-5 h-5 shrink-0" />
+          <span className="truncate">{addLabel || 'Programar'}</span>
         </button>
         {onOpenBatchConfig && (
           <button
+            type="button"
             onClick={onOpenBatchConfig}
-            className="py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl flex items-center justify-center gap-1.5 font-bold text-xs shadow-xs transition-colors cursor-pointer"
+            className={`min-h-12 px-3 bg-white border-2 border-slate-300 hover:bg-slate-50 text-slate-900 rounded-xl flex items-center justify-center gap-2 font-bold text-sm transition-colors ${FOCUS}`}
           >
-            <Layers className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="truncate">Configurar Lotes</span>
+            <Layers aria-hidden="true" className="w-5 h-5 shrink-0 text-slate-700" />
+            <span className="truncate">Lotes y planes</span>
           </button>
         )}
       </div>
 
-      <div className="bg-slate-200/80 p-1 rounded-xl flex items-center justify-between text-xs font-bold">
+      <div className="bg-slate-200 p-1 rounded-xl grid grid-cols-2 gap-1 text-sm font-bold" role="tablist" aria-label="Vista">
         <button
-          onClick={() => setViewMode('calendario')}
-          className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
-            viewMode === 'calendario' ? 'bg-white text-blue-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+          type="button"
+          role="tab"
+          aria-selected={viewMode === 'listado'}
+          onClick={() => setViewMode('listado')}
+          className={`min-h-11 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors ${FOCUS} ${
+            viewMode === 'listado' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-700 hover:text-slate-900'
           }`}
         >
-          📅 Calendario Mensual
+          <List aria-hidden="true" className="w-4 h-4" /> Lista
         </button>
         <button
-          onClick={() => setViewMode('listado')}
-          className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
-            viewMode === 'listado' ? 'bg-white text-blue-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+          type="button"
+          role="tab"
+          aria-selected={viewMode === 'calendario'}
+          onClick={() => setViewMode('calendario')}
+          className={`min-h-11 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors ${FOCUS} ${
+            viewMode === 'calendario' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-700 hover:text-slate-900'
           }`}
         >
-          📋 Listado ({tasks.length})
+          <CalendarIcon aria-hidden="true" className="w-4 h-4" /> Calendario
         </button>
       </div>
 
       {viewMode === 'calendario' ? (
         <>
-          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                <CalendarIcon className="w-4 h-4 text-blue-600" />
-                {MONTH_NAMES_ES[calMonth - 1]} de {calYear}
-              </h3>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => moveMonth(-1)}
-                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 cursor-pointer"
-                  aria-label="Mes anterior"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={goToToday}
-                  className={`text-xs font-bold px-2 py-0.5 rounded cursor-pointer ${
-                    isCurrentMonth ? 'text-blue-700 bg-blue-50' : 'text-slate-600 bg-slate-100 hover:bg-slate-200'
-                  }`}
-                >
-                  {isCurrentMonth ? 'Mes Actual' : 'Hoy'}
-                </button>
-                <button
-                  onClick={() => moveMonth(1)}
-                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 cursor-pointer"
-                  aria-label="Mes siguiente"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+          <div className="bg-white rounded-2xl p-3 border border-slate-200">
+            <div className="flex items-center justify-between mb-2 gap-1">
+              <button
+                type="button"
+                onClick={() => moveMonth(-1)}
+                className={`p-2.5 rounded-xl hover:bg-slate-100 text-slate-800 ${FOCUS}`}
+                aria-label="Mes anterior"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <div className="flex-1 text-center">
+                <h3 className="font-bold text-slate-900 text-base capitalize">
+                  {MONTH_NAMES_ES[calMonth - 1]} {calYear}
+                </h3>
+                {!isCurrentMonth && (
+                  <button type="button" onClick={goToToday} className={`text-sm font-bold text-blue-800 underline min-h-8 px-2 rounded ${FOCUS}`}>
+                    Volver a hoy
+                  </button>
+                )}
               </div>
+              <button
+                type="button"
+                onClick={() => moveMonth(1)}
+                className={`p-2.5 rounded-xl hover:bg-slate-100 text-slate-800 ${FOCUS}`}
+                aria-label="Mes siguiente"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400 mb-1">
+            <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-600 mb-1" aria-hidden="true">
               {['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].map((d) => (
                 <span key={d}>{d}</span>
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-1 text-center text-xs">
+            <div className="grid grid-cols-7 gap-1 text-center text-sm">
               {Array.from({ length: leadingBlanks }, (_, i) => (
                 <span key={`b${i}`} />
               ))}
@@ -290,72 +305,66 @@ export const TabSanitario: React.FC<TabSanitarioProps> = ({
                 const info = monthIndex.get(iso);
                 const isSelected = iso === selectedDate;
                 const isToday = iso === today;
-                const dot = info ? (info.overdue > 0 ? 'bg-rose-500' : info.pending > 0 ? 'bg-blue-600' : 'bg-emerald-500') : null;
+                const dot = info ? (info.overdue > 0 ? 'bg-rose-600' : info.pending > 0 ? 'bg-blue-700' : 'bg-emerald-600') : null;
+                const total = info ? info.overdue + info.pending + info.done : 0;
                 return (
                   <button
+                    type="button"
                     key={iso}
                     onClick={() => setSelectedDate(iso)}
-                    className={`relative py-1.5 rounded-xl font-semibold transition-all cursor-pointer flex flex-col items-center justify-center ${
+                    aria-pressed={isSelected}
+                    aria-label={`${day}${total ? `, ${total} actividades` : ''}${isToday ? ', hoy' : ''}`}
+                    className={`relative min-h-11 rounded-xl font-semibold transition-colors flex flex-col items-center justify-center ${FOCUS} ${
                       isSelected
-                        ? 'bg-blue-600 text-white font-black shadow-xs'
+                        ? 'bg-blue-700 text-white font-bold'
                         : info
-                        ? 'bg-blue-50 text-blue-900 font-bold hover:bg-blue-100'
-                        : 'text-slate-700 hover:bg-slate-100'
-                    } ${isToday && !isSelected ? 'ring-2 ring-blue-400' : ''}`}
+                          ? 'bg-blue-50 text-blue-900 font-bold hover:bg-blue-100'
+                          : 'text-slate-800 hover:bg-slate-100'
+                    } ${isToday && !isSelected ? 'ring-2 ring-blue-700' : ''}`}
                   >
                     <span>{day}</span>
-                    {dot && <span className={`w-1.5 h-1.5 rounded-full mt-0.5 ${isSelected ? 'bg-white' : dot}`} />}
+                    {dot && <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full mt-0.5 ${isSelected ? 'bg-white' : dot}`} />}
                   </button>
                 );
               })}
             </div>
 
-            <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-3 text-[10px] text-slate-600">
+            <div className="mt-3 pt-2.5 border-t border-slate-200 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700">
               <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-blue-600" /> Pendiente
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-700" /> Pendiente
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-rose-500" /> Vencida
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-600" /> Atrasada
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" /> Completada
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded ring-2 ring-blue-400" /> Hoy
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" /> Hecha
               </span>
             </div>
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-slate-800">Tareas para el {selectedLabel}:</h4>
-              <span className="text-[10px] text-slate-500 font-medium">
-                {selectedDayTasks.length} {selectedDayTasks.length === 1 ? 'actividad' : 'actividades'}
-              </span>
-            </div>
+            <h4 className="text-sm font-bold text-slate-900">
+              {selectedDate === today ? 'Hoy' : selectedLabel} · {selectedDayTasks.length}{' '}
+              {selectedDayTasks.length === 1 ? 'actividad' : 'actividades'}
+            </h4>
 
             {selectedDayTasks.length === 0 ? (
-              <div className="bg-white rounded-2xl p-6 border border-slate-200 text-center space-y-2">
-                <p className="text-xs text-slate-500 font-medium">No hay tareas para este día.</p>
+              <div className="bg-white rounded-2xl p-5 border border-slate-200 text-center space-y-3">
+                <p className="text-sm text-slate-700">No hay actividades este día.</p>
                 {selectedDate >= today && (
                   <button
+                    type="button"
                     onClick={() => onAddActivity(selectedDate)}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-3.5 py-1.5 rounded-xl transition-colors cursor-pointer"
+                    className={`inline-flex items-center gap-1.5 min-h-11 text-sm font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 px-4 rounded-xl ${FOCUS}`}
                   >
-                    <Plus className="w-3.5 h-3.5" /> Programar Actividad Aquí
+                    <Plus aria-hidden="true" className="w-4 h-4" /> Programar este día
                   </button>
                 )}
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {selectedDayTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    today={today}
-                    onSelect={() => onSelectTask(task)}
-                    onToggle={() => onToggleTask(task)}
-                  />
+                  <TaskCard key={task.id} task={task} today={today} onSelect={() => onSelectTask(task)} onToggle={() => toggle(task)} />
                 ))}
               </div>
             )}
@@ -363,57 +372,75 @@ export const TabSanitario: React.FC<TabSanitarioProps> = ({
         </>
       ) : (
         <div className="space-y-3">
-          <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs space-y-2">
-            <div className="flex items-center gap-1 text-[11px] font-bold flex-wrap">
-              {(
-                [
-                  ['todos', 'Todas', 'bg-blue-600'],
-                  ['pendientes', 'Pendientes', 'bg-amber-600'],
-                  ['vencidas', 'Vencidas', 'bg-rose-600'],
-                  ['completadas', 'Completadas', 'bg-emerald-600'],
-                ] as const
-              ).map(([key, label, activeClass]) => (
-                <button
-                  key={key}
-                  onClick={() => setStatusFilter(key)}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    statusFilter === key ? `${activeClass} text-white` : 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  {label} ({counts[key]})
-                </button>
-              ))}
-            </div>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Filtrar actividades">
+            {(
+              [
+                ['hoy', 'Hoy y atrasadas'],
+                ['pendientes', 'Todas pendientes'],
+                ['completadas', 'Hechas'],
+                ['todos', 'Todas'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                type="button"
+                key={key}
+                onClick={() => setStatusFilter(key)}
+                aria-pressed={statusFilter === key}
+                className={`min-h-11 px-3 rounded-xl text-sm font-bold transition-colors ${FOCUS} ${
+                  statusFilter === key ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border border-slate-300'
+                }`}
+              >
+                {label} ({counts[key]})
+              </button>
+            ))}
+          </div>
+          <div className="relative">
+            <Search aria-hidden="true" className="w-5 h-5 text-slate-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
-              type="text"
+              type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por vacuna, animal, lote o responsable..."
-              className="w-full text-xs px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-blue-500"
+              placeholder="Buscar vacuna, animal o lote"
+              aria-label="Buscar actividad"
+              className={`${inputClass} pl-10`}
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {filteredTasks.length === 0 ? (
-              <p className="text-[11px] text-slate-400 italic text-center py-4">
-                {tasks.length === 0
-                  ? 'Aún no hay actividades. Programa la primera o abre un lote con protocolo.'
-                  : 'No hay actividades con este filtro.'}
-              </p>
+              <div className="bg-white rounded-2xl p-5 border border-slate-200 text-center">
+                <p className="text-sm text-slate-700">
+                  {tasks.length === 0
+                    ? 'Aún no hay actividades. Programa la primera o abre un lote con plan sanitario.'
+                    : statusFilter === 'hoy'
+                      ? 'Nada pendiente para hoy. ¡Todo al día!'
+                      : 'No hay actividades con este filtro.'}
+                </p>
+              </div>
             ) : (
               filteredTasks.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  today={today}
-                  showDate
-                  onSelect={() => onSelectTask(task)}
-                  onToggle={() => onToggleTask(task)}
-                />
+                <TaskCard key={task.id} task={task} today={today} showDate onSelect={() => onSelectTask(task)} onToggle={() => toggle(task)} />
               ))
             )}
           </div>
         </div>
+      )}
+
+      {reopenTask && (
+        <ConfirmDialog
+          title="¿Reabrir actividad?"
+          message={
+            <>
+              «{reopenTask.title}» volverá a quedar como pendiente.
+            </>
+          }
+          confirmLabel="Reabrir"
+          onConfirm={() => {
+            onToggleTask(reopenTask);
+            setReopenTask(null);
+          }}
+          onCancel={() => setReopenTask(null)}
+        />
       )}
     </div>
   );

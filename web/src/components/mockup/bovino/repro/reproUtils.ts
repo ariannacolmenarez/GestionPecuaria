@@ -21,10 +21,10 @@ export interface ServiceEligibility {
 export function serviceEligibility(v: BovinoAnimalView, cfg: Pick<BovinoConfig, 'pevDays' | 'minServiceAgeDays'>, fmt: (iso?: string) => string = (x) => x || ''): ServiceEligibility {
   const r = v.repro;
   if (!isReproFemale(v)) return { block: 'Solo vacas y novillas activas', warn: null, ready: false };
-  if (r?.pregnant) return { block: `No se puede servir: preñada${r.fpp ? ` (FPP ${fmt(r.fpp)})` : ''}`, warn: null, ready: false };
+  if (r?.pregnant) return { block: `No se puede servir: preñada${r.fpp ? ` (parto ${fmt(r.fpp)})` : ''}`, warn: null, ready: false };
   if (r?.dried || r?.state === 'seca') return { block: 'No se puede servir: está seca', warn: null, ready: false };
   if (v.category === 'vaca' && r?.lastCalvingDate && !r.pevReached)
-    return { block: null, warn: `Lleva ${r.daysSinceCalving ?? '?'} días posparto (PEV ${cfg.pevDays}).`, ready: false };
+    return { block: null, warn: `Lleva ${r.daysSinceCalving ?? '?'} días posparto (se sirve desde los ${cfg.pevDays}).`, ready: false };
   if (v.category === 'novilla' && v.ageDays !== null && v.ageDays < cfg.minServiceAgeDays)
     return { block: null, warn: `Novilla de ${Math.floor(v.ageDays / 30.44)} meses: menor a la edad mínima de servicio.`, ready: false };
   return { block: null, warn: r?.state === 'servida' ? 'Ya está servida: será un nuevo servicio (repetición).' : null, ready: r?.state !== 'servida' };
@@ -40,7 +40,7 @@ export interface ReproAgendaItem {
 }
 
 export const REPRO_KIND_LABEL: Record<ReproAgendaKind, string> = {
-  pev: 'PEV cumplido · listas para servir',
+  pev: 'Listas para servir',
   palpar: 'Palpar',
   secar: 'Secar',
   parto: 'Partos próximos',

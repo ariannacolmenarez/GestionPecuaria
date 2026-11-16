@@ -6,9 +6,10 @@
  * los datos llegan del controlador y cada operación llama a avicolaActions.*.
  * Solo guarda estado de UI (pestaña, sub-pestaña, hoja de nuevo lote).
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FinancialMovement, SanitaryTask, WarehouseItem, AvicolaLot } from '../../../models/FarmModel';
 import type { AvicolaData, AvicolaHomeSummary } from '../../../models/avicolaDomain';
+import { isLotActive } from '../../../models/avicolaDomain';
 import type { AvicolaActions } from '../../../controllers/FarmController';
 import { AvicolaContext, type AvicolaCtx } from './context';
 import type { AvicolaFocusRequest, ControlSub, GestionSub, LotTab } from './shared';
@@ -61,17 +62,21 @@ export const AvicolaModule: React.FC<AvicolaModuleProps> = ({
   feedTemplate,
   onSaveFeedTemplate,
 }) => {
-  const [tab, setTab] = useState<LotTab>('ventas');
+  const [tab, setTab] = useState<LotTab>('control');
   const [controlSub, setControlSub] = useState<ControlSub>('alimentacion');
   const [gestionSub, setGestionSub] = useState<GestionSub>('resumen');
   const [newLot, setNewLot] = useState(false);
   // Petición de abrir el calendario del Home avícola (contador: cada petición cambia el valor)
   const [calendarReq, setCalendarReq] = useState(0);
+  const lotsRef = useRef(data.lots);
+  lotsRef.current = data.lots;
 
   const openLot = useCallback(
     (loteId: string | null, t?: LotTab, sub?: ControlSub) => {
       if (loteId) {
-        setTab(t || 'ventas');
+        // Rutina diaria primero: un lote activo abre en Control; uno finalizado, en Ventas (cobros pendientes).
+        const lot = lotsRef.current.find((l) => l.id === loteId);
+        setTab(t || (!lot || isLotActive(lot) ? 'control' : 'ventas'));
         if (sub) setControlSub(sub);
       }
       onOpenLot(loteId);

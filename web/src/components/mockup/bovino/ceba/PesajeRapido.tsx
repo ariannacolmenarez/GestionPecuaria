@@ -94,7 +94,7 @@ export const PesajeRapido: React.FC<{ lotId?: string; animalIds?: string[]; onCl
           <ErrorBox error={error} />
           <p className="text-sm font-bold text-slate-900 text-center">
             Pesados {filled.length} de {rows.length}
-            {avgGmd !== null ? ` · GMD prom. ${num(avgGmd, 2)} kg/d` : ''}
+            {avgGmd !== null ? ` · ganancia prom. ${num(avgGmd, 2)} kg/día` : ''}
           </p>
           <PrimaryBtn className="w-full" disabled={!filled.length} onClick={save}>
             {filled.length ? `Guardar ${plural(filled.length, 'pesaje', 'pesajes')}` : 'Escribe los pesos'}
@@ -151,7 +151,7 @@ export const PesajeRapido: React.FC<{ lotId?: string; animalIds?: string[]; onCl
         <div className="bg-white rounded-2xl border-2 border-slate-200 p-3 space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-sm font-black text-slate-900">Agregar arete que no está en la lista</p>
-            <button type="button" aria-label="Cerrar" onClick={() => setAdding(false)} className={`w-11 h-11 rounded-xl flex items-center justify-center ${FOCUS_B}`}>
+            <button type="button" aria-label="Cerrar" onClick={() => setAdding(false)} className={`w-12 h-12 rounded-xl flex items-center justify-center ${FOCUS_B}`}>
               <X className="w-5 h-5" />
             </button>
           </div>

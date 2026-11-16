@@ -9,7 +9,7 @@ import { cowDailyLiters, milkDropAlerts, milkSeries, milkShippingList, normalize
 import { addDays, daysBetween } from '../../../../utils/dates';
 import type { StageBProps } from '../stageB';
 import { useBovino } from '../context';
-import { AnimalRow, Can, ChipFilter, EmptyBlock, Fab, PrimaryBtn, Screen, SecondaryBtn, StatStrip, StatusChip, fd, num, usd } from '../ui';
+import { AnimalRow, Can, ChipFilter, EmptyBlock, PrimaryBtn, Screen, SecondaryBtn, StatStrip, StatusChip, fd, num, usd } from '../ui';
 import { BarChart, Card, DataToggle, LineRow, PeriodFilter, periodRange, type Period } from '../kit';
 import { OrdenoRapido } from './OrdenoRapido';
 import { cowAvgBefore } from './milkUtils';
@@ -17,15 +17,27 @@ import { cowAvgBefore } from './milkUtils';
 type Vista = 'todos' | 'lote' | 'vaca';
 
 export default function LecheHub({ screen }: StageBProps) {
-  const { data, index, selectors, navigate, today, config, perms } = useBovino();
+  const { data, index, selectors, navigate, today, config, perms, back } = useBovino();
   const [vista, setVista] = useState<Vista>('todos');
   const [period, setPeriod] = useState<Period>(() => periodRange('semana', today));
   const [ordenar, setOrdenar] = useState(false);
   const [lotSel, setLotSel] = useState<string>('');
+  // "Registrar ordeño" desde el Hato o la ficha: al cerrar vuelve a la pantalla de origen.
+  const [fromRoute, setFromRoute] = useState(false);
 
   useEffect(() => {
-    if (screen.s === 'leche' && screen.ordenar && perms.cargaDiaria) setOrdenar(true);
+    if (screen.s === 'leche' && screen.ordenar && perms.cargaDiaria) {
+      setFromRoute(true);
+      setOrdenar(true);
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const closeOrdeno = () => {
+    setOrdenar(false);
+    if (fromRoute) {
+      setFromRoute(false);
+      back();
+    }
+  };
 
   const hasMilk = useMemo(() => data.events.some((e) => e.kind === 'ordeno'), [data.events]);
   const lactating = useMemo(() => index.active.filter((v) => v.sex === 'hembra' && v.repro?.lactating), [index]);
@@ -99,12 +111,12 @@ export default function LecheHub({ screen }: StageBProps) {
           cta={perms.cargaDiaria ? 'Registrar ordeño' : undefined}
           onCta={() => setOrdenar(true)}
         />
-        {ordenar && <OrdenoRapido onClose={() => setOrdenar(false)} />}
+        {ordenar && <OrdenoRapido onClose={closeOrdeno} />}
       </Screen>
     );
 
   return (
-    <Screen padBottom>
+    <Screen>
       <ChipFilter<Vista>
         ariaLabel="Ver"
         value={vista}
@@ -115,6 +127,11 @@ export default function LecheHub({ screen }: StageBProps) {
           { key: 'vaca', label: 'Por vaca' },
         ]}
       />
+      {perms.cargaDiaria && (
+        <PrimaryBtn className="w-full" onClick={() => setOrdenar(true)}>
+          <Milk className="w-5 h-5" /> Registrar ordeño
+        </PrimaryBtn>
+      )}
       {vista === 'lote' && milkLots.length > 0 && <ChipFilter ariaLabel="Lote" value={lotId} onChange={setLotSel} options={milkLots.map((l) => ({ key: l.id, label: l.name }))} />}
       {vista === 'lote' && milkLots.length === 0 && <p className="text-sm text-slate-800">No hay lotes con vacas en ordeño.</p>}
       <PeriodFilter value={period} onChange={setPeriod} today={today} options={['hoy', 'semana', 'mes', 'rango']} />
@@ -192,7 +209,7 @@ export default function LecheHub({ screen }: StageBProps) {
             <LineRow label="Litros producidos en el periodo" value={`${num(bal.litersProduced, 0)} L`} />
             <LineRow label="Costo por litro" value={bal.costPerLiterUsd !== null ? usd(bal.costPerLiterUsd) : 'Sin datos'} strong />
             {perms.verBalance && (
-              <SecondaryBtn className="w-full" onClick={() => navigate({ s: 'balance' }, 'mas')}>
+              <SecondaryBtn className="w-full" onClick={() => navigate({ s: 'balance' })}>
                 Ver balance leche y cría
               </SecondaryBtn>
             )}
@@ -200,13 +217,7 @@ export default function LecheHub({ screen }: StageBProps) {
         )}
       </Can>
 
-      {perms.cargaDiaria && (
-        <PrimaryBtn className="w-full" onClick={() => setOrdenar(true)}>
-          <Milk className="w-5 h-5" /> Registrar ordeño
-        </PrimaryBtn>
-      )}
-      {perms.cargaDiaria && <Fab label="Ordeño" onClick={() => setOrdenar(true)} />}
-      {ordenar && <OrdenoRapido onClose={() => setOrdenar(false)} />}
+      {ordenar && <OrdenoRapido onClose={closeOrdeno} />}
     </Screen>
   );
 }

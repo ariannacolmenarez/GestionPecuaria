@@ -39,12 +39,12 @@ export default function SecadoList(_p: StageBProps) {
           const d = target ? daysBetween(today, target) : null;
           return (
             <li key={v.id} className="bg-white rounded-2xl border-2 border-slate-200 p-3 flex items-center gap-3">
-              <button type="button" onClick={() => navigate({ s: 'animal', id: v.id }, 'hato')} className={`text-lg font-black tabular-nums text-slate-900 min-w-[3.5rem] text-left ${FOCUS_B}`}>
+              <button type="button" onClick={() => navigate({ s: 'animal', id: v.id })} className={`text-lg font-black tabular-nums text-slate-900 min-w-[3.5rem] text-left ${FOCUS_B}`}>
                 #{v.tag}
               </button>
               <span className="flex-1 min-w-0 text-sm text-slate-900">
                 {vista === 'porSecar' ? `Secar ${fd(target)}` : `Parto probable ${fd(v.repro?.fpp)}`}
-                <span className="block text-xs text-slate-700">FPP {fd(v.repro?.fpp)}</span>
+                <span className="block text-xs text-slate-700">Parto {fd(v.repro?.fpp)}</span>
               </span>
               {vista === 'porSecar' && d !== null && <StatusChip tone={d < 0 ? 'bad' : d === 0 ? 'warn' : 'info'}>{d < 0 ? 'Vencida' : d === 0 ? 'Hoy' : `En ${d} d`}</StatusChip>}
               {vista === 'porSecar' && perms.reproduccion && (

@@ -22,9 +22,9 @@ import { deliverFile, safeFileName, shareText } from './share';
 type Key = 'ganado' | 'inventario' | 'balance' | 'liquidacion' | 'ordeno' | 'pesajes' | 'agenda' | 'historial' | 'bitacora';
 
 const ITEMS: { key: Key; title: string; subtitle: string; icon: React.ReactNode }[] = [
-  { key: 'ganado', title: 'Lista de ganado', subtitle: 'Arete, categoría, lote, peso, GMD y estado', icon: <Users className="w-5 h-5" /> },
+  { key: 'ganado', title: 'Lista de ganado', subtitle: 'Arete, categoría, lote, peso, ganancia diaria y estado', icon: <Users className="w-5 h-5" /> },
   { key: 'ordeno', title: 'Ordeño del periodo', subtitle: 'Litros por vaca y tanque, descarte', icon: <Milk className="w-5 h-5" /> },
-  { key: 'pesajes', title: 'Pesajes', subtitle: 'Por lote o todo el hato, con GMD', icon: <Scale className="w-5 h-5" /> },
+  { key: 'pesajes', title: 'Pesajes', subtitle: 'Por lote o todo el hato, con ganancia diaria', icon: <Scale className="w-5 h-5" /> },
   { key: 'agenda', title: 'Agenda de hoy', subtitle: 'Lista de trabajo para imprimir', icon: <CalendarCheck className="w-5 h-5" /> },
   { key: 'inventario', title: 'Inventario de almacén', subtitle: 'Stock, lotes del fabricante y vencimientos', icon: <Package className="w-5 h-5" /> },
   { key: 'historial', title: 'Historial de un animal', subtitle: 'Línea de tiempo completa', icon: <History className="w-5 h-5" /> },

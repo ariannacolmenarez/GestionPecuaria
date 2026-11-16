@@ -1,10 +1,22 @@
-import React, { useMemo, useState } from 'react';
-import { X, Heart, Plus, Calendar, CheckCircle2, ShieldCheck, Activity } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Heart, Plus, Calendar, CheckCircle2, ShieldCheck, Activity, PiggyBank } from 'lucide-react';
 import { PorcinoAnimal, FinancialMovement } from '../../types';
 import { isActiveAnimal, sowReproductiveState } from '../../models/porcinoRules';
 import { todayISO, addDays } from '../../utils/dates';
 import { newId } from '../../utils/ids';
 import { ModalActionReturn, runModalAction, toNumber } from './modalResult';
+import {
+  Btn,
+  ErrorBox,
+  FieldError,
+  FieldLabel,
+  ModalHeader,
+  Overlay,
+  fieldClass,
+  inputClass,
+  useBackClose,
+  useFocusFirstInvalid,
+} from '../common/ui';
 
 const GESTATION_DAYS = 114;
 
@@ -32,7 +44,16 @@ interface BoarMatingAndNewModalProps {
    * el movement se mantiene solo por compatibilidad y debe ignorarse).
    */
   onAddNewBoar: (newBoar: PorcinoAnimal, movement: FinancialMovement) => ModalActionReturn;
+  /** Opcional: enlace "Ver cerdas" en la pantalla de éxito (lo cablea el menú porcino). */
+  onViewSows?: () => void;
 }
+
+type FieldKey = 'sow' | 'boar' | 'date' | 'cost' | 'code' | 'weight' | 'birth';
+
+const segClass = (active: boolean) =>
+  `min-h-11 flex-1 rounded-xl border-2 px-2 text-sm font-bold transition-colors flex items-center justify-center gap-1.5 ${
+    active ? 'bg-rose-600 border-rose-600 text-white' : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50'
+  }`;
 
 export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
   initialTab = 'monta',
@@ -42,6 +63,7 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
   onClose,
   onRegisterMating,
   onAddNewBoar,
+  onViewSows,
 }) => {
   const allAnimals = animals || [];
 
@@ -63,7 +85,10 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
   const [isSuccess, setIsSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
 
   // Mating form state
   const [selectedBoar, setSelectedBoar] = useState(availableBoars[0]?.code || '');
@@ -87,32 +112,69 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
   const estimatedFarrowDate = matingDate ? addDays(matingDate, GESTATION_DAYS) : '—';
   const selectedSowAnimal = availableSows.find((s) => s.code === selectedSow);
 
+  const dirty =
+    !isSuccess &&
+    (externalBoarName.trim() !== '' ||
+      externalCost !== '' ||
+      matingNotes.trim() !== '' ||
+      newBoarCode.trim() !== '' ||
+      newBoarBreed.trim() !== '' ||
+      newBoarBirthDate !== '' ||
+      newBoarWeight !== '' ||
+      newBoarCost !== '' ||
+      newBoarSupplier.trim() !== '' ||
+      newBoarDiet.trim() !== '');
+  const { requestClose, confirmDialog } = useBackClose(true, onClose, dirty);
+  const firstError = (Object.values(errors) as (string | undefined)[]).find(Boolean) || null;
+  useFocusFirstInvalid(formRef, firstError, attempt);
+
+  const clearErrors = () => {
+    setErrors({});
+    setFormError(null);
+  };
+
   const switchTab = (tab: 'monta' | 'nuevo') => {
     setActiveTab(tab);
-    setError(null);
+    setIsSuccess(false);
+    clearErrors();
+  };
+
+  const resetForm = () => {
+    // Monta: la cerda servida pasa a preñada y deja de figurar; se elige la siguiente
+    setSelectedSow(availableSows[0]?.code || '');
+    setMatingDate(todayISO());
+    setExternalBoarName('');
+    setExternalCost('');
+    setMatingNotes('');
+    setNewBoarCode('');
+    setNewBoarBreed('');
+    setNewBoarBirthDate('');
+    setNewBoarWeight('');
+    setNewBoarCost('');
+    setNewBoarSupplier('');
+    setNewBoarDiet('');
+    clearErrors();
+    setIsSuccess(false);
+  };
+
+  const fail = (errs: Partial<Record<FieldKey, string>>) => {
+    setErrors(errs);
+    setAttempt((n) => n + 1);
+    return Object.keys(errs).length > 0;
   };
 
   const handleMatingSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
-    setError(null);
-    if (!selectedSowAnimal) {
-      setError('Selecciona una cerda disponible para el servicio.');
-      return;
-    }
+    setFormError(null);
     const finalBoarCode = (isExternalBoar ? externalBoarName : selectedBoar).trim();
-    if (!finalBoarCode) {
-      setError(isExternalBoar ? 'Indica el nombre o código del verraco externo.' : 'Selecciona un verraco de la granja.');
-      return;
-    }
-    if (!matingDate || matingDate > todayISO()) {
-      setError('La fecha de la monta no puede ser futura.');
-      return;
-    }
     const costNum = isExternalBoar ? toNumber(externalCost) : 0;
-    if (costNum < 0) {
-      setError('El costo del servicio no puede ser negativo.');
-      return;
-    }
+    const errs: Partial<Record<FieldKey, string>> = {};
+    if (!selectedSowAnimal) errs.sow = 'Elige la cerda que se montó.';
+    if (!finalBoarCode) errs.boar = isExternalBoar ? 'Escribe el nombre o código del verraco de afuera.' : 'Elige un verraco de la granja.';
+    if (!matingDate || matingDate > todayISO()) errs.date = 'La fecha no puede ser futura.';
+    if (costNum < 0) errs.cost = 'El costo no puede ser negativo.';
+    if (fail(errs) || !selectedSowAnimal) return;
+
     const typeLabel = matingType === 'inseminacion' ? 'Inseminación artificial' : 'Monta natural';
     const notes = [typeLabel, matingNotes.trim()].filter(Boolean).join('. ');
 
@@ -122,43 +184,35 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
     );
     setIsSaving(false);
     if (!res.ok) {
-      setError(res.error || 'No se pudo registrar la monta.');
+      setFormError(res.error || 'No se pudo registrar la monta.');
       return;
     }
     setSuccessMessage(
-      `Monta registrada entre ${finalBoarCode} y ${selectedSowAnimal.code}. Fecha probable de parto: ${
+      `Monta de ${finalBoarCode} con la cerda ${selectedSowAnimal.code}. Parto probable: ${
         res.meta?.expectedFarrowingDate || estimatedFarrowDate
-      }. Se programaron las tareas de diagnóstico, vacunación preparto y parto.`
+      }. Ya quedaron programadas las tareas de revisión de preñez, vacuna antes del parto y parto.`
     );
     setIsSuccess(true);
   };
 
   const handleNewBoarSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
-    setError(null);
+    setFormError(null);
     const code = newBoarCode.trim().toUpperCase();
-    if (!code) {
-      setError('Indica el código o arete del verraco.');
-      return;
-    }
-    if (allAnimals.some((a) => (a.code || '').toUpperCase() === code) || availableBoars.some((b) => b.code.toUpperCase() === code)) {
-      setError(`El código ${code} ya está en uso.`);
-      return;
-    }
     const costNum = toNumber(newBoarCost);
     const weightNum = toNumber(newBoarWeight);
-    if (costNum < 0) {
-      setError('El costo de compra no puede ser negativo.');
-      return;
-    }
-    if (weightNum <= 0 || weightNum > 600) {
-      setError('Indica un peso inicial válido (entre 1 y 600 kg).');
-      return;
-    }
-    if (newBoarBirthDate && newBoarBirthDate > todayISO()) {
-      setError('La fecha de nacimiento no puede ser futura.');
-      return;
-    }
+    const errs: Partial<Record<FieldKey, string>> = {};
+    if (!code) errs.code = 'Escribe el código o arete del verraco.';
+    else if (
+      allAnimals.some((a) => (a.code || '').toUpperCase() === code) ||
+      availableBoars.some((b) => b.code.toUpperCase() === code)
+    )
+      errs.code = `El código ${code} ya está en uso.`;
+    if (newBoarBirthDate && newBoarBirthDate > todayISO()) errs.birth = 'La fecha de nacimiento no puede ser futura.';
+    if (weightNum <= 0 || weightNum > 600) errs.weight = 'Escribe un peso entre 1 y 600 kg.';
+    if (costNum < 0) errs.cost = 'El costo no puede ser negativo.';
+    if (fail(errs)) return;
+
     const today = todayISO();
     const supplier = newBoarSupplier.trim();
     const breed = newBoarBreed.trim();
@@ -200,423 +254,404 @@ export const BoarMatingAndNewModal: React.FC<BoarMatingAndNewModalProps> = ({
     const res = await runModalAction(() => onAddNewBoar(newAnimal, movement));
     setIsSaving(false);
     if (!res.ok) {
-      setError(res.error || 'No se pudo registrar el verraco.');
+      setFormError(res.error || 'No se pudo registrar el verraco.');
       return;
     }
     setSuccessMessage(
       costNum > 0
-        ? `Nuevo semental ${code} incorporado al rebaño y egreso de $${costNum.toFixed(2)} USD registrado en el balance.`
-        : `Nuevo semental ${code} incorporado al rebaño.`
+        ? `El verraco ${code} ya está en la granja. Se anotó el gasto de $${costNum.toFixed(2)} en el balance.`
+        : `El verraco ${code} ya está en la granja.`
     );
     setIsSuccess(true);
   };
 
-  const errorBox = error && (
-    <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-[11px] font-bold text-rose-800">{error}</div>
+  const errProps = (k: FieldKey) => ({
+    'aria-invalid': !!errors[k],
+    'aria-describedby': errors[k] ? `bm-${k}-err` : undefined,
+  });
+
+  const footer = (label: string) => (
+    <div className="shrink-0 border-t border-slate-200 bg-white p-3 space-y-2">
+      <ErrorBox error={formError} />
+      <div className="flex gap-2.5">
+        <Btn variant="secondary" size="lg" onClick={requestClose} className="flex-1">
+          Cancelar
+        </Btn>
+        <Btn type="submit" rubro="porcino" size="lg" disabled={isSaving} className="flex-[2]">
+          {isSaving ? 'Guardando…' : label}
+        </Btn>
+      </div>
+    </div>
   );
 
   return (
-    <div
-      id="boar-mating-new-modal-overlay"
-      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200 overflow-y-auto"
-    >
+    <Overlay className="bg-black/70 flex items-end sm:items-center justify-center sm:p-4" onBackdrop={requestClose}>
       <div
         id="boar-mating-new-modal-card"
-        className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl border border-slate-200 my-auto flex flex-col max-h-[92vh]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="boar-mating-title"
+        className="relative bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
       >
-        {/* Header with Navigation Tabs */}
-        <div className="bg-slate-900 text-white p-4 shrink-0 flex items-center justify-between border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-blue-600/30 text-blue-400 flex items-center justify-center font-bold">
-              <Activity className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-base text-white leading-tight">
-                Gestión Reproductiva de Verracos
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                Registrar montas / servicios y compra de nuevos sementales
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        <ModalHeader
+          rubro="porcino"
+          icon={<Activity />}
+          titleId="boar-mating-title"
+          title={activeTab === 'monta' ? 'Registrar monta' : 'Comprar verraco'}
+          subtitle="Montas de cerdas y compra de verracos"
+          onClose={requestClose}
+        />
 
-        {/* Tab Selector */}
-        <div className="flex border-b border-slate-200 bg-slate-50 shrink-0">
+        {/* Selector de formulario */}
+        <div className="flex gap-2 p-3 border-b border-slate-200 bg-slate-50 shrink-0" role="tablist">
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'monta'}
             onClick={() => switchTab('monta')}
-            className={`flex-1 py-2.5 text-xs font-bold text-center border-b-2 transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
-              activeTab === 'monta'
-                ? 'border-blue-600 text-blue-900 bg-white'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
+            className={segClass(activeTab === 'monta')}
           >
-            <Heart className="w-3.5 h-3.5" /> Registrar Monta / Servicio
+            <Heart className="w-4 h-4" aria-hidden="true" /> Monta
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'nuevo'}
             onClick={() => switchTab('nuevo')}
-            className={`flex-1 py-2.5 text-xs font-bold text-center border-b-2 transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
-              activeTab === 'nuevo'
-                ? 'border-emerald-600 text-emerald-900 bg-white'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
+            className={segClass(activeTab === 'nuevo')}
           >
-            <Plus className="w-3.5 h-3.5" /> Comprar Nuevo Verraco
+            <Plus className="w-4 h-4" aria-hidden="true" /> Comprar verraco
           </button>
         </div>
 
         {isSuccess ? (
-          <div className="p-8 text-center space-y-3">
-            <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-7 h-7" />
+          <div className="p-6 text-center space-y-4 overflow-y-auto">
+            <div className="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
             </div>
-            <h4 className="font-bold text-slate-800 text-base">¡Operación Registrada!</h4>
-            <p className="text-xs text-slate-600 leading-relaxed">{successMessage}</p>
-            <button
-              type="button"
-              onClick={onClose}
-              className="mt-2 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
-            >
-              Cerrar
-            </button>
+            <h3 className="font-bold text-slate-900 text-lg">
+              {activeTab === 'monta' ? 'Monta registrada' : 'Verraco registrado'}
+            </h3>
+            <p className="text-sm text-slate-700 leading-relaxed">{successMessage}</p>
+            <div className="flex flex-col gap-2.5 pt-2">
+              {(activeTab === 'nuevo' || availableSows.length > 0) && (
+                <Btn rubro="porcino" size="lg" block icon={<Plus />} onClick={resetForm}>
+                  {activeTab === 'monta' ? 'Registrar otra monta' : 'Registrar otro verraco'}
+                </Btn>
+              )}
+              {onViewSows && activeTab === 'monta' && (
+                <Btn variant="secondary" size="lg" block icon={<PiggyBank />} onClick={onViewSows}>
+                  Ver cerdas
+                </Btn>
+              )}
+              <Btn variant="ghost" size="lg" block onClick={onClose}>
+                Cerrar
+              </Btn>
+            </div>
           </div>
         ) : activeTab === 'monta' && availableSows.length === 0 ? (
-          <div className="p-8 text-center space-y-3 text-xs">
-            <p className="font-bold text-slate-800 text-sm">No hay cerdas disponibles para servicio</p>
-            <p className="text-slate-500">
-              Solo se listan cerdas de maternidad activas que no estén gestantes. Registra una nueva madre o espera el destete.
+          <div className="p-6 text-center space-y-3">
+            <p className="font-bold text-slate-900 text-base">No hay cerdas para montar</p>
+            <p className="text-sm text-slate-600">
+              Solo aparecen cerdas activas que no estén preñadas. Registra una nueva madre o espera el destete.
             </p>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-bold cursor-pointer"
-            >
+            <Btn variant="secondary" size="lg" block onClick={onClose}>
               Cerrar
-            </button>
+            </Btn>
           </div>
         ) : activeTab === 'monta' ? (
           /* FORM: REGISTRAR MONTA */
-          <form onSubmit={handleMatingSubmit} className="p-4 space-y-3.5 overflow-y-auto text-xs">
-            {/* Opción Externo / Interno */}
-            <div className="bg-blue-50/70 p-3 rounded-2xl border border-blue-200 flex items-center justify-between">
+          <form ref={formRef} onSubmit={handleMatingSubmit} noValidate className="flex flex-col min-h-0 flex-1">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Cerda */}
               <div>
-                <span className="font-bold text-blue-950 block">¿Fue con un Verraco Externo?</span>
-                <span className="text-[10px] text-blue-700">
-                  {isExternalBoar
-                    ? 'Servicio externo de inseminación o cabaña tercera (permite registrar costo)'
-                    : 'Monta con semental perteneciente a la granja'}
-                </span>
+                <FieldLabel htmlFor="bm-sow">Cerda *</FieldLabel>
+                <select
+                  id="bm-sow"
+                  value={selectedSow}
+                  onChange={(e) => setSelectedSow(e.target.value)}
+                  {...errProps('sow')}
+                  className={fieldClass(!!errors.sow, 'font-semibold')}
+                >
+                  {availableSows.map((s) => (
+                    <option key={s.id} value={s.code}>
+                      {s.code} · {sowReproductiveState(s) === 'lactante' ? 'Criando (falta destetar)' : s.stage || 'Vacía'}
+                    </option>
+                  ))}
+                </select>
+                <FieldError id="bm-sow-err" error={errors.sow} />
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isExternalBoar}
-                  disabled={availableBoars.length === 0}
-                  onChange={(e) => setIsExternalBoar(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600" />
-              </label>
-            </div>
 
-            {/* Verraco y Cerda */}
-            <div className="grid grid-cols-2 gap-2">
+              {/* Verraco de afuera: fila entera tocable */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isExternalBoar}
+                disabled={availableBoars.length === 0}
+                onClick={() => setIsExternalBoar((v) => !v)}
+                className="w-full min-h-14 p-3 rounded-2xl border-2 border-slate-300 bg-white flex items-center justify-between gap-3 text-left disabled:bg-slate-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+              >
+                <span>
+                  <span className="block text-sm font-bold text-slate-900">¿Fue con un verraco de afuera?</span>
+                  <span className="block text-xs text-slate-600">
+                    {availableBoars.length === 0
+                      ? 'No hay verracos en la granja: solo se puede con uno de afuera.'
+                      : isExternalBoar
+                        ? 'Sí: servicio comprado (puedes anotar el costo).'
+                        : 'No: con un verraco de la granja.'}
+                  </span>
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={`relative shrink-0 w-12 h-7 rounded-full transition-colors ${isExternalBoar ? 'bg-rose-600' : 'bg-slate-400'}`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                      isExternalBoar ? 'translate-x-5' : ''
+                    }`}
+                  />
+                </span>
+              </button>
+
+              {/* Verraco */}
               <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Verraco Semental: <span className="text-rose-600">*</span>
-                </label>
+                <FieldLabel htmlFor="bm-boar">Verraco *</FieldLabel>
                 {isExternalBoar ? (
                   <input
+                    id="bm-boar"
                     type="text"
-                    required
                     value={externalBoarName}
                     onChange={(e) => setExternalBoarName(e.target.value)}
-                    placeholder="Nombre o código verraco externo..."
-                    className="w-full px-2.5 py-2 border border-blue-300 rounded-xl font-bold text-blue-950 bg-white"
+                    placeholder="Nombre o código del verraco"
+                    {...errProps('boar')}
+                    className={fieldClass(!!errors.boar)}
                   />
                 ) : (
                   <select
+                    id="bm-boar"
                     value={selectedBoar}
                     onChange={(e) => setSelectedBoar(e.target.value)}
-                    className="w-full px-2.5 py-2 border border-slate-300 rounded-xl font-bold text-slate-900 bg-white"
+                    {...errProps('boar')}
+                    className={fieldClass(!!errors.boar, 'font-semibold')}
                   >
                     {availableBoars.map((b) => (
                       <option key={b.id} value={b.code}>
-                        {b.code} ({b.breed || 'Verraco'}) - {b.currentWeightKg} kg
+                        {b.code} ({b.breed || 'Verraco'}) · {b.currentWeightKg} kg
                       </option>
                     ))}
                   </select>
                 )}
+                <FieldError id="bm-boar-err" error={errors.boar} />
               </div>
 
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Cerda Servida: <span className="text-rose-600">*</span>
-                </label>
-                <select
-                  value={selectedSow}
-                  onChange={(e) => setSelectedSow(e.target.value)}
-                  className="w-full px-2.5 py-2 border border-slate-300 rounded-xl font-bold text-slate-900 bg-white"
-                >
-                  {availableSows.map((s) => (
-                    <option key={s.id} value={s.code}>
-                      {s.code} - {sowReproductiveState(s) === 'lactante' ? 'Lactante (requiere destete)' : s.stage || 'Vacía'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Costo si fue externo */}
-            {isExternalBoar && (
-              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 space-y-1 animate-in fade-in">
-                <label className="block text-amber-900 font-bold">
-                  Costo del Servicio Externo ($ USD): <span className="text-rose-600">*</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-2.5 top-2 text-amber-700 font-bold">$</span>
+              {/* Costo si fue externo */}
+              {isExternalBoar && (
+                <div>
+                  <FieldLabel htmlFor="bm-cost" hint="Se anota como gasto en el balance.">
+                    Costo del servicio ($)
+                  </FieldLabel>
                   <input
+                    id="bm-cost"
                     type="number"
+                    inputMode="decimal"
                     step="any"
                     min="0"
-                    required
                     placeholder="0.00"
                     value={externalCost}
                     onChange={(e) => setExternalCost(e.target.value)}
-                    className="w-full pl-7 pr-3 py-1.5 bg-white border border-amber-300 rounded-xl text-amber-950 font-black text-sm"
+                    {...errProps('cost')}
+                    className={fieldClass(!!errors.cost, 'font-bold')}
                   />
+                  <FieldError id="bm-cost-err" error={errors.cost} />
                 </div>
-                <p className="text-[10px] text-amber-800">
-                  Este costo se registrará automáticamente en el <strong>Balance Financiero</strong> como egreso
-                  operativo pecuario.
-                </p>
-              </div>
-            )}
+              )}
 
-            {/* Fecha de monta y tipo */}
-            <div className="grid grid-cols-2 gap-2">
+              {/* Tipo de servicio */}
               <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Fecha de la Monta: <span className="text-rose-600">*</span>
-                </label>
+                <span className="block text-sm font-semibold text-slate-900 mb-1" id="bm-type-label">
+                  Tipo de monta
+                </span>
+                <div className="flex gap-2" role="radiogroup" aria-labelledby="bm-type-label">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={matingType === 'natural'}
+                    onClick={() => setMatingType('natural')}
+                    className={segClass(matingType === 'natural')}
+                  >
+                    Natural
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={matingType === 'inseminacion'}
+                    onClick={() => setMatingType('inseminacion')}
+                    className={segClass(matingType === 'inseminacion')}
+                  >
+                    Inseminación
+                  </button>
+                </div>
+              </div>
+
+              {/* Fecha */}
+              <div>
+                <FieldLabel htmlFor="bm-date">Fecha de la monta *</FieldLabel>
                 <input
+                  id="bm-date"
                   type="date"
-                  required
                   max={todayISO()}
                   value={matingDate}
                   onChange={(e) => setMatingDate(e.target.value)}
-                  className="w-full px-2.5 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
+                  {...errProps('date')}
+                  className={fieldClass(!!errors.date)}
                 />
+                <FieldError id="bm-date-err" error={errors.date} />
               </div>
 
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Tipo de Servicio:</label>
-                <select
-                  value={matingType}
-                  onChange={(e) => setMatingType(e.target.value as 'natural' | 'inseminacion')}
-                  className="w-full px-2.5 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
-                >
-                  <option value="natural">Monta Natural</option>
-                  <option value="inseminacion">Inseminación Artificial (IA)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Estimación de Parto */}
-            <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-emerald-700" />
+              {/* Parto probable */}
+              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 flex items-center gap-3">
+                <Calendar className="w-5 h-5 text-emerald-700 shrink-0" aria-hidden="true" />
                 <div>
-                  <span className="text-[10px] text-emerald-800 uppercase font-bold block">
-                    Fecha Estimada de Parto (+114 días)
-                  </span>
-                  <strong className="text-sm font-mono text-emerald-950">
-                    {estimatedFarrowDate}
-                  </strong>
+                  <span className="text-xs text-emerald-900 font-bold block">Parto probable (114 días después)</span>
+                  <strong className="text-base text-emerald-950">{estimatedFarrowDate}</strong>
                 </div>
               </div>
-              <span className="text-[10px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-bold">
-                Gestación: 114 días
-              </span>
-            </div>
 
-            {/* Observaciones */}
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">Observaciones / Operador:</label>
-              <textarea
-                rows={2}
-                value={matingNotes}
-                placeholder="Ej. Servicio matutino con buena aceptación de la cerda"
-                onChange={(e) => setMatingNotes(e.target.value)}
-                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl text-slate-900 bg-white"
-              />
+              {/* Observaciones */}
+              <div>
+                <FieldLabel htmlFor="bm-notes">Observaciones (opcional)</FieldLabel>
+                <textarea
+                  id="bm-notes"
+                  rows={2}
+                  value={matingNotes}
+                  placeholder="Ej. Monta en la mañana, la cerda la aceptó bien"
+                  onChange={(e) => setMatingNotes(e.target.value)}
+                  className={`${inputClass} py-2`}
+                />
+              </div>
             </div>
-
-            {errorBox}
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-bold cursor-pointer transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
-              >
-                {isSaving ? 'Guardando...' : 'Registrar Monta'}
-              </button>
-            </div>
+            {footer('Guardar monta')}
           </form>
         ) : (
           /* FORM: COMPRAR NUEVO VERRACO */
-          <form onSubmit={handleNewBoarSubmit} className="p-4 space-y-3.5 overflow-y-auto text-xs">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Código / Arete: <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newBoarCode}
-                  placeholder="Ej. VER-001"
-                  onChange={(e) => setNewBoarCode(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono font-bold text-slate-900 bg-white"
-                />
+          <form ref={formRef} onSubmit={handleNewBoarSubmit} noValidate className="flex flex-col min-h-0 flex-1">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel htmlFor="bm-code">Código o arete *</FieldLabel>
+                  <input
+                    id="bm-code"
+                    type="text"
+                    value={newBoarCode}
+                    placeholder="Ej. VER-001"
+                    onChange={(e) => setNewBoarCode(e.target.value)}
+                    {...errProps('code')}
+                    className={fieldClass(!!errors.code, 'font-mono font-bold')}
+                  />
+                  <FieldError id="bm-code-err" error={errors.code} />
+                </div>
+                <div>
+                  <FieldLabel htmlFor="bm-breed">Raza</FieldLabel>
+                  <input
+                    id="bm-breed"
+                    type="text"
+                    value={newBoarBreed}
+                    onChange={(e) => setNewBoarBreed(e.target.value)}
+                    placeholder="Ej. Duroc"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel htmlFor="bm-weight">Peso (kg) *</FieldLabel>
+                  <input
+                    id="bm-weight"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.5"
+                    min="1"
+                    max="600"
+                    placeholder="Ej. 175"
+                    value={newBoarWeight}
+                    onChange={(e) => setNewBoarWeight(e.target.value)}
+                    {...errProps('weight')}
+                    className={fieldClass(!!errors.weight, 'font-bold')}
+                  />
+                  <FieldError id="bm-weight-err" error={errors.weight} />
+                </div>
+                <div>
+                  <FieldLabel htmlFor="bm-bcost">Precio de compra ($)</FieldLabel>
+                  <input
+                    id="bm-bcost"
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    min="0"
+                    placeholder="0.00"
+                    value={newBoarCost}
+                    onChange={(e) => setNewBoarCost(e.target.value)}
+                    {...errProps('cost')}
+                    className={fieldClass(!!errors.cost, 'font-bold')}
+                  />
+                  <FieldError id="bm-cost-err" error={errors.cost} />
+                </div>
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Raza / Línea Genética: <span className="text-rose-600">*</span>
-                </label>
+                <FieldLabel htmlFor="bm-birth">Fecha de nacimiento (opcional)</FieldLabel>
                 <input
-                  type="text"
-                  required
-                  value={newBoarBreed}
-                  onChange={(e) => setNewBoarBreed(e.target.value)}
-                  placeholder="Ej: Duroc, Pietrain, Landrace"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Fecha Nac.:
-                </label>
-                <input
+                  id="bm-birth"
                   type="date"
                   max={todayISO()}
                   value={newBoarBirthDate}
                   onChange={(e) => setNewBoarBirthDate(e.target.value)}
-                  className="w-full px-2 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
+                  {...errProps('birth')}
+                  className={fieldClass(!!errors.birth)}
+                />
+                <FieldError id="bm-birth-err" error={errors.birth} />
+              </div>
+
+              <div>
+                <FieldLabel htmlFor="bm-supplier">¿A quién se le compró? (opcional)</FieldLabel>
+                <input
+                  id="bm-supplier"
+                  type="text"
+                  placeholder="Ej. Granja proveedora"
+                  value={newBoarSupplier}
+                  onChange={(e) => setNewBoarSupplier(e.target.value)}
+                  className={inputClass}
                 />
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Peso Inicial (kg): <span className="text-rose-600">*</span>
-                </label>
+                <FieldLabel htmlFor="bm-diet">Alimentación inicial (opcional)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.5"
-                  min="1"
-                  max="600"
-                  required
-                  placeholder="Ej. 175"
-                  value={newBoarWeight}
-                  onChange={(e) => setNewBoarWeight(e.target.value)}
-                  className="w-full px-2 py-2 border border-slate-300 rounded-xl font-black text-slate-900 bg-white"
+                  id="bm-diet"
+                  type="text"
+                  value={newBoarDiet}
+                  placeholder="Ej. 2.8 kg de alimento al día"
+                  onChange={(e) => setNewBoarDiet(e.target.value)}
+                  className={inputClass}
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Costo Compra ($): <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  required
-                  placeholder="0.00"
-                  value={newBoarCost}
-                  onChange={(e) => setNewBoarCost(e.target.value)}
-                  className="w-full px-2 py-2 border border-emerald-300 rounded-xl font-black text-emerald-950 bg-emerald-50"
-                />
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-900">
+                <p className="font-bold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-700" aria-hidden="true" /> Qué pasará
+                </p>
+                <p className="mt-1">
+                  El verraco entra a la lista de animales y se anota un gasto de{' '}
+                  <strong>${toNumber(newBoarCost).toFixed(2)}</strong> en el balance.
+                </p>
               </div>
             </div>
-
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">
-                Proveedor / Cabaña de Origen:
-              </label>
-              <input
-                type="text"
-                placeholder="Ej. Centro genético / granja proveedora"
-                value={newBoarSupplier}
-                onChange={(e) => setNewBoarSupplier(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl font-semibold text-slate-900 bg-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">
-                Plan de Alimentación Inicial:
-              </label>
-              <input
-                type="text"
-                value={newBoarDiet}
-                placeholder="Ej. Mantenimiento machos 2.8 kg/día"
-                onChange={(e) => setNewBoarDiet(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-900 bg-white"
-              />
-            </div>
-
-            <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-800 space-y-0.5">
-              <span className="font-bold flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Registro Inmediato en Balance
-              </span>
-              <p>
-                El verraco ingresará a la lista de animales de la granja con historial de trazabilidad inicial,
-                y el costo de <strong>${toNumber(newBoarCost).toFixed(2)} USD</strong> se computará como egreso de inversión en el Balance.
-              </p>
-            </div>
-
-            {errorBox}
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-bold cursor-pointer transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="flex-1 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors"
-              >
-                {isSaving ? 'Guardando...' : 'Comprar e Incorporar Verraco'}
-              </button>
-            </div>
+            {footer('Guardar verraco')}
           </form>
         )}
+        {confirmDialog}
       </div>
-    </div>
+    </Overlay>
   );
 };

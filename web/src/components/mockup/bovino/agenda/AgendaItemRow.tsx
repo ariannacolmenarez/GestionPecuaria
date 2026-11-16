@@ -11,7 +11,7 @@ export const AGENDA_GROUPS: { kind: BovinoAgendaKind; label: string; Icon: React
   { kind: 'tarea', label: 'Tratamientos y tareas', Icon: Syringe },
   { kind: 'palpar', label: 'Palpar', Icon: Stethoscope },
   { kind: 'secar', label: 'Secar', Icon: Droplets },
-  { kind: 'pev', label: 'Servir / IATF', Icon: Heart },
+  { kind: 'pev', label: 'Listas para servir (monta o inseminación)', Icon: Heart },
   { kind: 'parto', label: 'Partos próximos', Icon: Baby },
   { kind: 'calostro', label: 'Calostro', Icon: Milk },
   { kind: 'destete', label: 'Destetar', Icon: Baby },
@@ -61,11 +61,11 @@ export const AgendaItemRow: React.FC<{ item: BovinoAgendaItem }> = ({ item }) =>
   const open = () => {
     if (canConfirmDeath) return confirmDeath();
     if (canAct && needsData) return register();
-    if (item.itemId) navigate({ s: 'insumo', id: item.itemId }, 'mas');
+    if (item.itemId) navigate({ s: 'insumo', id: item.itemId });
     else if (item.kind === 'pesaje_atrasado' && item.animalId) openSheet({ kind: 'pesaje', animalId: item.animalId });
     else if (item.animalId) navigate({ s: 'animal', id: item.animalId });
-    else if (item.lotId) navigate({ s: 'lote', id: item.lotId }, 'campo');
-    else if (isTask) navigate({ s: 'sanidad' }, 'campo');
+    else if (item.lotId) navigate({ s: 'lote', id: item.lotId });
+    else if (isTask) navigate({ s: 'sanidad' });
   };
 
   let lead: React.ReactNode;
@@ -101,7 +101,7 @@ export const AgendaItemRow: React.FC<{ item: BovinoAgendaItem }> = ({ item }) =>
         <UrgencyChip item={item} />
       </div>
       {canAct && needsData && (
-        <button type="button" onClick={register} className={`w-full h-12 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold flex items-center justify-center gap-2 ${FOCUS_B}`}>
+        <button type="button" onClick={register} className={`w-full h-12 rounded-xl bg-sky-700 hover:bg-sky-800 text-white font-bold flex items-center justify-center gap-2 ${FOCUS_B}`}>
           <ClipboardPen className="w-5 h-5" /> Registrar
         </button>
       )}

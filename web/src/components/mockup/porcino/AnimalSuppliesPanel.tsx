@@ -6,13 +6,14 @@
  * - "Traer del almacén general": traslado interno de stock ya comprado (sin egreso).
  * - "Usar": consumo que descuenta stock e imputa el costo al lote/cerdo.
  */
-import React, { useMemo, useState } from 'react';
-import { MapPin, Minus, Package, ShoppingCart, Truck, X } from 'lucide-react';
+import React, { useId as useReactId, useMemo, useRef, useState } from 'react';
+import { ChevronDown, MapPin, Minus, Package, ShoppingCart, Truck, X, CheckCircle2 } from 'lucide-react';
 import type { PorcinoAnimal, WarehouseItem } from '../../../types';
 import type { PorcinoActions } from '../../../controllers/FarmController';
 import { headCount, round2 } from '../../../models/porcinoRules';
 import { todayISO } from '../../../utils/dates';
 import { runModalAction, toNumber } from '../modalResult';
+import { Btn, ErrorBox, FieldError, FieldLabel, fieldClass, inputClass, useFocusFirstInvalid } from '../../common/ui';
 
 export type SupplyActions = Pick<
   PorcinoActions,
@@ -26,7 +27,9 @@ const CATS: { key: WarehouseItem['category']; label: string }[] = [
   { key: 'medicinas', label: 'Medicina' },
   { key: 'otros', label: 'Otro insumo' },
 ];
-const input = 'w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white text-xs';
+
+type FieldKey = 'product' | 'name' | 'qty' | 'price' | 'date' | 'from' | 'moveQty' | 'useQty';
+type PanelError = { field?: FieldKey; msg: string } | null;
 
 const productKey = (i: Pick<WarehouseItem, 'name' | 'unit' | 'category'>) => `${i.name.trim().toLowerCase()}|${i.unit}|${i.category}`;
 
@@ -35,6 +38,8 @@ export const AnimalSuppliesPanel: React.FC<{
   items: WarehouseItem[];
   actions: SupplyActions;
 }> = ({ animal, items, actions }) => {
+  const uid = useReactId();
+  const sectionRef = useRef<HTMLElement>(null);
   const porcinoItems = useMemo(() => (items || []).filter((i) => i.rubro !== 'avicola'), [items]);
   const here = useMemo(() => porcinoItems.filter((i) => i.animalId === animal.id), [porcinoItems, animal.id]);
   const generalWithStock = useMemo(() => porcinoItems.filter((i) => !i.animalId && toNumber(i.quantity) > 0), [porcinoItems]);
@@ -53,7 +58,8 @@ export const AnimalSuppliesPanel: React.FC<{
 
   const [expanded, setExpanded] = useState(false);
   const [mode, setMode] = useState<null | 'compra' | 'traer'>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<PanelError>(null);
+  const [errorCount, setErrorCount] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -74,6 +80,17 @@ export const AnimalSuppliesPanel: React.FC<{
   const [useId, setUseId] = useState<string | null>(null);
   const [useQty, setUseQty] = useState('');
 
+  useFocusFirstInvalid(sectionRef, error?.field ? error.msg : null, errorCount);
+
+  const setError = (field: FieldKey | undefined, msg: string) => {
+    setErrorState({ field, msg });
+    setErrorCount((n) => n + 1);
+  };
+  const clearError = () => setErrorState(null);
+  const errFor = (f: FieldKey) => (error?.field === f ? error.msg : undefined);
+  const errId = (f: FieldKey) => (error?.field === f ? `${uid}-${f}-err` : undefined);
+  const generalError = error && !error.field ? error.msg : null;
+
   const product = catalog.find((i) => i.id === productId);
   const isNew = productId === NEW_PRODUCT;
   const unitLabel = isNew ? unit : product?.unit || 'unidad';
@@ -81,7 +98,7 @@ export const AnimalSuppliesPanel: React.FC<{
   const fromItem = generalWithStock.find((i) => i.id === fromId);
 
   const open = (m: 'compra' | 'traer') => {
-    setError(null);
+    clearError();
     setNotice(null);
     setMode(mode === m ? null : m);
     setProductId(catalog.length ? '' : NEW_PRODUCT);
@@ -99,19 +116,19 @@ export const AnimalSuppliesPanel: React.FC<{
     setMode(null);
     setUseId(null);
     setNotice(msg);
-    setTimeout(() => setNotice(null), 4000);
+    setTimeout(() => setNotice(null), 5000);
   };
 
   const submitPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    clearError();
     const q = toNumber(qty, NaN);
     const p = toNumber(price, NaN);
-    if (!productId) return setError('Elige el producto o "Producto nuevo".');
-    if (isNew && !name.trim()) return setError('Escribe el nombre del producto.');
-    if (!Number.isFinite(q) || q <= 0) return setError('La cantidad debe ser mayor a 0.');
-    if (!Number.isFinite(p) || p <= 0) return setError('El precio por unidad debe ser mayor a 0.');
-    if (!date || date > todayISO()) return setError('La fecha de compra no puede ser futura.');
+    if (!productId) return setError('product', 'Elige el producto o "Producto nuevo".');
+    if (isNew && !name.trim()) return setError('name', 'Escribe el nombre del producto.');
+    if (!Number.isFinite(q) || q <= 0) return setError('qty', 'Escribe una cantidad mayor a 0.');
+    if (!Number.isFinite(p) || p <= 0) return setError('price', 'Escribe el precio por unidad.');
+    if (!date || date > todayISO()) return setError('date', 'La fecha no puede ser futura.');
     setSaving(true);
     const res = await runModalAction(() =>
       isNew
@@ -143,251 +160,350 @@ export const AnimalSuppliesPanel: React.FC<{
           })
     );
     setSaving(false);
-    if (!res.ok) return setError(res.error || 'No se pudo registrar la compra.');
-    done(`Compra registrada: +${q} ${unitLabel} de ${isNew ? name.trim() : product!.name} para ${animal.code} ($${total.toFixed(2)} al balance).`);
+    if (!res.ok) return setError(undefined, res.error || 'No se pudo guardar la compra.');
+    done(`Compra guardada: +${q} ${unitLabel} de ${isNew ? name.trim() : product!.name} para ${animal.code} ($${total.toFixed(2)} al balance).`);
   };
 
   const submitMove = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    if (!fromItem) return setError('Elige el insumo del almacén general.');
+    clearError();
+    if (!fromItem) return setError('from', 'Elige el insumo del almacén general.');
     const q = toNumber(moveQty, NaN);
-    if (!Number.isFinite(q) || q <= 0) return setError('La cantidad debe ser mayor a 0.');
-    if (q > toNumber(fromItem.quantity)) return setError(`Solo hay ${fromItem.quantity} ${fromItem.unit} en el almacén general.`);
+    if (!Number.isFinite(q) || q <= 0) return setError('moveQty', 'Escribe una cantidad mayor a 0.');
+    if (q > toNumber(fromItem.quantity)) return setError('moveQty', `Solo hay ${fromItem.quantity} ${fromItem.unit} en el almacén general.`);
     setSaving(true);
     const res = await runModalAction(() => actions.assignWarehouseItemLocation({ itemId: fromItem.id, animalId: animal.id, quantity: q }));
     setSaving(false);
-    if (!res.ok) return setError(res.error || 'No se pudo traer el insumo.');
-    done(`${q} ${fromItem.unit} de ${fromItem.name} asignados a ${animal.code}.`);
+    if (!res.ok) return setError(undefined, res.error || 'No se pudo traer el insumo.');
+    done(`${q} ${fromItem.unit} de ${fromItem.name} pasados a ${animal.code}.`);
   };
 
   const submitUse = async (item: WarehouseItem) => {
-    setError(null);
+    clearError();
     const q = toNumber(useQty, NaN);
-    if (!Number.isFinite(q) || q <= 0) return setError('La cantidad a usar debe ser mayor a 0.');
-    if (q > toNumber(item.quantity)) return setError(`Solo hay ${item.quantity} ${item.unit}.`);
+    if (!Number.isFinite(q) || q <= 0) return setError('useQty', 'Escribe cuánto usaste.');
+    if (q > toNumber(item.quantity)) return setError('useQty', `Solo hay ${item.quantity} ${item.unit}.`);
     setSaving(true);
     const res = await runModalAction(() => actions.consumeWarehouseItem({ itemId: item.id, amount: q, targetAnimalId: animal.id }));
     setSaving(false);
-    if (!res.ok) return setError(res.error || 'No se pudo registrar el consumo.');
+    if (!res.ok) return setError(undefined, res.error || 'No se pudo guardar el uso.');
     done(`Se usaron ${q} ${item.unit} de ${item.name}; su costo se cargó a ${animal.code}.`);
   };
 
-  const errorBox = error && <div className="p-2 bg-rose-100 border border-rose-300 rounded-lg text-[11px] font-bold text-rose-800">{error}</div>;
+  const closeBtn = (
+    <button
+      type="button"
+      onClick={() => setMode(null)}
+      aria-label="Cerrar formulario"
+      className="w-11 h-11 rounded-full flex items-center justify-center text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+    >
+      <X className="w-5 h-5" aria-hidden="true" />
+    </button>
+  );
+
+  const noGeneralStock = generalWithStock.length === 0;
 
   return (
-    <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-2.5 space-y-2.5 text-xs">
+    <section ref={sectionRef} className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 space-y-3 text-sm">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className="w-full flex items-center justify-between gap-2 text-left cursor-pointer"
+        className="w-full min-h-11 flex items-center justify-between gap-2 text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-700"
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
-            <MapPin className="w-4 h-4" />
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-indigo-700 text-white flex items-center justify-center shrink-0">
+            <MapPin className="w-5 h-5" aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <h4 className="font-black text-slate-900 text-xs">Almacén de este {kind}</h4>
-            <p className="text-[10px] text-slate-500 truncate">
-              {here.length === 0 ? 'Sin insumos asignados · toca para ingresar' : `${here.length} insumo${here.length === 1 ? '' : 's'} · valor $${stockValue.toFixed(2)}`}
+            <h4 className="font-black text-slate-900 text-sm">Almacén de este {kind}</h4>
+            <p className="text-xs text-slate-700 truncate">
+              {here.length === 0 ? 'Sin insumos · toca para ingresar' : `${here.length} insumo${here.length === 1 ? '' : 's'} · valor $${stockValue.toFixed(2)}`}
             </p>
           </div>
         </div>
-        <span className="text-slate-500 font-bold shrink-0">{expanded ? '▲' : '▼'}</span>
+        <ChevronDown className={`w-5 h-5 text-slate-700 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
 
-      {notice && <div className="p-2 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-800 font-semibold text-[11px]">{notice}</div>}
+      {notice && (
+        <div role="status" className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-semibold text-sm flex items-start gap-2">
+          <CheckCircle2 className="w-5 h-5 shrink-0" aria-hidden="true" />
+          {notice}
+        </div>
+      )}
 
       {expanded && (
-      <>
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => open('compra')}
-          className={`flex items-center justify-center gap-1.5 min-h-10 px-2 rounded-xl font-bold cursor-pointer ${
-            mode === 'compra' ? 'bg-rose-700 text-white' : 'bg-rose-600 hover:bg-rose-700 text-white'
-          }`}
-        >
-          <ShoppingCart className="w-4 h-4" /> Ingresar compra
-        </button>
-        <button
-          type="button"
-          onClick={() => open('traer')}
-          disabled={generalWithStock.length === 0}
-          title={generalWithStock.length === 0 ? 'No hay stock en el almacén general' : 'Asignar stock ya comprado'}
-          className={`flex items-center justify-center gap-1.5 min-h-10 px-2 rounded-xl font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-            mode === 'traer' ? 'bg-indigo-700 text-white' : 'bg-white border border-indigo-300 text-indigo-800 hover:bg-indigo-50'
-          }`}
-        >
-          <Truck className="w-4 h-4" /> Traer del general
-        </button>
-      </div>
-
-      {!mode && !useId && errorBox}
-
-      {mode === 'compra' && (
-        <form onSubmit={submitPurchase} className="bg-white rounded-xl border border-rose-200 p-3 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <p className="font-bold text-rose-800">Compra para {animal.code}</p>
-            <button type="button" onClick={() => setMode(null)} aria-label="Cerrar" className="p-1 text-slate-400">
-              <X className="w-4 h-4" />
-            </button>
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <Btn rubro="porcino" icon={<ShoppingCart />} aria-pressed={mode === 'compra'} onClick={() => open('compra')}>
+              Ingresar compra
+            </Btn>
+            <Btn
+              variant="secondary"
+              icon={<Truck />}
+              aria-pressed={mode === 'traer'}
+              onClick={() => open('traer')}
+              disabled={noGeneralStock}
+              aria-describedby={noGeneralStock ? `${uid}-nogen` : undefined}
+            >
+              Traer del general
+            </Btn>
           </div>
-          <div>
-            <label className="block font-semibold text-slate-700">Producto:</label>
-            <select value={productId} onChange={(e) => setProductId(e.target.value)} className={input} required>
-              <option value="">Selecciona…</option>
-              {catalog.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.name} ({i.unit})
-                </option>
-              ))}
-              <option value={NEW_PRODUCT}>➕ Producto nuevo</option>
-            </select>
-          </div>
-          {isNew && (
-            <>
-              <input placeholder="Nombre (ej: Balanceado Engorde)" value={name} onChange={(e) => setName(e.target.value)} className={input} />
-              <div className="grid grid-cols-2 gap-2">
-                <select value={category} onChange={(e) => setCategory(e.target.value as WarehouseItem['category'])} className={input} aria-label="Tipo">
-                  {CATS.map((c) => (
-                    <option key={c.key} value={c.key}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-                <select value={unit} onChange={(e) => setUnit(e.target.value as WarehouseItem['unit'])} className={input} aria-label="Unidad">
-                  {UNITS.map((u) => (
-                    <option key={u} value={u}>
-                      {u}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </>
+          {noGeneralStock && (
+            <p id={`${uid}-nogen`} className="text-xs text-slate-700 -mt-1">
+              "Traer del general" no está disponible: el almacén general no tiene existencias.
+            </p>
           )}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block font-semibold text-slate-700">Cantidad ({unitLabel}):</label>
-              <input type="number" step="any" min="0" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} className={`${input} font-bold`} required />
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700">Precio / {unitLabel} ($):</label>
-              <input type="number" step="any" min="0" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className={`${input} font-bold`} required />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block font-semibold text-slate-700">Fecha:</label>
-              <input type="date" max={todayISO()} value={date} onChange={(e) => setDate(e.target.value)} className={input} required />
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700">N.º factura:</label>
-              <input placeholder="Opcional" value={invoice} onChange={(e) => setInvoice(e.target.value)} className={input} />
-            </div>
-          </div>
-          <input placeholder="Proveedor (opcional)" value={supplier} onChange={(e) => setSupplier(e.target.value)} className={input} />
-          <div className="p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-900">
-            <div className="flex justify-between font-bold">
-              <span>Total</span>
-              <span>${total.toFixed(2)}</span>
-            </div>
-            <p className="text-[10px]">Entra al almacén asignado a {animal.code} y se registra como egreso en el balance porcino.</p>
-          </div>
-          {errorBox}
-          <button type="submit" disabled={saving} className="w-full min-h-10 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-xl font-bold">
-            {saving ? 'Guardando…' : 'Guardar compra'}
-          </button>
-        </form>
-      )}
 
-      {mode === 'traer' && (
-        <form onSubmit={submitMove} className="bg-white rounded-xl border border-indigo-200 p-3 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <p className="font-bold text-indigo-800">Traer del almacén general</p>
-            <button type="button" onClick={() => setMode(null)} aria-label="Cerrar" className="p-1 text-slate-400">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <select value={fromId} onChange={(e) => setFromId(e.target.value)} className={input} required aria-label="Insumo del almacén general">
-            {generalWithStock.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.name} — {i.quantity} {i.unit}
-              </option>
-            ))}
-          </select>
-          <div>
-            <label className="block font-semibold text-slate-700">Cantidad{fromItem ? ` (${fromItem.unit})` : ''}:</label>
-            <input type="number" step="any" min="0" inputMode="decimal" value={moveQty} onChange={(e) => setMoveQty(e.target.value)} className={`${input} font-bold`} required />
-          </div>
-          <p className="text-[10px] text-indigo-900">Traslado interno: no crea un gasto nuevo. El costo se carga a {animal.code} al usarlo.</p>
-          {errorBox}
-          <button type="submit" disabled={saving} className="w-full min-h-10 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl font-bold">
-            {saving ? 'Guardando…' : 'Asignar a este ' + kind}
-          </button>
-        </form>
-      )}
+          {!mode && !useId && <ErrorBox error={generalError} />}
 
-      {here.length > 0 && (
-        <ul className="space-y-1.5">
-          {here.map((i) => (
-            <li key={i.id} className="bg-white rounded-xl border border-slate-200 p-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0 flex items-center gap-2">
-                  <Package className="w-4 h-4 text-indigo-500 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="font-bold text-slate-900 truncate">{i.name}</p>
-                    <p className="text-[10px] text-slate-500">
-                      {i.quantity} {i.unit} · ${toNumber(i.unitCostUsd)}/{i.unit}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={toNumber(i.quantity) <= 0}
-                  onClick={() => {
-                    setError(null);
-                    setUseQty('');
-                    setUseId(useId === i.id ? null : i.id);
-                  }}
-                  className="flex items-center gap-1 px-2.5 min-h-9 rounded-lg bg-emerald-100 text-emerald-800 font-bold disabled:opacity-50 shrink-0"
-                >
-                  <Minus className="w-3.5 h-3.5" /> Usar
-                </button>
+          {mode === 'compra' && (
+            <form onSubmit={submitPurchase} noValidate className="bg-white rounded-xl border border-rose-200 p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="font-bold text-rose-800 text-sm">Compra para {animal.code}</p>
+                {closeBtn}
               </div>
-              {useId === i.id && (
-                <div className="mt-2 space-y-1.5">
-                  <div className="flex gap-2">
+              <div>
+                <FieldLabel htmlFor={`${uid}-prod`}>Producto *</FieldLabel>
+                <select
+                  id={`${uid}-prod`}
+                  value={productId}
+                  onChange={(e) => setProductId(e.target.value)}
+                  aria-invalid={!!errFor('product')}
+                  aria-describedby={errId('product')}
+                  className={fieldClass(!!errFor('product'))}
+                >
+                  <option value="">Elige…</option>
+                  {catalog.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.name} ({i.unit})
+                    </option>
+                  ))}
+                  <option value={NEW_PRODUCT}>+ Producto nuevo</option>
+                </select>
+                <FieldError id={errId('product')} error={errFor('product')} />
+              </div>
+              {isNew && (
+                <>
+                  <div>
+                    <FieldLabel htmlFor={`${uid}-name`}>Nombre del producto *</FieldLabel>
                     <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      max={i.quantity}
-                      inputMode="decimal"
-                      placeholder={`Cantidad (${i.unit})`}
-                      value={useQty}
-                      onChange={(e) => setUseQty(e.target.value)}
-                      className={`${input} font-bold`}
-                      aria-label={`Cantidad de ${i.name} a usar`}
+                      id={`${uid}-name`}
+                      placeholder="Ej: Balanceado engorde"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      aria-invalid={!!errFor('name')}
+                      aria-describedby={errId('name')}
+                      className={fieldClass(!!errFor('name'))}
                     />
+                    <FieldError id={errId('name')} error={errFor('name')} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <FieldLabel htmlFor={`${uid}-cat`}>Tipo</FieldLabel>
+                      <select id={`${uid}-cat`} value={category} onChange={(e) => setCategory(e.target.value as WarehouseItem['category'])} className={inputClass}>
+                        {CATS.map((c) => (
+                          <option key={c.key} value={c.key}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel htmlFor={`${uid}-unit`}>Unidad</FieldLabel>
+                      <select id={`${uid}-unit`} value={unit} onChange={(e) => setUnit(e.target.value as WarehouseItem['unit'])} className={inputClass}>
+                        {UNITS.map((u) => (
+                          <option key={u} value={u}>
+                            {u}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <FieldLabel htmlFor={`${uid}-qty`}>Cantidad ({unitLabel}) *</FieldLabel>
+                  <input
+                    id={`${uid}-qty`}
+                    type="number"
+                    step="any"
+                    min="0"
+                    inputMode="decimal"
+                    placeholder="Ej. 10"
+                    value={qty}
+                    onChange={(e) => setQty(e.target.value)}
+                    aria-invalid={!!errFor('qty')}
+                    aria-describedby={errId('qty')}
+                    className={fieldClass(!!errFor('qty'), 'font-bold')}
+                  />
+                  <FieldError id={errId('qty')} error={errFor('qty')} />
+                </div>
+                <div>
+                  <FieldLabel htmlFor={`${uid}-price`}>Precio por {unitLabel} ($) *</FieldLabel>
+                  <input
+                    id={`${uid}-price`}
+                    type="number"
+                    step="any"
+                    min="0"
+                    inputMode="decimal"
+                    placeholder="Ej. 25"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    aria-invalid={!!errFor('price')}
+                    aria-describedby={errId('price')}
+                    className={fieldClass(!!errFor('price'), 'font-bold')}
+                  />
+                  <FieldError id={errId('price')} error={errFor('price')} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <FieldLabel htmlFor={`${uid}-date`}>Fecha *</FieldLabel>
+                  <input
+                    id={`${uid}-date`}
+                    type="date"
+                    max={todayISO()}
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    aria-invalid={!!errFor('date')}
+                    aria-describedby={errId('date')}
+                    className={fieldClass(!!errFor('date'))}
+                  />
+                  <FieldError id={errId('date')} error={errFor('date')} />
+                </div>
+                <div>
+                  <FieldLabel htmlFor={`${uid}-inv`}>N.º factura</FieldLabel>
+                  <input id={`${uid}-inv`} placeholder="Opcional" value={invoice} onChange={(e) => setInvoice(e.target.value)} className={inputClass} />
+                </div>
+              </div>
+              <div>
+                <FieldLabel htmlFor={`${uid}-sup`}>Proveedor</FieldLabel>
+                <input id={`${uid}-sup`} placeholder="Opcional" value={supplier} onChange={(e) => setSupplier(e.target.value)} className={inputClass} />
+              </div>
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-950">
+                <div className="flex justify-between font-bold text-base">
+                  <span>Total</span>
+                  <span>${total.toFixed(2)}</span>
+                </div>
+                <p className="text-xs">Queda en el almacén de {animal.code} y se anota como gasto en el balance porcino.</p>
+              </div>
+              <ErrorBox error={generalError} />
+              <Btn type="submit" rubro="porcino" size="lg" block disabled={saving}>
+                {saving ? 'Guardando…' : 'Guardar compra'}
+              </Btn>
+            </form>
+          )}
+
+          {mode === 'traer' && (
+            <form onSubmit={submitMove} noValidate className="bg-white rounded-xl border border-indigo-200 p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="font-bold text-indigo-900 text-sm">Traer del almacén general</p>
+                {closeBtn}
+              </div>
+              <div>
+                <FieldLabel htmlFor={`${uid}-from`}>Insumo *</FieldLabel>
+                <select
+                  id={`${uid}-from`}
+                  value={fromId}
+                  onChange={(e) => setFromId(e.target.value)}
+                  aria-invalid={!!errFor('from')}
+                  aria-describedby={errId('from')}
+                  className={fieldClass(!!errFor('from'))}
+                >
+                  {generalWithStock.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.name} — hay {i.quantity} {i.unit}
+                    </option>
+                  ))}
+                </select>
+                <FieldError id={errId('from')} error={errFor('from')} />
+              </div>
+              <div>
+                <FieldLabel htmlFor={`${uid}-mq`}>Cantidad{fromItem ? ` (${fromItem.unit})` : ''} *</FieldLabel>
+                <input
+                  id={`${uid}-mq`}
+                  type="number"
+                  step="any"
+                  min="0"
+                  inputMode="decimal"
+                  placeholder="Ej. 5"
+                  value={moveQty}
+                  onChange={(e) => setMoveQty(e.target.value)}
+                  aria-invalid={!!errFor('moveQty')}
+                  aria-describedby={errId('moveQty')}
+                  className={fieldClass(!!errFor('moveQty'), 'font-bold')}
+                />
+                <FieldError id={errId('moveQty')} error={errFor('moveQty')} />
+              </div>
+              <p className="text-xs text-indigo-950">Solo se cambia de lugar: no es un gasto nuevo. El costo se carga a {animal.code} cuando se usa.</p>
+              <ErrorBox error={generalError} />
+              <Btn type="submit" size="lg" block disabled={saving} className="!bg-indigo-700 hover:!bg-indigo-800 !text-white focus-visible:ring-indigo-700">
+                {saving ? 'Guardando…' : `Pasar a este ${kind}`}
+              </Btn>
+            </form>
+          )}
+
+          {here.length > 0 && (
+            <ul className="space-y-2">
+              {here.map((i) => (
+                <li key={i.id} className="bg-white rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex items-center gap-2">
+                      <Package className="w-5 h-5 text-indigo-700 shrink-0" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-900 truncate">{i.name}</p>
+                        <p className="text-xs text-slate-700">
+                          Hay {i.quantity} {i.unit} · ${toNumber(i.unitCostUsd)} por {i.unit}
+                        </p>
+                      </div>
+                    </div>
                     <button
                       type="button"
-                      disabled={saving}
-                      onClick={() => submitUse(i)}
-                      className="px-3 min-h-9 rounded-lg bg-emerald-600 text-white font-bold disabled:opacity-60 shrink-0"
+                      disabled={toNumber(i.quantity) <= 0}
+                      aria-expanded={useId === i.id}
+                      onClick={() => {
+                        clearError();
+                        setUseQty('');
+                        setUseId(useId === i.id ? null : i.id);
+                      }}
+                      className="flex items-center gap-1.5 px-3 min-h-11 rounded-xl bg-emerald-100 text-emerald-900 font-bold disabled:opacity-50 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
                     >
-                      Confirmar
+                      <Minus className="w-4 h-4" aria-hidden="true" /> {toNumber(i.quantity) <= 0 ? 'Agotado' : 'Usar'}
                     </button>
                   </div>
-                  {errorBox}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      </>
+                  {useId === i.id && (
+                    <div className="mt-2 space-y-1.5">
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          max={i.quantity}
+                          inputMode="decimal"
+                          enterKeyHint="done"
+                          placeholder={`Cantidad (${i.unit})`}
+                          value={useQty}
+                          onChange={(e) => setUseQty(e.target.value)}
+                          aria-invalid={!!errFor('useQty')}
+                          aria-describedby={errId('useQty')}
+                          className={fieldClass(!!errFor('useQty'), 'font-bold')}
+                          aria-label={`Cantidad de ${i.name} a usar`}
+                        />
+                        <Btn disabled={saving} onClick={() => submitUse(i)} className="shrink-0">
+                          Confirmar
+                        </Btn>
+                      </div>
+                      <FieldError id={errId('useQty')} error={errFor('useQty')} />
+                      <ErrorBox error={generalError} />
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
   );

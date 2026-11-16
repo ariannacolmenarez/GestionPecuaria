@@ -56,12 +56,12 @@ export default function CurvaLactancia({ screen }: StageBProps) {
       {!lacs.length && <WarnNotice>No hay parto registrado: se muestran todos los ordeños de la vaca.</WarnNotice>}
 
       {pts.length === 0 ? (
-        <EmptyBlock icon={<Milk className="w-8 h-8" />} title="Sin ordeños en esta lactancia" text="Registra el ordeño por vaca para ver la curva." cta="Ir a Leche" onCta={() => navigate({ s: 'leche' }, 'campo')} />
+        <EmptyBlock icon={<Milk className="w-8 h-8" />} title="Sin ordeños en esta lactancia" text="Registra el ordeño por vaca para ver la curva." cta="Ir a Leche" onCta={() => navigate({ s: 'leche' })} />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2">
-            <KpiCard label="DEL actual" value={delNow !== null ? `${delNow} d` : '—'} hint="Días en leche desde el parto" tone="info" />
-            <KpiCard label="Pico" value={peak >= 0 ? `${num(pts[peak].liters, 1)} L` : '—'} hint={peak >= 0 ? `DEL ${pts[peak].del} · ${fd(pts[peak].date)}` : undefined} tone="ok" />
+            <KpiCard label="Días en leche" value={delNow !== null ? `${delNow} d` : '—'} hint="Días desde el parto" tone="info" />
+            <KpiCard label="Pico" value={peak >= 0 ? `${num(pts[peak].liters, 1)} L` : '—'} hint={peak >= 0 ? `Día ${pts[peak].del} · ${fd(pts[peak].date)}` : undefined} tone="ok" />
             <KpiCard label="Total acumulado" value={`${num(total, 0)} L`} hint={`${pts.length} días con ordeño`} />
             <KpiCard label="Promedio diario" value={`${num(avg, 1)} L`} />
           </div>
@@ -73,8 +73,8 @@ export default function CurvaLactancia({ screen }: StageBProps) {
               refLabel={`Prom. ${num(avg, 1)} L`}
               peakIndex={peak >= 0 ? peak : null}
             />
-            <p className="text-xs text-slate-700">Eje horizontal: días en leche (DEL). Puntos rojos: caída mayor al {config.milkDropPct} % frente a los 7 días previos.</p>
-            <DataToggle headers={['Fecha', 'DEL', 'Litros', 'Caída']} rows={pts.map((p) => [fd(p.date), p.del, num(p.liters, 1), p.dropPct !== null ? `−${Math.round(p.dropPct)} %` : ''])} />
+            <p className="text-xs text-slate-700">Eje horizontal: días en leche (desde el parto). Puntos rojos: caída mayor al {config.milkDropPct} % frente a los 7 días previos.</p>
+            <DataToggle headers={['Fecha', 'Días en leche', 'Litros', 'Caída']} rows={pts.map((p) => [fd(p.date), p.del, num(p.liters, 1), p.dropPct !== null ? `−${Math.round(p.dropPct)} %` : ''])} />
           </Card>
           {drops.length > 0 && (
             <WarnNotice>
@@ -91,7 +91,7 @@ export default function CurvaLactancia({ screen }: StageBProps) {
           {v.repro.dryOffDate <= today && <StatusChip tone="warn">Toca secar</StatusChip>}
         </Card>
       )}
-      <SecondaryBtn className="w-full" onClick={() => navigate({ s: 'animal', id: v.id }, 'hato')}>
+      <SecondaryBtn className="w-full" onClick={() => navigate({ s: 'animal', id: v.id })}>
         Ver ficha de la vaca
       </SecondaryBtn>
     </Screen>

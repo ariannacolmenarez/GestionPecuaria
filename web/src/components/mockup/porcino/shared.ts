@@ -2,15 +2,18 @@
  * Utilidades compartidas por las pestañas del Menú Porcino.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import { LayoutGrid, PiggyBank, Syringe, Wheat, Wallet } from 'lucide-react';
 
 export type PorcinoTab = 'porcinos' | 'atajos' | 'sanitario' | 'balance' | 'alimentacion';
 
-export const PORCINO_TABS: { id: PorcinoTab; label: string }[] = [
-  { id: 'porcinos', label: 'Porcinos' },
-  { id: 'atajos', label: 'Atajos' },
-  { id: 'sanitario', label: 'Plan sanitario' },
-  { id: 'balance', label: 'Balance' },
-  { id: 'alimentacion', label: 'Alimentación' },
+/** Atajos primero: las tareas del día están ahí. Nombres cortos para que las 5 pestañas quepan sin desplazar. */
+export const PORCINO_TABS: { id: PorcinoTab; label: string; Icon: LucideIcon }[] = [
+  { id: 'atajos', label: 'Atajos', Icon: LayoutGrid },
+  { id: 'porcinos', label: 'Cerdos', Icon: PiggyBank },
+  { id: 'sanitario', label: 'Sanidad', Icon: Syringe },
+  { id: 'alimentacion', label: 'Alimento', Icon: Wheat },
+  { id: 'balance', label: 'Balance', Icon: Wallet },
 ];
 
 /** Muestra "—" cuando la métrica no tiene datos (0 / NaN / undefined). */

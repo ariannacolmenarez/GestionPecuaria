@@ -27,6 +27,7 @@ import {
   TextField,
   WarnNotice,
   emptyMoney,
+  fdy,
   num,
   toMoneyInput,
   toNum,
@@ -504,7 +505,7 @@ export const AltaGanado: React.FC<{ lotId?: string; paddockId?: string; onClose:
           {reproEstado === 'preñada' && (
             <Field
               label="Meses de gestación"
-              hint={toNum(gestMonths) > 0 ? `Parto probable ≈ ${addDays(entryDate, config.gestationDays - Math.round(toNum(gestMonths) * 30.4))}` : 'Se registra como diagnóstico de preñez con la FPP calculada.'}
+              hint={toNum(gestMonths) > 0 ? `Parto probable ≈ ${fdy(addDays(entryDate, config.gestationDays - Math.round(toNum(gestMonths) * 30.4)))}` : 'Se registra como diagnóstico de preñez con la fecha probable de parto calculada.'}
             >
               <BigNumberInput decimal size="md" value={gestMonths} onChange={setGestMonths} unit="meses" ariaLabel="Meses de gestación" />
             </Field>

@@ -158,18 +158,20 @@ export const InsumoForm: React.FC<{ category?: BovinoWarehouseCategory; itemId?:
             <Chips options={[{ key: 'peso', label: 'Por peso' }, { key: 'fija', label: 'Fija por animal' }, { key: 'ninguna', label: 'Sin dosis' }]} value={doseMode} onChange={setDoseMode} />
           </Field>
           {doseMode !== 'ninguna' && (
-            <div className="grid grid-cols-3 gap-2 items-end">
+            <Field label="Unidad de la dosis">
+              <RecentChoice
+                options={[...(unit === 'ml' || unit === 'g' ? [unit] : []), ...DOSE_UNITS]}
+                value={doseUnit}
+                onChange={(x) => setDoseUnit(x.slice(0, 8))}
+                placeholder="Unidad (máx. 8 letras)"
+                ariaLabel="Unidad de la dosis"
+              />
+            </Field>
+          )}
+          {doseMode !== 'ninguna' && (
+            <div className="grid grid-cols-2 gap-2 items-end">
               <Field label="Cantidad">
                 <BigNumberInput size="md" decimal value={doseAmount} onChange={setDoseAmount} ariaLabel="Cantidad de la dosis" />
-              </Field>
-              <Field label="Unidad">
-                <RecentChoice
-                  options={[...(unit === 'ml' || unit === 'g' ? [unit] : []), ...DOSE_UNITS]}
-                  value={doseUnit}
-                  onChange={(x) => setDoseUnit(x.slice(0, 8))}
-                  placeholder="Unidad (máx. 8 letras)"
-                  ariaLabel="Unidad de la dosis"
-                />
               </Field>
               {doseMode === 'peso' ? (
                 <Field label="Por cada">

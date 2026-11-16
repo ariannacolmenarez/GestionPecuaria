@@ -1,4 +1,4 @@
-/** A1 · Inicio del hato: contadores por categoría, manga, agenda de hoy, alertas y accesos rápidos. */
+/** A1 · Inicio del hato: contadores por categoría, accesos rápidos (tareas del día), manga, agenda de hoy y alertas. */
 import React, { useMemo } from 'react';
 import { ArrowRightLeft, Beef, Map as MapIcon, Milk, Package, Plus, Scale, Syringe, Timer, TrendingUp, Wheat, Zap, Baby, AlertTriangle } from 'lucide-react';
 import { useBovino } from '../context';
@@ -42,7 +42,7 @@ export const HatoHome: React.FC = () => {
       {/* 1. Tarjeta del hato */}
       <section className={`${B.card} p-4`}>
         <div className="flex items-center gap-3">
-          <span className="w-12 h-12 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0">
+          <span className="w-12 h-12 rounded-xl bg-sky-700 text-white flex items-center justify-center shrink-0">
             <Beef className="w-7 h-7" />
           </span>
           <div className="flex-1 min-w-0">
@@ -50,7 +50,7 @@ export const HatoHome: React.FC = () => {
             <p className="text-sm font-bold text-slate-800">animales en la finca</p>
           </div>
           {perms.altaAnimales && (hasPaddocks || !empty) && (
-            <button type="button" onClick={() => openSheet({ kind: 'alta' })} className={`h-12 px-3 rounded-2xl bg-sky-600 text-white font-bold text-sm flex items-center gap-1 shrink-0 ${FOCUS_B}`}>
+            <button type="button" onClick={() => openSheet({ kind: 'alta' })} className={`h-12 px-3 rounded-2xl bg-sky-700 text-white font-bold text-sm flex items-center gap-1 shrink-0 ${FOCUS_B}`}>
               <Plus className="w-5 h-5" /> Ingresar
             </button>
           )}
@@ -72,7 +72,7 @@ export const HatoHome: React.FC = () => {
                 key={s.label}
                 type="button"
                 onClick={() => navigate({ s: 'animales', filtro: { estado: s.estado, sexo: 'hembra' } })}
-                className={`h-10 px-3 rounded-full bg-sky-50 border-2 border-sky-200 text-sm font-bold text-sky-900 ${FOCUS_B}`}
+                className={`h-12 px-4 rounded-full bg-sky-50 border-2 border-sky-200 text-sm font-bold text-sky-900 ${FOCUS_B}`}
               >
                 {s.label} <span className="tabular-nums">{s.n}</span>
               </button>
@@ -86,6 +86,24 @@ export const HatoHome: React.FC = () => {
         )}
       </section>
 
+      {/* 2. Accesos rápidos: lo que se hace todos los días, justo debajo del hato */}
+      {!empty && (
+        <section className="grid grid-cols-2 gap-2" aria-label="Accesos rápidos">
+          <Tile compact icon={<Milk className="w-5 h-5" />} title="Registrar ordeño" onClick={() => navigate({ s: 'leche', ordenar: true })} />
+          <Tile compact icon={<Scale className="w-5 h-5" />} title="Pesaje rápido" onClick={() => navigate({ s: 'ceba', pesar: true })} />
+          {perms.sanidad ? (
+            <Tile compact icon={<Syringe className="w-5 h-5" />} title="Aplicar tratamiento" onClick={() => openSheet({ kind: 'tratamiento' })} />
+          ) : (
+            <Tile compact icon={<Wheat className="w-5 h-5" />} title="Registrar ración" onClick={() => navigate({ s: 'ceba', racion: true })} />
+          )}
+          {perms.moverLotes ? (
+            <Tile compact icon={<ArrowRightLeft className="w-5 h-5" />} title="Mover lote" onClick={() => openSheet({ kind: 'mover' })} />
+          ) : (
+            <Tile compact icon={<Baby className="w-5 h-5" />} title="Reportar nacimiento" onClick={() => navigate({ s: 'partos', nuevo: true })} />
+          )}
+        </section>
+      )}
+
       {empty && (
         <section className={`${B.card}`}>
           <EmptyBlock icon={<Beef className="w-8 h-8" />} title="Aún no hay ganado registrado" text="Empieza creando tus potreros y luego ingresa tus animales por lote o uno a uno.">
@@ -94,7 +112,7 @@ export const HatoHome: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => openSheet({ kind: 'potrero' })}
-                  className={`w-full h-12 rounded-2xl font-bold flex items-center justify-center gap-2 ${hasPaddocks ? 'bg-emerald-100 text-emerald-900' : 'bg-sky-600 text-white'} ${FOCUS_B}`}
+                  className={`w-full h-12 rounded-2xl font-bold flex items-center justify-center gap-2 ${hasPaddocks ? 'bg-emerald-100 text-emerald-900' : 'bg-sky-700 text-white'} ${FOCUS_B}`}
                 >
                   <MapIcon className="w-5 h-5" /> 1. Crear potrero {hasPaddocks ? '✓' : ''}
                 </button>
@@ -102,7 +120,7 @@ export const HatoHome: React.FC = () => {
                   type="button"
                   disabled={!hasPaddocks}
                   onClick={() => openSheet({ kind: 'alta' })}
-                  className={`w-full h-12 rounded-2xl font-bold flex items-center justify-center gap-2 bg-sky-600 text-white disabled:bg-slate-200 disabled:text-slate-700 ${FOCUS_B}`}
+                  className={`w-full h-12 rounded-2xl font-bold flex items-center justify-center gap-2 bg-sky-700 text-white disabled:bg-slate-200 disabled:text-slate-700 ${FOCUS_B}`}
                 >
                   <Plus className="w-5 h-5" /> 2. Ingresar ganado
                 </button>
@@ -115,7 +133,7 @@ export const HatoHome: React.FC = () => {
         </section>
       )}
 
-      {/* 2. Modo manga */}
+      {/* 3. Modo manga */}
       {!empty && (
         <div>
           <button
@@ -129,7 +147,7 @@ export const HatoHome: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Hoy */}
+      {/* 4. Hoy */}
       {(todayList.length > 0 || !empty) && (
         <section className="space-y-2">
           <SectionTitle>{overdueCount > 0 ? `Vencidas y hoy` : 'Hoy'}</SectionTitle>
@@ -146,53 +164,33 @@ export const HatoHome: React.FC = () => {
         </section>
       )}
 
-      {/* 4. Alertas */}
+      {/* 5. Alertas */}
       {(retiros > 0 || home.criticalItems > 0 || expired > 0 || drops > 0 || nextLot) && (
         <section className="space-y-2">
           <SectionTitle>Alertas</SectionTitle>
           {retiros > 0 && (
-            <AlertCard tone="rose" icon={<Timer className="w-5 h-5" />} text={`${retiros} ${retiros === 1 ? 'animal con retiro activo' : 'animales con retiro activo'}`} onClick={() => navigate({ s: 'sanidad' }, 'campo')} />
+            <AlertCard tone="rose" icon={<Timer className="w-5 h-5" />} text={`${retiros} ${retiros === 1 ? 'animal con retiro activo' : 'animales con retiro activo'}`} onClick={() => navigate({ s: 'sanidad' })} />
           )}
           {(home.criticalItems > 0 || expired > 0) && (
             <AlertCard
               tone="amber"
               icon={<Package className="w-5 h-5" />}
               text={[home.criticalItems ? `${home.criticalItems} en stock crítico` : '', expired ? `${expired} vencido(s)` : ''].filter(Boolean).join(' · ')}
-              onClick={() => navigate({ s: 'almacen' }, 'mas')}
+              onClick={() => navigate({ s: 'almacen' })}
             />
           )}
-          {drops > 0 && <AlertCard tone="amber" icon={<AlertTriangle className="w-5 h-5" />} text={`Caída de leche en ${drops} vaca(s)`} onClick={() => navigate({ s: 'leche' }, 'campo')} />}
+          {drops > 0 && <AlertCard tone="amber" icon={<AlertTriangle className="w-5 h-5" />} text={`Caída de leche en ${drops} vaca(s)`} onClick={() => navigate({ s: 'leche' })} />}
           {nextLot && (
             <AlertCard
               tone="sky"
               icon={<TrendingUp className="w-5 h-5" />}
               text={nextLot.daysToTarget === 0 ? `${nextLot.lot.name} listo para faena` : `${nextLot.lot.name} listo para faena en ${nextLot.daysToTarget} días (${fd(nextLot.projectedSaleDate)})`}
-              onClick={() => navigate({ s: 'lote', id: nextLot.lot.id }, 'campo')}
+              onClick={() => navigate({ s: 'lote', id: nextLot.lot.id })}
             />
           )}
         </section>
       )}
 
-      {/* 5. Accesos rápidos */}
-      {!empty && (
-        <section className="space-y-2">
-          <SectionTitle>Accesos rápidos</SectionTitle>
-          <div className="grid grid-cols-2 gap-2">
-            <Tile compact icon={<Milk className="w-5 h-5" />} title="Registrar ordeño" onClick={() => navigate({ s: 'leche', ordenar: true }, 'campo')} />
-            <Tile compact icon={<Scale className="w-5 h-5" />} title="Pesaje rápido" onClick={() => navigate({ s: 'ceba', pesar: true }, 'campo')} />
-            {perms.sanidad ? (
-              <Tile compact icon={<Syringe className="w-5 h-5" />} title="Aplicar tratamiento" onClick={() => openSheet({ kind: 'tratamiento' })} />
-            ) : (
-              <Tile compact icon={<Wheat className="w-5 h-5" />} title="Registrar ración" onClick={() => navigate({ s: 'ceba', racion: true }, 'campo')} />
-            )}
-            {perms.moverLotes ? (
-              <Tile compact icon={<ArrowRightLeft className="w-5 h-5" />} title="Mover lote" onClick={() => openSheet({ kind: 'mover' })} />
-            ) : (
-              <Tile compact icon={<Baby className="w-5 h-5" />} title="Reportar nacimiento" onClick={() => navigate({ s: 'partos', nuevo: true }, 'repro')} />
-            )}
-          </div>
-        </section>
-      )}
 
       {/* 6. Producción de hoy */}
       {(milk.liters > 0 || home.ceba.avgGmdKg !== null || calvingsMonth > 0) && (
@@ -200,7 +198,7 @@ export const HatoHome: React.FC = () => {
           items={[
             { label: 'Leche hoy', value: `${num(milk.liters, 1)} L` },
             { label: 'L/vaca', value: home.dairy.litersPerCowDay !== null ? num(home.dairy.litersPerCowDay, 1) : '—' },
-            { label: 'GMD ceba', value: home.ceba.avgGmdKg !== null ? num(home.ceba.avgGmdKg, 2) : '—' },
+            { label: 'Ceba kg/día', value: home.ceba.avgGmdKg !== null ? num(home.ceba.avgGmdKg, 2) : '—' },
             { label: 'Partos mes', value: num(calvingsMonth) },
           ]}
         />
@@ -208,7 +206,7 @@ export const HatoHome: React.FC = () => {
 
       {/* 7. Solo Admin: mini balance del mes */}
       {perms.verBalance && !empty && (
-        <button type="button" onClick={() => navigate({ s: 'balance' }, 'mas')} className={`${B.card} w-full p-4 text-left ${FOCUS_B}`}>
+        <button type="button" onClick={() => navigate({ s: 'balance' })} className={`${B.card} w-full p-4 text-left ${FOCUS_B}`}>
           <p className="text-sm font-bold text-slate-900">Utilidad del mes (a la fecha)</p>
           <p className={`text-2xl font-black ${home.cashFlow.netToDateUsd < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
             <Money value={home.cashFlow.netToDateUsd} showLocal={false} />

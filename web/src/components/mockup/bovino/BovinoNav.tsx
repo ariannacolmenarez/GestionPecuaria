@@ -42,7 +42,7 @@ export const BovinoNav: React.FC = () => {
             role="tab"
             aria-selected={on}
             onClick={() => goSection(id)}
-            className={`relative h-14 rounded-2xl flex flex-col items-center justify-center gap-0.5 text-xs font-bold ${on ? 'bg-sky-600 text-white' : 'text-slate-700 hover:bg-slate-100'} ${FOCUS_B}`}
+            className={`relative h-14 rounded-2xl flex flex-col items-center justify-center gap-0.5 text-xs font-bold ${on ? 'bg-sky-700 text-white' : 'text-slate-700 hover:bg-slate-100'} ${FOCUS_B}`}
           >
             <Icon className="w-6 h-6" />
             {label}

@@ -1,20 +1,22 @@
-import React, { useMemo, useState } from 'react';
-import {
-  X,
-  Calculator,
-  ArrowRight,
-  CheckCircle2,
-  AlertTriangle,
-  Layers,
-  Heart,
-  Activity,
-  ShoppingBag,
-} from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Calculator, CheckCircle2, AlertTriangle, Layers, Heart, Activity, ShoppingBag, Plus, PiggyBank } from 'lucide-react';
 import { LactatingLitter, PorcinoAnimal } from '../../types';
 import { calculateWeaningProrating } from '../../models/PorcinoCalculations';
 import { isActiveLitter, num, round2 } from '../../models/porcinoRules';
 import { todayISO, ageInDays } from '../../utils/dates';
 import { ModalActionReturn, runModalAction, toNumber } from './modalResult';
+import {
+  Btn,
+  ErrorBox,
+  FieldError,
+  FieldLabel,
+  ModalHeader,
+  Overlay,
+  fieldClass,
+  inputClass,
+  useBackClose,
+  useFocusFirstInvalid,
+} from '../common/ui';
 
 export interface WeaningConfirmPayload {
   /** Id de la camada a destetar (obligatorio para registrar el destete en el dominio). */
@@ -51,18 +53,22 @@ interface WeaningProratingModalProps {
   onConfirmWeaning: (data: WeaningConfirmPayload) => ModalActionReturn;
   /** Camadas de la granja: solo se ofrecen las que están en lactancia. */
   litters?: LactatingLitter[];
-  /** Animales porcinos: se usa para leer el costo del ciclo de la cerda madre. */
+  /** Animales porcinos: se usa para leer el costo del ciclo de la cerda madre y los corrales existentes. */
   animals?: PorcinoAnimal[];
   /** Camada preseleccionada. */
   preselectedLitterId?: string;
   /** Notifica la camada elegida (opcional). */
   onSelectLitter?: (litterId: string) => void;
+  /** Opcional: enlace "Ver cerdos" en la pantalla de éxito (lo cablea el menú porcino). */
+  onViewHerd?: () => void;
 }
 
 const intOrZero = (v: number | string) => {
   const n = typeof v === 'number' ? v : parseInt(v, 10);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 };
+
+type FieldKey = 'litter' | 'count' | 'date' | 'dist' | 'price' | 'teats';
 
 export const WeaningProratingModal: React.FC<WeaningProratingModalProps> = ({
   onClose,
@@ -71,10 +77,20 @@ export const WeaningProratingModal: React.FC<WeaningProratingModalProps> = ({
   animals = [],
   preselectedLitterId,
   onSelectLitter,
+  onViewHerd,
 }) => {
   const activeLitters = useMemo(
     () => (litters || []).filter((l) => isActiveLitter(l) && (l.currentCount || 0) > 0),
     [litters]
+  );
+
+  // Corrales ya usados en la granja (para elegir en vez de escribir)
+  const pens = useMemo(
+    () =>
+      Array.from(new Set((animals || []).map((a) => (a.penLocation || '').trim()).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [animals]
   );
 
   const [litterId, setLitterId] = useState<string>(
@@ -92,7 +108,7 @@ export const WeaningProratingModal: React.FC<WeaningProratingModalProps> = ({
 
   const [date, setDate] = useState(todayISO());
   const [weanedCount, setWeanedCount] = useState<string>(String(available || ''));
-  const [additionalCost, setAdditionalCost] = useState('0');
+  const [additionalCost, setAdditionalCost] = useState('');
   const [averageWeight, setAverageWeight] = useState('');
 
   // Distribución (por defecto todo a engorde)
@@ -109,7 +125,10 @@ export const WeaningProratingModal: React.FC<WeaningProratingModalProps> = ({
 
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const resetDistribution = (count: number) => {
     setDestinedEngorde(count);
@@ -124,7 +143,8 @@ export const WeaningProratingModal: React.FC<WeaningProratingModalProps> = ({
     const count = l?.currentCount || 0;
     setWeanedCount(String(count));
     resetDistribution(count);
-    setError(null);
+    setErrors({});
+    setFormError(null);
     onSelectLitter?.(id);
   };
 
@@ -160,33 +180,62 @@ export const WeaningProratingModal: React.FC<WeaningProratingModalProps> = ({
   const isPartial = numPiglets > 0 && numPiglets < available;
   const lactationDays = litter ? ageInDays(litter.birthDate, date) : 0;
 
+  const dirty =
+    !isSubmitted &&
+    (additionalCost !== '' ||
+      averageWeight !== '' ||
+      penEngorde.trim() !== '' ||
+      penMadre.trim() !== '' ||
+      penVerraco.trim() !== '' ||
+      salePricePerPiglet !== '' ||
+      buyerVenta.trim() !== '' ||
+      destinedMadre > 0 ||
+      destinedVerraco > 0 ||
+      destinedVenta > 0 ||
+      weanedCount !== String(available || ''));
+  const { requestClose, confirmDialog } = useBackClose(true, onClose, dirty);
+  const firstError = (Object.values(errors) as (string | undefined)[]).find(Boolean) || null;
+  useFocusFirstInvalid(formRef, firstError, attempt);
+
+  const resetForm = () => {
+    const next = activeLitters.find((l) => l.id !== litterId) || activeLitters[0];
+    const count = next?.currentCount || 0;
+    setLitterId(next?.id || '');
+    setWeanedCount(String(count || ''));
+    resetDistribution(count);
+    setDate(todayISO());
+    setAdditionalCost('');
+    setAverageWeight('');
+    setTeatsCountMadre(14);
+    setPenEngorde('');
+    setPenMadre('');
+    setPenVerraco('');
+    setSalePricePerPiglet('');
+    setBuyerVenta('');
+    setErrors({});
+    setFormError(null);
+    setIsSubmitted(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    if (!litter) {
-      setError('Selecciona una camada en lactancia.');
-      return;
-    }
-    if (!isDistributionValid) {
-      setError(
-        exceedsAvailable
-          ? `La camada solo tiene ${available} lechones.`
-          : 'La distribución debe sumar el total de lechones a destetar.'
-      );
-      return;
-    }
-    if (!date || date > todayISO() || date < litter.birthDate) {
-      setError('La fecha de destete debe estar entre el nacimiento de la camada y hoy.');
-      return;
-    }
-    if (destinedVenta > 0 && salePrice <= 0) {
-      setError('Indica el precio de venta por lechón.');
-      return;
-    }
-    if (destinedMadre > 0 && (teatsCountMadre < 10 || teatsCountMadre > 22)) {
-      setError('La cantidad de pezones debe estar entre 10 y 22.');
-      return;
-    }
+    setFormError(null);
+    const errs: Partial<Record<FieldKey, string>> = {};
+    if (!litter) errs.litter = 'Elige una camada que esté criando.';
+    if (numPiglets <= 0) errs.count = 'Escribe cuántos lechones vas a destetar.';
+    else if (exceedsAvailable) errs.count = `La camada solo tiene ${available} lechones.`;
+    if (!date || date > todayISO() || (litter && date < litter.birthDate))
+      errs.date = 'La fecha debe estar entre el nacimiento de la camada y hoy.';
+    if (numPiglets > 0 && !exceedsAvailable && totalAssigned !== numPiglets)
+      errs.dist = `Repartiste ${totalAssigned} de ${numPiglets} lechones. ${
+        totalAssigned < numPiglets ? `Faltan ${numPiglets - totalAssigned}.` : `Sobran ${totalAssigned - numPiglets}.`
+      }`;
+    if (destinedMadre > 0 && (teatsCountMadre < 10 || teatsCountMadre > 22)) errs.teats = 'Los pezones deben estar entre 10 y 22.';
+    if (destinedVenta > 0 && salePrice <= 0) errs.price = 'Escribe el precio de venta por lechón.';
+    setErrors(errs);
+    setAttempt((n) => n + 1);
+    if (Object.keys(errs).length > 0 || !litter || !isDistributionValid) return;
+
     const weightNum = toNumber(averageWeight);
 
     setIsSaving(true);
@@ -218,456 +267,438 @@ export const WeaningProratingModal: React.FC<WeaningProratingModalProps> = ({
     );
     setIsSaving(false);
     if (!res.ok) {
-      setError(res.error || 'No se pudo registrar el destete.');
+      setFormError(res.error || 'No se pudo registrar el destete.');
       return;
     }
     setIsSubmitted(true);
   };
 
-  const numberInput = (value: number, setter: (n: number) => void, border = 'border-slate-300') => (
+  const countInput = (id: string, label: string, value: number, setter: (n: number) => void) => (
     <input
+      id={id}
       type="number"
+      inputMode="numeric"
       min="0"
       max={numPiglets || undefined}
-      value={value}
+      value={value || ''}
+      placeholder="0"
+      aria-label={label}
       onChange={(e) => setter(intOrZero(e.target.value))}
-      className={`w-16 px-2 py-1 border ${border} rounded-lg text-center font-bold text-slate-900 font-mono`}
+      className={`${inputClass} !w-20 text-center font-bold`}
     />
   );
 
+  const penInput = (id: string, value: string, setter: (v: string) => void, placeholder: string) => (
+    <div>
+      <FieldLabel htmlFor={id} hint={pens.length > 0 ? 'Toca para elegir un corral existente o escribe uno nuevo.' : undefined}>
+        Corral de destino
+      </FieldLabel>
+      <input
+        id={id}
+        type="text"
+        list="weaning-pens"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => setter(e.target.value)}
+        className={inputClass}
+      />
+    </div>
+  );
+
+  const destRow = (
+    icon: React.ReactNode,
+    title: string,
+    unit: string,
+    tone: string,
+    inputId: string,
+    value: number,
+    setter: (n: number) => void,
+    extra?: React.ReactNode
+  ) => (
+    <div className={`p-3 bg-white rounded-xl border space-y-2.5 ${tone}`}>
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor={inputId} className="flex items-center gap-2 text-sm font-bold text-slate-900">
+          {icon}
+          <span>{title}</span>
+        </label>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {countInput(inputId, title, value, setter)}
+          <span className="text-xs text-slate-600 w-14">{unit}</span>
+        </div>
+      </div>
+      {value > 0 && extra}
+    </div>
+  );
+
   return (
-    <div
-      id="weaning-prorating-modal-overlay"
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200 overflow-y-auto"
-    >
+    <Overlay className="bg-black/70 flex items-end sm:items-center justify-center sm:p-4" onBackdrop={requestClose}>
       <div
         id="weaning-prorating-card"
-        className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] my-auto border border-slate-200"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="weaning-title"
+        className="relative bg-white w-full max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh]"
       >
-        {/* Header */}
-        <div className="bg-rose-700 text-white p-4 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-white/10 rounded-xl">
-              <Calculator className="w-5 h-5 text-rose-100" />
-            </div>
-            <div>
-              <h3 className="font-bold text-base text-white leading-tight">
-                Prorrateo de Costos & Destete Mixto
-              </h3>
-              <p className="text-[11px] text-rose-200">
-                Distribución entre granja (engorde, madres, verracos) y venta comercial
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-rose-200 hover:text-white hover:bg-white/10 cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        <ModalHeader
+          rubro="porcino"
+          icon={<Calculator />}
+          titleId="weaning-title"
+          title="Destete"
+          subtitle="Separa los lechones de la madre y decide a dónde van"
+          onClose={requestClose}
+        />
+
+        {pens.length > 0 && (
+          <datalist id="weaning-pens">
+            {pens.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
+        )}
 
         {isSubmitted ? (
-          <div className="p-8 text-center space-y-3.5 my-auto">
-            <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-8 h-8" />
+          <div className="p-6 text-center space-y-4 overflow-y-auto">
+            <div className="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
             </div>
-            <h4 className="font-black text-slate-900 text-base">¡Destete y Distribución Asentados!</h4>
-            <div className="text-xs text-slate-600 space-y-1.5 max-w-sm mx-auto">
+            <h3 className="font-bold text-slate-900 text-lg">Destete registrado</h3>
+            <div className="text-sm text-slate-700 space-y-2 max-w-sm mx-auto">
               <p>
-                Se distribuyeron <strong>{numPiglets} lechones</strong> de la camada{' '}
-                <strong>{litter?.batchCode}</strong> con costo prorrateado de{' '}
-                <strong className="text-rose-700">${costPerPiglet.toFixed(2)} USD c/u</strong>
+                <strong>{numPiglets} lechones</strong> de la camada <strong>{litter?.batchCode}</strong>, con un costo de{' '}
+                <strong className="text-rose-700">${costPerPiglet.toFixed(2)} cada uno</strong>
                 {isPartial ? ' (destete parcial):' : ':'}
               </p>
-              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-left text-[11px] space-y-1">
-                {destinedEngorde > 0 && <div><strong>{destinedEngorde} cerdos</strong> incorporados a Engorde</div>}
+              <ul className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-left space-y-1">
+                {destinedEngorde > 0 && <li><strong>{destinedEngorde}</strong> a engorde</li>}
                 {destinedMadre > 0 && (
-                  <div>
-                    <strong>{destinedMadre} cerdas</strong> a Maternidad ({teatsCountMadre} pezones funcionales)
-                  </div>
+                  <li>
+                    <strong>{destinedMadre}</strong> a futuras madres ({teatsCountMadre} pezones)
+                  </li>
                 )}
-                {destinedVerraco > 0 && <div><strong>{destinedVerraco} verraco/s</strong> a Reproducción</div>}
+                {destinedVerraco > 0 && <li><strong>{destinedVerraco}</strong> a futuros verracos</li>}
                 {destinedVenta > 0 && (
-                  <div className="text-emerald-700 font-bold">
-                    <strong>{destinedVenta} lechones vendidos</strong> (Ingreso: ${totalSaleRevenue.toFixed(2)}, Utilidad:{' '}
-                    {netSaleProfit >= 0 ? '+' : ''}${netSaleProfit.toFixed(2)})
-                  </div>
+                  <li className="text-emerald-800">
+                    <strong>{destinedVenta}</strong> vendidos: cobro ${totalSaleRevenue.toFixed(2)}, ganancia{' '}
+                    {netSaleProfit >= 0 ? '+' : ''}${netSaleProfit.toFixed(2)}
+                  </li>
                 )}
-              </div>
+              </ul>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
-            >
-              Cerrar
-            </button>
+            <div className="flex flex-col gap-2.5 pt-2">
+              {activeLitters.some((l) => l.id !== litterId) && (
+                <Btn rubro="porcino" size="lg" block icon={<Plus />} onClick={resetForm}>
+                  Destetar otra camada
+                </Btn>
+              )}
+              {onViewHerd && (
+                <Btn variant="secondary" size="lg" block icon={<PiggyBank />} onClick={onViewHerd}>
+                  Ver cerdos
+                </Btn>
+              )}
+              <Btn variant="ghost" size="lg" block onClick={onClose}>
+                Cerrar
+              </Btn>
+            </div>
           </div>
         ) : activeLitters.length === 0 ? (
-          <div className="p-8 text-center space-y-3 text-xs">
-            <p className="font-bold text-slate-800 text-sm">No hay camadas en lactancia para destetar</p>
-            <p className="text-slate-500">Registra un parto para generar una camada.</p>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-bold cursor-pointer"
-            >
+          <div className="p-6 text-center space-y-3">
+            <p className="font-bold text-slate-900 text-base">No hay camadas para destetar</p>
+            <p className="text-sm text-slate-600">Registra un parto para tener una camada criando.</p>
+            <Btn variant="secondary" size="lg" block onClick={onClose}>
               Cerrar
-            </button>
+            </Btn>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto text-xs flex-1">
-            {/* Camada a Destetar */}
-            <div className="bg-rose-50/70 p-3 rounded-2xl border border-rose-200 space-y-1">
-              <label className="block text-slate-800 font-bold text-xs">
-                Camada a Destetar: <span className="text-rose-600">*</span>
-              </label>
-              <select
-                value={litterId}
-                onChange={(e) => handleLitterChange(e.target.value)}
-                className="w-full px-3 py-1.5 border border-rose-300 rounded-xl font-mono font-bold text-slate-900 bg-white"
-              >
-                {activeLitters.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.batchCode} — Cerda {l.sowCode} — {l.currentCount} vivos ({ageInDays(l.birthDate)} días)
-                  </option>
-                ))}
-              </select>
-              {litter && (
-                <p className="text-[10px] text-slate-600">
-                  Nacida el {litter.birthDate} · {lactationDays} días de lactancia a la fecha del destete
-                </p>
-              )}
-            </div>
+          <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col min-h-0 flex-1">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Camada */}
+              <div>
+                <FieldLabel htmlFor="wp-litter">Camada *</FieldLabel>
+                <select
+                  id="wp-litter"
+                  value={litterId}
+                  onChange={(e) => handleLitterChange(e.target.value)}
+                  aria-invalid={!!errors.litter}
+                  aria-describedby={errors.litter ? 'wp-litter-err' : undefined}
+                  className={fieldClass(!!errors.litter, 'font-semibold')}
+                >
+                  {activeLitters.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.batchCode} · cerda {l.sowCode} · {l.currentCount} vivos ({ageInDays(l.birthDate)} días)
+                    </option>
+                  ))}
+                </select>
+                <FieldError id="wp-litter-err" error={errors.litter} />
+                {litter && (
+                  <p className="text-xs text-slate-600 mt-1">
+                    Nació el {litter.birthDate} · {lactationDays} días con la madre a la fecha del destete
+                  </p>
+                )}
+              </div>
 
-            {/* Cantidad y fecha */}
-            <div className="grid grid-cols-3 gap-2.5">
-              <div>
-                <label className="block text-slate-600 font-semibold mb-1">
-                  Lechones a Destetar: <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max={available || undefined}
-                  required
-                  value={weanedCount}
-                  onChange={(e) => handleWeanedCountChange(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-rose-400 bg-rose-50/40 rounded-xl font-bold text-rose-950 font-mono text-center"
-                />
-                <span className="text-[10px] text-slate-500">Máx. {available}</span>
+              {/* Cantidad, fecha y peso */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel htmlFor="wp-count" hint={`Máximo ${available}`}>
+                    Lechones a destetar *
+                  </FieldLabel>
+                  <input
+                    id="wp-count"
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max={available || undefined}
+                    value={weanedCount}
+                    onChange={(e) => handleWeanedCountChange(e.target.value)}
+                    aria-invalid={!!errors.count}
+                    aria-describedby={errors.count ? 'wp-count-err' : undefined}
+                    className={fieldClass(!!errors.count, 'font-bold text-center')}
+                  />
+                  <FieldError id="wp-count-err" error={errors.count} />
+                </div>
+                <div>
+                  <FieldLabel htmlFor="wp-date" hint="Hoy o antes">
+                    Fecha *
+                  </FieldLabel>
+                  <input
+                    id="wp-date"
+                    type="date"
+                    min={litter?.birthDate}
+                    max={todayISO()}
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    aria-invalid={!!errors.date}
+                    aria-describedby={errors.date ? 'wp-date-err' : undefined}
+                    className={fieldClass(!!errors.date)}
+                  />
+                  <FieldError id="wp-date-err" error={errors.date} />
+                </div>
               </div>
               <div>
-                <label className="block text-slate-600 font-semibold mb-1">Fecha Destete:</label>
+                <FieldLabel htmlFor="wp-weight">Peso promedio por lechón (kg, opcional)</FieldLabel>
                 <input
-                  type="date"
-                  required
-                  min={litter?.birthDate}
-                  max={todayISO()}
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full px-2 py-1.5 border border-slate-300 rounded-xl font-semibold text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-600 font-semibold mb-1">Peso Prom. (kg):</label>
-                <input
+                  id="wp-weight"
                   type="number"
+                  inputMode="decimal"
                   step="any"
                   min="0"
                   value={averageWeight}
                   placeholder={litter?.currentWeightKg ? String(litter.currentWeightKg) : 'Ej. 6.5'}
                   onChange={(e) => setAverageWeight(e.target.value)}
-                  className="w-full px-2 py-1.5 border border-slate-300 rounded-xl font-semibold text-slate-900"
+                  className={inputClass}
                 />
               </div>
-            </div>
 
-            {/* Costos acumulados reales */}
-            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200 space-y-2">
-              <span className="text-[11px] font-bold text-slate-700 block uppercase tracking-wider">
-                Costos Acumulados del Ciclo {isPartial && `(proporción ${(share * 100).toFixed(0)}%)`}
-              </span>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="bg-white p-2 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block">Ciclo cerda {litter?.sowCode}</span>
-                  <strong className="text-slate-800">${sowCycleShare.toFixed(2)}</strong>
+              {/* Reparto de lechones */}
+              <fieldset
+                data-invalid={errors.dist ? 'true' : undefined}
+                tabIndex={errors.dist ? -1 : undefined}
+                aria-describedby={errors.dist ? 'wp-dist-err' : undefined}
+                className={`p-3 bg-slate-50 rounded-2xl space-y-2.5 border-2 ${errors.dist ? 'border-rose-500' : 'border-slate-200'}`}
+              >
+                <legend className="px-1 text-sm font-bold text-slate-900">¿A dónde va cada lechón?</legend>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-slate-600">Reparte los lechones entre la granja y la venta.</p>
+                  <span
+                    className={`text-xs font-bold px-2.5 py-1 rounded-full border shrink-0 ${
+                      isDistributionValid
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : 'bg-rose-100 text-rose-800 border-rose-300'
+                    }`}
+                  >
+                    {totalAssigned} de {numPiglets}
+                  </span>
                 </div>
-                <div className="bg-white p-2 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block">Costos de la camada</span>
-                  <strong className="text-slate-800">${litterCostShare.toFixed(2)}</strong>
-                </div>
-                <div>
-                  <label className="text-[10px] text-slate-500 font-medium block">Adicional lactancia ($):</label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={additionalCost}
-                    onChange={(e) => setAdditionalCost(e.target.value)}
-                    className="w-full px-2 py-1 border border-slate-300 rounded-lg text-slate-900 font-semibold"
-                  />
-                </div>
-              </div>
-              {!sow && animals.length > 0 && (
-                <p className="text-[10px] text-amber-700">
-                  No se encontró la cerda {litter?.sowCode} en el inventario: solo se prorratean los costos de la camada.
-                </p>
-              )}
-              <p className="text-[10px] text-slate-500">
-                El costo adicional se prorratea pero no genera un egreso nuevo (ya fue pagado).
-              </p>
-              <div className="flex justify-between items-center pt-1 border-t border-slate-200 text-xs font-bold text-slate-800">
-                <span>Costo Total a Transferir:</span>
-                <span className="text-rose-700 font-black text-sm">${totalMotherCost.toFixed(2)} USD</span>
-              </div>
-            </div>
 
-            {/* Resultado del Prorrateo */}
-            <div className="p-3 bg-rose-50/80 rounded-2xl border border-rose-200 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-rose-700 block">
-                  Costo Base Prorrateado por Lechón
-                </span>
-                <p className="text-[11px] text-slate-600">
-                  (${totalMotherCost.toFixed(2)} ÷ {numPiglets || 0} lechones)
-                </p>
-              </div>
-              <div className="text-right">
-                <span className="text-xl font-black text-rose-800">
-                  {numPiglets > 0 ? `$${costPerPiglet.toFixed(2)}` : '—'}
-                </span>
-                <span className="text-[10px] text-rose-600 block font-medium">costo base transferido</span>
-              </div>
-            </div>
-
-            {/* Distribución */}
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900">Distribución de Lechones al Destete</h4>
-                  <p className="text-[10px] text-slate-500">
-                    Reparte los lechones entre los destinos de la granja y/o venta comercial
-                  </p>
-                </div>
-                <span
-                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                    isDistributionValid
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                      : 'bg-rose-100 text-rose-800 border-rose-300'
-                  }`}
-                >
-                  Asignados: {totalAssigned} / {numPiglets}
-                </span>
-              </div>
-
-              {/* 1. Engorde */}
-              <div className="p-2.5 bg-white rounded-xl border border-emerald-200 space-y-1.5 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
-                    <Layers className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>1. Engorde (Cerdos de Ceba comercial):</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {numberInput(destinedEngorde, setDestinedEngorde)}
-                    <span className="text-[10px] text-slate-400">cerdos</span>
-                  </div>
-                </div>
-                {destinedEngorde > 0 && (
-                  <input
-                    type="text"
-                    placeholder="Corral de destino (ej: Galpón Engorde 1 - Corral 4)"
-                    value={penEngorde}
-                    onChange={(e) => setPenEngorde(e.target.value)}
-                    className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
-                  />
+                {destRow(
+                  <Layers className="w-4 h-4 text-emerald-700" aria-hidden="true" />,
+                  'Engorde',
+                  'cerdos',
+                  'border-emerald-200',
+                  'wp-engorde',
+                  destinedEngorde,
+                  setDestinedEngorde,
+                  penInput('wp-pen-engorde', penEngorde, setPenEngorde, 'Ej. Galpón engorde 1')
                 )}
-              </div>
 
-              {/* 2. Madres */}
-              <div className="p-2.5 bg-white rounded-xl border border-rose-200 space-y-2 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-rose-800">
-                    <Heart className="w-3.5 h-3.5 text-rose-600" />
-                    <span>2. Madres (Reproductoras de reemplazo):</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {numberInput(destinedMadre, setDestinedMadre)}
-                    <span className="text-[10px] text-slate-400">hembras</span>
-                  </div>
-                </div>
-                {destinedMadre > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-rose-100">
-                    <div className="bg-rose-50/80 p-2 rounded-lg border border-rose-200">
-                      <label className="block text-[10px] font-bold text-rose-900 mb-0.5">
-                        Cantidad de Pezones Funcionales: <span className="text-rose-600">*</span>
-                      </label>
+                {destRow(
+                  <Heart className="w-4 h-4 text-rose-700" aria-hidden="true" />,
+                  'Futuras madres',
+                  'hembras',
+                  'border-rose-200',
+                  'wp-madre',
+                  destinedMadre,
+                  setDestinedMadre,
+                  <div className="space-y-2.5 pt-2 border-t border-rose-100">
+                    <div>
+                      <FieldLabel htmlFor="wp-teats" hint="Lo ideal: 14 o más, parejos">
+                        Pezones que funcionan *
+                      </FieldLabel>
                       <input
+                        id="wp-teats"
                         type="number"
+                        inputMode="numeric"
                         min="10"
                         max="22"
-                        required
-                        value={teatsCountMadre}
+                        value={teatsCountMadre || ''}
                         onChange={(e) => setTeatsCountMadre(intOrZero(e.target.value))}
-                        className="w-full px-2 py-1 border border-rose-300 rounded-md font-mono font-bold text-rose-950 bg-white"
-                        placeholder="Ej: 14 o 16"
+                        aria-invalid={!!errors.teats}
+                        aria-describedby={errors.teats ? 'wp-teats-err' : undefined}
+                        className={fieldClass(!!errors.teats, 'font-bold')}
+                        placeholder="Ej. 14"
                       />
-                      <span className="text-[9px] text-rose-700 block mt-0.5">Mínimo óptimo: 14 pezones simétricos</span>
+                      <FieldError id="wp-teats-err" error={errors.teats} />
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                        Corral de Destino Reemplazo:
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Corral (ej: Galpón Levante Madres Sala 1)"
-                        value={penMadre}
-                        onChange={(e) => setPenMadre(e.target.value)}
-                        className="w-full px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-md text-slate-700"
-                      />
-                    </div>
+                    {penInput('wp-pen-madre', penMadre, setPenMadre, 'Ej. Sala madres 1')}
                   </div>
                 )}
-              </div>
 
-              {/* 3. Verracos */}
-              <div className="p-2.5 bg-white rounded-xl border border-blue-200 space-y-1.5 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-blue-800">
-                    <Activity className="w-3.5 h-3.5 text-blue-600" />
-                    <span>3. Verracos (Futuros sementales):</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {numberInput(destinedVerraco, setDestinedVerraco)}
-                    <span className="text-[10px] text-slate-400">machos</span>
-                  </div>
-                </div>
-                {destinedVerraco > 0 && (
-                  <input
-                    type="text"
-                    placeholder="Corral de destino (ej: Corral Verracos Jóvenes B)"
-                    value={penVerraco}
-                    onChange={(e) => setPenVerraco(e.target.value)}
-                    className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
-                  />
+                {destRow(
+                  <Activity className="w-4 h-4 text-sky-700" aria-hidden="true" />,
+                  'Futuros verracos',
+                  'machos',
+                  'border-sky-200',
+                  'wp-verraco',
+                  destinedVerraco,
+                  setDestinedVerraco,
+                  penInput('wp-pen-verraco', penVerraco, setPenVerraco, 'Ej. Corral verracos jóvenes')
                 )}
-              </div>
 
-              {/* 4. Venta */}
-              <div className="p-2.5 bg-white rounded-xl border border-amber-300 space-y-2 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
-                    <ShoppingBag className="w-3.5 h-3.5 text-amber-600" />
-                    <span>4. Venta Comercial de Lechones al Destete:</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {numberInput(destinedVenta, setDestinedVenta, 'border-amber-300')}
-                    <span className="text-[10px] text-slate-400">lechones</span>
-                  </div>
-                </div>
-                {destinedVenta > 0 && (
-                  <div className="bg-amber-50/70 p-2.5 rounded-xl border border-amber-200 space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
+                {destRow(
+                  <ShoppingBag className="w-4 h-4 text-amber-700" aria-hidden="true" />,
+                  'Vender ahora',
+                  'lechones',
+                  'border-amber-300',
+                  'wp-venta',
+                  destinedVenta,
+                  setDestinedVenta,
+                  <div className="space-y-2.5 pt-2 border-t border-amber-100">
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-semibold text-slate-700 block mb-0.5">
-                          Precio Venta / Lechón ($): <span className="text-rose-600">*</span>
-                        </label>
+                        <FieldLabel htmlFor="wp-price">Precio por lechón ($) *</FieldLabel>
                         <input
+                          id="wp-price"
                           type="number"
+                          inputMode="decimal"
                           step="any"
                           min="0"
                           value={salePricePerPiglet}
                           placeholder="0.00"
                           onChange={(e) => setSalePricePerPiglet(e.target.value)}
-                          className="w-full px-2 py-1 border border-amber-300 rounded-md font-bold text-slate-900 bg-white"
+                          aria-invalid={!!errors.price}
+                          aria-describedby={errors.price ? 'wp-price-err' : undefined}
+                          className={fieldClass(!!errors.price, 'font-bold')}
                         />
+                        <FieldError id="wp-price-err" error={errors.price} />
                       </div>
                       <div>
-                        <label className="text-[10px] font-semibold text-slate-700 block mb-0.5">
-                          Cliente / Comprador:
-                        </label>
+                        <FieldLabel htmlFor="wp-buyer">Comprador</FieldLabel>
                         <input
+                          id="wp-buyer"
                           type="text"
                           value={buyerVenta}
                           onChange={(e) => setBuyerVenta(e.target.value)}
-                          className="w-full px-2 py-1 border border-slate-300 rounded-md text-slate-900 bg-white"
-                          placeholder="Nombre del comprador"
+                          className={inputClass}
+                          placeholder="Nombre"
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-1.5 text-center pt-1 text-[11px]">
-                      <div className="bg-white p-1.5 rounded-lg border border-amber-200">
-                        <span className="text-[9px] text-slate-500 block">Ingreso Venta</span>
-                        <strong className="text-emerald-700 font-black">${totalSaleRevenue.toFixed(2)}</strong>
+                    <dl className="grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-amber-50 p-2 rounded-lg border border-amber-200">
+                        <dt className="text-xs text-slate-700">Cobro</dt>
+                        <dd className="text-sm font-bold text-emerald-800">${totalSaleRevenue.toFixed(2)}</dd>
                       </div>
-                      <div className="bg-white p-1.5 rounded-lg border border-amber-200">
-                        <span className="text-[9px] text-slate-500 block">Costo Asignado</span>
-                        <strong className="text-slate-700 font-bold">${baseCostSoldPiglets.toFixed(2)}</strong>
+                      <div className="bg-amber-50 p-2 rounded-lg border border-amber-200">
+                        <dt className="text-xs text-slate-700">Lo que costaron</dt>
+                        <dd className="text-sm font-bold text-slate-800">${baseCostSoldPiglets.toFixed(2)}</dd>
                       </div>
-                      <div className="bg-white p-1.5 rounded-lg border border-amber-200">
-                        <span className="text-[9px] text-slate-500 block">Utilidad Neta</span>
-                        <strong className={`font-black ${netSaleProfit >= 0 ? 'text-emerald-800' : 'text-rose-700'}`}>
+                      <div className="bg-amber-50 p-2 rounded-lg border border-amber-200">
+                        <dt className="text-xs text-slate-700">Ganancia</dt>
+                        <dd className={`text-sm font-bold ${netSaleProfit >= 0 ? 'text-emerald-800' : 'text-rose-700'}`}>
                           {netSaleProfit >= 0 ? '+' : ''}${netSaleProfit.toFixed(2)}
-                        </strong>
+                        </dd>
                       </div>
-                    </div>
+                    </dl>
                   </div>
                 )}
-              </div>
 
-              {exceedsAvailable && (
-                <div className="p-2.5 bg-rose-100 text-rose-800 rounded-xl flex items-center gap-2 text-[11px] font-bold">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
-                  <span>La camada solo tiene {available} lechones vivos.</span>
+                <FieldError id="wp-dist-err" error={errors.dist} />
+                {!errors.dist && !exceedsAvailable && numPiglets > 0 && totalAssigned !== numPiglets && (
+                  <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    Repartiste {totalAssigned} de {numPiglets}.{' '}
+                    {totalAssigned < numPiglets ? `Faltan ${numPiglets - totalAssigned}.` : `Sobran ${totalAssigned - numPiglets}.`}
+                  </p>
+                )}
+                {isPartial && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                    Destete parcial: {available - numPiglets} lechón(es) se quedan con la madre.
+                  </p>
+                )}
+              </fieldset>
+
+              {/* Costo por lechón */}
+              <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200 space-y-2.5">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Costo de cada lechón {isPartial && `(se toma el ${(share * 100).toFixed(0)}%)`}
+                </h3>
+                <dl className="grid grid-cols-2 gap-2">
+                  <div className="bg-white p-2 rounded-lg border border-slate-200">
+                    <dt className="text-xs text-slate-600">Gastos de la cerda {litter?.sowCode}</dt>
+                    <dd className="text-sm font-bold text-slate-900">${sowCycleShare.toFixed(2)}</dd>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200">
+                    <dt className="text-xs text-slate-600">Gastos de la camada</dt>
+                    <dd className="text-sm font-bold text-slate-900">${litterCostShare.toFixed(2)}</dd>
+                  </div>
+                </dl>
+                <div>
+                  <FieldLabel htmlFor="wp-extra" hint="Ya pagado: se reparte entre los lechones, no se anota como gasto nuevo.">
+                    Otros gastos de la cría ($, opcional)
+                  </FieldLabel>
+                  <input
+                    id="wp-extra"
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    min="0"
+                    placeholder="0.00"
+                    value={additionalCost}
+                    onChange={(e) => setAdditionalCost(e.target.value)}
+                    className={inputClass}
+                  />
                 </div>
-              )}
-              {!exceedsAvailable && numPiglets > 0 && totalAssigned !== numPiglets && (
-                <div className="p-2.5 bg-rose-100 text-rose-800 rounded-xl flex items-center gap-2 text-[11px] font-bold">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
-                  <span>
-                    La suma distribuida ({totalAssigned}) no coincide con los {numPiglets} lechones a destetar. Faltan o
-                    sobran {Math.abs(numPiglets - totalAssigned)}.
+                {!sow && animals.length > 0 && (
+                  <p className="text-xs text-amber-800">
+                    No se encontró la cerda {litter?.sowCode}: solo se reparten los gastos de la camada.
+                  </p>
+                )}
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                  <span className="text-sm text-slate-700">
+                    Total ${totalMotherCost.toFixed(2)} ÷ {numPiglets || 0} lechones
+                  </span>
+                  <span className="text-lg font-bold text-rose-800">
+                    {numPiglets > 0 ? `$${costPerPiglet.toFixed(2)} c/u` : '—'}
                   </span>
                 </div>
-              )}
-              {isPartial && (
-                <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
-                  Destete parcial: {available - numPiglets} lechón(es) seguirán en lactancia con la cerda.
-                </p>
-              )}
+              </div>
             </div>
 
-            {error && (
-              <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-[11px] font-bold text-rose-800">
-                {error}
+            <div className="shrink-0 border-t border-slate-200 bg-white p-3 space-y-2">
+              <ErrorBox error={formError} />
+              <div className="flex gap-2.5">
+                <Btn variant="secondary" size="lg" onClick={requestClose} className="flex-1">
+                  Cancelar
+                </Btn>
+                <Btn type="submit" rubro="porcino" size="lg" disabled={isSaving} className="flex-[2]">
+                  {isSaving ? 'Guardando…' : 'Guardar destete'}
+                </Btn>
               </div>
-            )}
-
-            {/* Footer Buttons */}
-            <div className="flex gap-2 pt-2 border-t border-slate-100 shrink-0">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 py-2.5 border border-slate-300 rounded-xl text-slate-600 font-bold hover:bg-slate-50 cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={!isDistributionValid || isSaving}
-                className={`flex-1 py-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all ${
-                  isDistributionValid && !isSaving
-                    ? 'bg-rose-700 hover:bg-rose-800 text-white cursor-pointer'
-                    : 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                }`}
-              >
-                {isSaving ? 'Guardando...' : 'Confirmar Destete'} <ArrowRight className="w-4 h-4" />
-              </button>
             </div>
           </form>
         )}
+        {confirmDialog}
       </div>
-    </div>
+    </Overlay>
   );
 };

@@ -3,7 +3,7 @@ import React from 'react';
 import { ArrowRightLeft, Baby, Droplets, Heart, LogIn, LogOut, Milk, NotebookPen, Package, Scale, Stethoscope, Syringe, Wheat } from 'lucide-react';
 import type { BovinoEvent } from '../../../../models/bovinoModel';
 import type { BovinoIndex } from '../../../../models/bovinoCalc';
-import { num } from '../ui';
+import { fdy, num } from '../ui';
 
 export type TimelineFilter = 'todo' | 'pesajes' | 'repro' | 'sanidad' | 'movimientos' | 'leche';
 
@@ -56,9 +56,9 @@ export function describeEvent(e: BovinoEvent, idx: BovinoIndex): EventDesc {
     case 'ordeno':
       return { title: `${x.tank ? 'Tanque' : 'Ordeño'} ${num(x.liters, 1)} L (${x.shift === 'manana' ? 'mañana' : x.shift === 'tarde' ? 'tarde' : 'único'})${x.discarded ? (x.discardDestination === 'terneros' ? ' · retiro: a los terneros' : ' · descarte por retiro') : ''}`, Icon: Milk, dot: 'bg-sky-600' };
     case 'servicio':
-      return { title: `${x.method === 'te' ? 'Transferencia de embrión' : x.method === 'monta' ? 'Servicio monta natural' : x.method === 'iatf' ? 'Servicio IATF' : 'Servicio inseminación'}${x.sireLabel ? ` · ${x.sireLabel}` : ''}`, Icon: Heart, dot: 'bg-sky-600' };
+      return { title: `${x.method === 'te' ? 'Transferencia de embrión' : x.method === 'monta' ? 'Servicio monta natural' : x.method === 'iatf' ? 'Inseminación a tiempo fijo' : 'Servicio inseminación'}${x.sireLabel ? ` · ${x.sireLabel}` : ''}`, Icon: Heart, dot: 'bg-sky-600' };
     case 'diagnostico':
-      return { title: `Diagnóstico ${x.method === 'ecografia' ? 'ecografía' : 'palpación'}: ${x.result === 'preñada' ? 'Preñada' : x.result === 'vacia' ? 'Vacía' : 'Dudosa'}${x.expectedCalvingDate ? ` · FPP ${x.expectedCalvingDate}` : ''}`, Icon: Stethoscope, dot: x.result === 'preñada' ? 'bg-emerald-600' : 'bg-slate-500' };
+      return { title: `Diagnóstico ${x.method === 'ecografia' ? 'ecografía' : 'palpación'}: ${x.result === 'preñada' ? 'Preñada' : x.result === 'vacia' ? 'Vacía' : 'Dudosa'}${x.expectedCalvingDate ? ` · Parto probable ${fdy(x.expectedCalvingDate)}` : ''}`, Icon: Stethoscope, dot: x.result === 'preñada' ? 'bg-emerald-600' : 'bg-slate-500' };
     case 'parto':
       return { title: `${x.difficulty === 'aborto' ? 'Aborto' : 'Parto'}${x.calves?.length ? ` · ${x.calves.length} cría(s)` : ''}`, Icon: Baby, dot: 'bg-emerald-600' };
     case 'calostro':

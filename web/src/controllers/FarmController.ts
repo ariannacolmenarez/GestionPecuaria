@@ -277,6 +277,30 @@ function useLatest<T>(value: T) {
   return ref;
 }
 
+/** Tono del aviso flotante: éxito (verde), aviso (ámbar) o error (rojo). */
+export type ToastTone = 'success' | 'warning' | 'error';
+
+/**
+ * Deduce el tono de un aviso por su texto (para las llamadas que no lo indican).
+ * Primero los avisos de conexión ("guardados localmente" lleva ⚠ pero no es un error).
+ */
+export function inferToastTone(msg: string): ToastTone {
+  const m = msg || '';
+  const low = m.toLowerCase();
+  if (low.includes('guardados localmente') || low.includes('sin conexión') || low.includes('sin señal')) return 'warning';
+  if (
+    low.includes('error') ||
+    m.includes('⚠') ||
+    m.includes('⛔') ||
+    low.includes('no se pudo') ||
+    low.includes('rechaz') ||
+    low.includes('permiso') ||
+    low.includes('inválid')
+  )
+    return 'error';
+  return 'success';
+}
+
 export function useFarmController() {
   // Navegación
   const [currentView, setCurrentView] = useState<MainAppView>('mockup');
@@ -342,6 +366,7 @@ export function useFarmController() {
   const [showAlertsModal, setShowAlertsModal] = useState<boolean>(false);
   const [showPushBanner, setShowPushBanner] = useState<boolean>(true);
   const [infoToast, setInfoToast] = useState<string | null>(null);
+  const [infoToastTone, setInfoToastTone] = useState<ToastTone>('success');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ==========================================================================
@@ -514,10 +539,18 @@ export function useFarmController() {
   }, [applyPorcinoState, applyAvicolaState, applyBovinoState]);
 
   // Toast
-  const triggerToast = useCallback((msg: string) => {
+  // Tono opcional: si no se indica, se deduce del texto (inferToastTone).
+  // Los errores duran más (6 s) para que se alcancen a leer al sol.
+  const triggerToast = useCallback((msg: string, tone?: ToastTone) => {
+    const t = tone ?? inferToastTone(msg);
     setInfoToast(msg);
+    setInfoToastTone(t);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setInfoToast(null), 3500);
+    toastTimer.current = setTimeout(() => setInfoToast(null), t === 'error' ? 6000 : t === 'warning' ? 5000 : 3500);
+  }, []);
+  const dismissToast = useCallback(() => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setInfoToast(null);
   }, []);
 
   // ==========================================================================
@@ -600,14 +633,14 @@ export function useFarmController() {
       }
       if (!result.ok) {
         // Los modales muestran el error en línea (runModalAction); el toast solo si se pide explícitamente.
-        if (opts.toastErrors) triggerToast(`⚠️ ${(result as { error: string }).error}`);
+        if (opts.toastErrors) triggerToast(`⚠️ ${(result as { error: string }).error}`, 'error');
         return result;
       }
       applyPorcinoState(result.state);
       const docs = collectChangedDocs(result.state, result.changed);
       dbService.saveChanges(FARM_ID, docs).catch((e) => {
         console.warn('saveChanges failed:', e);
-        triggerToast('⚠️ Cambios guardados localmente; se sincronizarán al recuperar conexión.');
+        triggerToast('⚠️ Cambios guardados localmente; se sincronizarán al recuperar conexión.', 'warning');
       });
       if (!opts.silent) triggerToast(result.message);
       return result;
@@ -636,7 +669,7 @@ export function useFarmController() {
         result = { ok: false, error: 'Error inesperado al procesar la operación.' };
       }
       if (!result.ok) {
-        if (opts.toastErrors) triggerToast(`⚠️ ${(result as { error: string }).error}`);
+        if (opts.toastErrors) triggerToast(`⚠️ ${(result as { error: string }).error}`, 'error');
         return result;
       }
       const s = result.state;
@@ -652,7 +685,7 @@ export function useFarmController() {
       const docs = collectAvicolaChangedDocs(s, result.changed, result.deleted);
       dbService.saveChanges(FARM_ID, docs).catch((e) => {
         console.warn('saveChanges (avícola) failed:', e);
-        triggerToast('⚠️ Cambios guardados localmente; se sincronizarán al recuperar conexión.');
+        triggerToast('⚠️ Cambios guardados localmente; se sincronizarán al recuperar conexión.', 'warning');
       });
       if (!opts.silent) triggerToast(result.message);
       return result;
@@ -732,7 +765,7 @@ export function useFarmController() {
       }
       if (!result.ok) {
         const e = result as { error: string; needsConfirmation?: boolean };
-        if (opts.toastErrors && !e.needsConfirmation) triggerToast(`⚠️ ${e.error}`);
+        if (opts.toastErrors && !e.needsConfirmation) triggerToast(`⚠️ ${e.error}`, 'error');
         return result;
       }
       const s = result.state;
@@ -765,9 +798,9 @@ export function useFarmController() {
         const code = String((e as { code?: string } | null)?.code || '');
         // Sin conexión la escritura queda en cola y no falla: un rechazo del servidor NO se sincronizará.
         if (code.includes('permission-denied')) {
-          triggerToast('⛔ El servidor rechazó el cambio: tu rol no tiene permiso para guardarlo. No se sincronizará; pide al encargado que lo registre.');
+          triggerToast('⛔ El servidor rechazó el cambio: tu rol no tiene permiso para guardarlo. No se sincronizará; pide al encargado que lo registre.', 'error');
         } else {
-          triggerToast(`⚠️ No se pudo guardar en la nube${code ? ` (${code})` : ''}. Revisa la conexión y vuelve a intentarlo.`);
+          triggerToast(`⚠️ No se pudo guardar en la nube${code ? ` (${code})` : ''}. Revisa la conexión y vuelve a intentarlo.`, 'error');
         }
       });
       if (!opts.silent) triggerToast(result.message);
@@ -924,7 +957,7 @@ export function useFarmController() {
       const r = dispatchBovino(completeBovinoTask, { taskId }, { toastErrors: true });
       if (!r.ok && 'needsConfirmation' in r && r.needsConfirmation) {
         const w = (r.warnings || []).join(' ');
-        triggerToast(`⚠️ ${w || 'Hay valores fuera de rango.'} Regístrala desde la Agenda bovina para revisarla y confirmarla.`);
+        triggerToast(`⚠️ ${w || 'Hay valores fuera de rango.'} Regístrala desde la Agenda bovina para revisarla y confirmarla.`, 'warning');
       }
     },
     [dispatchBovino, triggerToast]
@@ -1064,7 +1097,7 @@ export function useFarmController() {
     async (tag: string, liters: number, pricePerLiter: number = 0, date: string = todayISO()) => {
       const cow = bovinoRef.current.find((c) => c.tag === tag);
       if (!cow) {
-        triggerToast(`⚠️ No existe la vaca ${tag}.`);
+        triggerToast(`⚠️ No existe la vaca ${tag}.`, 'error');
         return;
       }
       const r = dispatchBovino(registerMilkings, { date, shift: 'unico', items: [{ animalId: cow.id, liters }], confirm: true }, { toastErrors: true });
@@ -1231,21 +1264,9 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
       triggerToast('🧹 Datos eliminados. Granja lista en blanco para registros reales.');
     } catch (err) {
       console.error('Error clearing data:', err);
-      triggerToast('⚠️ Error al limpiar los datos.');
+      triggerToast('⚠️ Error al limpiar los datos.', 'error');
     }
   }, [resetLocalState, triggerToast]);
-
-  /** @deprecated No existen datos de demostración; solo re-sincroniza con la BD. */
-  const handleRestoreSampleData = useCallback(async () => {
-    try {
-      await dbService.restoreSampleData(FARM_ID);
-      setShowSettingsModal(false);
-      triggerToast('🔄 Datos sincronizados con la base de datos.');
-    } catch (err) {
-      console.error('Error restoring data:', err);
-      triggerToast('⚠️ Error al sincronizar los datos.');
-    }
-  }, [triggerToast]);
 
   return {
     // Estado
@@ -1300,6 +1321,7 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
     criticalWarehouseCount,
     totalNotifications,
     infoToast,
+    infoToastTone,
 
     // Modales
     showMembersModal,
@@ -1339,8 +1361,8 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
 
     // Acciones
     triggerToast,
+    dismissToast,
     handleClearAllTestData,
-    handleRestoreSampleData,
     handleUpdateAnimals,
     handleUpdateLitters,
     handleAddTraceEvent,

@@ -60,6 +60,8 @@ export const OrdenoRapido: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   const lastPrice = useMemo(() => lastMilkPriceUsd(data.finance), [data.finance]);
   const [price, setPrice] = useState<MoneyValue>({ amount: lastPrice ? String(lastPrice) : '', in: 'USD' });
   const [sellLiters, setSellLiters] = useState('');
+  // Mientras no lo cambie, "Litros vendidos" muestra lo que va al tanque (y eso es lo que se guarda).
+  const [sellTouched, setSellTouched] = useState(false);
   const [buyer, setBuyer] = useState('');
   /** Destino de la leche de vacas en retiro (no va al tanque): descarte o terneros. */
   const [dest, setDest] = useState<Record<string, 'descarte' | 'terneros'>>({});
@@ -258,7 +260,7 @@ export const OrdenoRapido: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             <div className="bg-white rounded-2xl border-2 border-slate-200 p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-black text-slate-900">Agregar vaca por arete</p>
-                <button type="button" aria-label="Cerrar" onClick={() => setAdding(false)} className={`w-11 h-11 rounded-xl flex items-center justify-center ${FOCUS_B}`}>
+                <button type="button" aria-label="Cerrar" onClick={() => setAdding(false)} className={`w-12 h-12 rounded-xl flex items-center justify-center ${FOCUS_B}`}>
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -286,7 +288,16 @@ export const OrdenoRapido: React.FC<{ onClose: () => void }> = ({ onClose }) => 
           {sell && (
             <>
               <Field label="Litros vendidos" hint={`Por defecto, lo que va al tanque (${num(toTank, 1)} L, sin el descarte).`}>
-                <BigNumberInput decimal unit="L" value={sellLiters} onChange={setSellLiters} placeholder={num(toTank, 1)} ariaLabel="Litros vendidos" />
+                <BigNumberInput
+                  decimal
+                  unit="L"
+                  value={sellTouched ? sellLiters : String(Math.round(toTank * 10) / 10)}
+                  onChange={(v) => {
+                    setSellTouched(true);
+                    setSellLiters(v);
+                  }}
+                  ariaLabel="Litros vendidos"
+                />
               </Field>
               <Field label="Precio por litro" hint={lastPrice ? `Último precio: ${usd(lastPrice)}/L` : undefined}>
                 <MoneyField value={price} onChange={setPrice} suffix="/L" />

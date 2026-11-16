@@ -6,7 +6,7 @@
  * tarjetas blancas rounded-2xl, neutros slate y acento avícola amber.
  * No contiene lógica de dominio: los cálculos vienen de models/avicolaDomain.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ChevronLeft, Minus, Plus, X, CalendarDays, TrendingUp, TrendingDown, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
 import type { AvicolaStage } from '../../../models/FarmModel';
@@ -104,20 +104,27 @@ export const STAGE_STYLES: Record<AvicolaStage, { seg: string; chip: string; tex
 
 export type Tone = 'amber' | 'violet' | 'rose' | 'emerald' | 'indigo' | 'sky' | 'slate';
 
+/**
+ * Colores por tono. Texto blanco solo sobre fondos que dan ≥ 4.5:1
+ * (sky y emerald pasan a 700: blanco sobre 600 no alcanza al sol).
+ */
 export const TONE: Record<Tone, { header: string; solid: string; soft: string; text: string; outline: string; sub: string }> = {
-  amber: { header: 'bg-amber-400 text-slate-900', solid: 'bg-amber-400 text-slate-900 hover:bg-amber-300', soft: 'bg-amber-50 text-amber-800', text: 'text-amber-700', outline: 'border-amber-300 text-amber-800', sub: 'text-slate-800' },
-  violet: { header: 'bg-violet-600 text-white', solid: 'bg-violet-600 text-white hover:bg-violet-700', soft: 'bg-violet-50 text-violet-700', text: 'text-violet-700', outline: 'border-violet-200 text-violet-700', sub: 'text-violet-100' },
-  rose: { header: 'bg-rose-600 text-white', solid: 'bg-rose-600 text-white hover:bg-rose-700', soft: 'bg-rose-50 text-rose-700', text: 'text-rose-700', outline: 'border-rose-200 text-rose-700', sub: 'text-rose-100' },
-  emerald: { header: 'bg-emerald-600 text-white', solid: 'bg-emerald-600 text-white hover:bg-emerald-700', soft: 'bg-emerald-50 text-emerald-700', text: 'text-emerald-700', outline: 'border-emerald-200 text-emerald-700', sub: 'text-emerald-100' },
-  indigo: { header: 'bg-indigo-600 text-white', solid: 'bg-indigo-600 text-white hover:bg-indigo-700', soft: 'bg-indigo-50 text-indigo-700', text: 'text-indigo-700', outline: 'border-indigo-200 text-indigo-700', sub: 'text-indigo-100' },
-  sky: { header: 'bg-sky-600 text-white', solid: 'bg-sky-600 text-white hover:bg-sky-700', soft: 'bg-sky-50 text-sky-700', text: 'text-sky-700', outline: 'border-sky-200 text-sky-700', sub: 'text-sky-100' },
-  slate: { header: 'bg-slate-900 text-white', solid: 'bg-slate-900 text-white hover:bg-slate-800', soft: 'bg-slate-100 text-slate-700', text: 'text-slate-700', outline: 'border-slate-200 text-slate-700', sub: 'text-slate-300' },
+  amber: { header: 'bg-amber-400 text-slate-900', solid: 'bg-amber-400 text-slate-900 hover:bg-amber-300', soft: 'bg-amber-50 text-amber-800', text: 'text-amber-800', outline: 'border-amber-400 text-amber-900', sub: 'text-slate-900 font-semibold' },
+  violet: { header: 'bg-violet-600 text-white', solid: 'bg-violet-600 text-white hover:bg-violet-700', soft: 'bg-violet-50 text-violet-700', text: 'text-violet-700', outline: 'border-violet-300 text-violet-700', sub: 'text-white font-semibold' },
+  rose: { header: 'bg-rose-600 text-white', solid: 'bg-rose-600 text-white hover:bg-rose-700', soft: 'bg-rose-50 text-rose-700', text: 'text-rose-700', outline: 'border-rose-300 text-rose-700', sub: 'text-white font-semibold' },
+  emerald: { header: 'bg-emerald-700 text-white', solid: 'bg-emerald-700 text-white hover:bg-emerald-800', soft: 'bg-emerald-50 text-emerald-800', text: 'text-emerald-700', outline: 'border-emerald-300 text-emerald-800', sub: 'text-white font-semibold' },
+  indigo: { header: 'bg-indigo-600 text-white', solid: 'bg-indigo-600 text-white hover:bg-indigo-700', soft: 'bg-indigo-50 text-indigo-700', text: 'text-indigo-700', outline: 'border-indigo-300 text-indigo-700', sub: 'text-white font-semibold' },
+  sky: { header: 'bg-sky-700 text-white', solid: 'bg-sky-700 text-white hover:bg-sky-800', soft: 'bg-sky-50 text-sky-800', text: 'text-sky-700', outline: 'border-sky-300 text-sky-800', sub: 'text-white font-semibold' },
+  slate: { header: 'bg-slate-900 text-white', solid: 'bg-slate-900 text-white hover:bg-slate-800', soft: 'bg-slate-100 text-slate-800', text: 'text-slate-800', outline: 'border-slate-300 text-slate-800', sub: 'text-slate-300' },
 };
 
 export const CARD = 'bg-white rounded-2xl border border-slate-200/90 shadow-xs';
-export const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500';
+/** Foco visible por defecto: anillo oscuro con separación (se ve sobre blanco y sobre ámbar). */
+export const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2';
 /** Foco del modo sol (bovino): anillo sky. */
-export const FOCUS_SOL = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1';
+export const FOCUS_SOL = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700 focus-visible:ring-offset-1';
+/** Foco sobre fondos oscuros o de color con texto blanco. */
+export const FOCUS_ON_DARK = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white';
 
 // ---------------------------------------------------------------------------
 // Capa de superposición del teléfono (portal)
@@ -148,16 +155,18 @@ export const Overlay: React.FC<{ children: React.ReactNode; className?: string; 
 };
 
 /**
- * Cierre de hoja con Escape y con el botón Atrás de Android (pila global):
- * se registra una sola vez al montar, así las hojas anidadas conservan su orden.
+ * Registra `handler` en la pila global del botón Atrás (utils/backButton) mientras
+ * `enabled` sea true, y lo ejecuta también con Escape si es la capa superior.
+ * El manejador se lee por ref: puede cambiar en cada render sin reordenar la pila.
  */
-export function useEscape(onClose: () => void) {
-  const ref = useRef(onClose);
-  ref.current = onClose;
+export function useBackHandler(enabled: boolean, handler: () => void) {
+  const ref = useRef(handler);
+  ref.current = handler;
   useEffect(() => {
+    if (!enabled) return;
     const close = () => ref.current();
     const h = (e: KeyboardEvent) => {
-      // Escape solo cierra la hoja de arriba, no todas a la vez
+      // Escape solo cierra la capa de arriba, no todas a la vez
       if (e.key === 'Escape' && isTopBackHandler(close)) close();
     };
     const unregister = pushBackHandler(close);
@@ -166,8 +175,67 @@ export function useEscape(onClose: () => void) {
       window.removeEventListener('keydown', h);
       unregister();
     };
-  }, []);
+  }, [enabled]);
 }
+
+/**
+ * Cierre de hoja con Escape y con el botón Atrás de Android (pila global):
+ * se registra una sola vez al montar, así las hojas anidadas conservan su orden.
+ */
+export function useEscape(onClose: () => void) {
+  useBackHandler(true, onClose);
+}
+
+/**
+ * Protección contra perder datos escritos: `requestClose` cierra directo si no hay cambios
+ * o muestra "¿Descartar cambios?" si `dirty`. Renderiza `discardDialog` dentro de la hoja.
+ */
+export function useDiscardGuard(onClose: () => void, dirty?: boolean, contrast?: 'sol') {
+  const [askDiscard, setAskDiscard] = useState(false);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const dirtyRef = useRef(!!dirty);
+  dirtyRef.current = !!dirty;
+  const requestClose = useCallback(() => {
+    if (dirtyRef.current) setAskDiscard(true);
+    else closeRef.current();
+  }, []);
+  const discardDialog = askDiscard ? (
+    <ConfirmDialog
+      title="¿Descartar cambios?"
+      message="Los datos que escribiste se perderán."
+      confirmLabel="Descartar"
+      danger
+      contrast={contrast}
+      onConfirm={() => {
+        setAskDiscard(false);
+        closeRef.current();
+      }}
+      onCancel={() => setAskDiscard(false)}
+    />
+  ) : null;
+  return { requestClose, discardDialog, cancelDiscard: () => setAskDiscard(false) };
+}
+
+/**
+ * Cuando aparece un error (o cambia `key`), lleva la vista al primer campo inválido
+ * (`aria-invalid="true"` o `data-invalid="true"`) dentro de `ref` y le da el foco.
+ */
+export function useFocusFirstInvalid(ref: React.RefObject<HTMLElement | null>, error?: string | null, key?: unknown) {
+  useEffect(() => {
+    if (!error) return;
+    const id = requestAnimationFrame(() => {
+      const el = ref.current?.querySelector<HTMLElement>('[aria-invalid="true"], [data-invalid="true"]');
+      if (!el) return;
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (typeof el.focus === 'function') el.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [error, key, ref]);
+}
+
+/** Error del pie (encima del botón Guardar). */
+const FooterError: React.FC<{ error?: string | null }> = ({ error }) => (error ? <div className="mb-3"><ErrorBox error={error} /></div> : null);
 
 /** Pantalla completa de formulario: cabecera de color + hoja blanca + pie fijo. */
 export const FormSheet: React.FC<{
@@ -181,48 +249,44 @@ export const FormSheet: React.FC<{
   children: React.ReactNode;
   /** Si hay datos escritos, X / Escape / Atrás piden confirmación antes de descartarlos. */
   dirty?: boolean;
-  /** 'sol': alto contraste para campo (módulo bovino): X de 48 px y foco sky. Por defecto, igual que antes. */
+  /** Error del formulario: se muestra en el pie, encima del botón, y lleva al primer campo inválido. */
+  error?: string | null;
+  /** Cambiarlo (p. ej. un contador de intentos) repite el salto al campo inválido aunque el error sea el mismo. */
+  errorKey?: unknown;
+  /** 'sol': foco sky (módulo bovino). El alto contraste ya es el estilo por defecto. */
   contrast?: 'sol';
-}> = ({ tone, title, subtitle, question, header, footer, onClose, children, dirty, contrast }) => {
-  const sol = contrast === 'sol';
-  const focus = sol ? FOCUS_SOL : FOCUS;
-  const [askDiscard, setAskDiscard] = useState(false);
-  const requestClose = () => (dirty ? setAskDiscard(true) : onClose());
+}> = ({ tone, title, subtitle, question, header, footer, onClose, children, dirty, error, errorKey, contrast }) => {
+  const { requestClose, discardDialog } = useDiscardGuard(onClose, dirty, contrast);
   useEscape(requestClose);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useFocusFirstInvalid(bodyRef, error, errorKey);
   const t = TONE[tone];
+  const headerFocus = tone === 'amber' ? FOCUS : FOCUS_ON_DARK;
   return (
     <Overlay className="bg-slate-100 flex flex-col">
-      {askDiscard && (
-        <ConfirmDialog
-          title="¿Descartar cambios?"
-          message="Los datos que escribiste en este formulario se perderán."
-          confirmLabel="Descartar"
-          danger
-          contrast={contrast}
-          onConfirm={() => {
-            setAskDiscard(false);
-            onClose();
-          }}
-          onCancel={() => setAskDiscard(false)}
-        />
-      )}
+      {discardDialog}
       <div role="dialog" aria-modal="true" aria-label={title} className="flex flex-col h-full min-h-0">
         <div className={`${t.header} px-4 pt-3 pb-9 shrink-0`}>
           <div className="flex items-center gap-2">
-            <button onClick={requestClose} aria-label="Cerrar" className={`${sol ? 'w-12 h-12' : 'w-10 h-10'} -ml-2 rounded-full flex items-center justify-center hover:bg-black/10 ${focus}`}>
-              <X className="w-5 h-5" />
+            <button type="button" onClick={requestClose} aria-label="Cerrar" className={`w-12 h-12 -ml-2 shrink-0 rounded-full flex items-center justify-center hover:bg-black/10 ${headerFocus}`}>
+              <X className="w-6 h-6" />
             </button>
             <div className="min-w-0">
               <h2 className="text-lg font-black leading-tight truncate">{title}</h2>
-              {subtitle && <p className={`text-xs ${t.sub} truncate`}>{subtitle}</p>}
+              {subtitle && <p className={`text-sm ${t.sub} truncate`}>{subtitle}</p>}
             </div>
           </div>
           {question && <p className="text-xl font-black mt-3">{question}</p>}
           {header && <div className="mt-3">{header}</div>}
         </div>
-        <div className="-mt-6 bg-white rounded-t-3xl px-4 pt-5 pb-6 flex-1 overflow-y-auto space-y-5 min-h-0">{children}</div>
-        {footer && (
-          <div className="bg-white border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0">{footer}</div>
+        <div ref={bodyRef} className="-mt-6 bg-white rounded-t-3xl px-4 pt-5 pb-6 flex-1 overflow-y-auto space-y-5 min-h-0">
+          {children}
+        </div>
+        {(footer || error) && (
+          <div className="bg-white border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0">
+            <FooterError error={error} />
+            {footer}
+          </div>
         )}
       </div>
     </Overlay>
@@ -239,35 +303,51 @@ export const BottomSheet: React.FC<{
   children: React.ReactNode;
   footer?: React.ReactNode;
   dark?: boolean;
-  /** 'sol': alto contraste para campo (módulo bovino): subtítulo text-xs slate-700, X de 48 px, foco sky. */
+  /** Si hay datos escritos, fondo / X / Escape / Atrás piden confirmación antes de descartarlos. */
+  dirty?: boolean;
+  /** Error del formulario: en el pie, encima del botón; lleva al primer campo inválido. */
+  error?: string | null;
+  /** Cambiarlo repite el salto al campo inválido aunque el error sea el mismo. */
+  errorKey?: unknown;
+  /** 'sol': foco sky (módulo bovino). El alto contraste ya es el estilo por defecto. */
   contrast?: 'sol';
-}> = ({ title, subtitle, icon, iconClass = 'bg-amber-50 text-amber-700', onClose, children, footer, dark, contrast }) => {
-  useEscape(onClose);
-  const sol = contrast === 'sol';
+}> = ({ title, subtitle, icon, iconClass = 'bg-amber-50 text-amber-800', onClose, children, footer, dark, dirty, error, errorKey, contrast }) => {
+  const { requestClose, discardDialog } = useDiscardGuard(onClose, dirty, contrast);
+  useEscape(requestClose);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useFocusFirstInvalid(bodyRef, error, errorKey);
+  const focus = dark ? FOCUS_ON_DARK : contrast === 'sol' ? FOCUS_SOL : FOCUS;
   return (
-    <Overlay className="bg-black/60 backdrop-blur-xs flex items-end" onBackdrop={onClose}>
+    <Overlay className="bg-black/60 backdrop-blur-xs flex items-end" onBackdrop={requestClose}>
+      {discardDialog}
       <div role="dialog" aria-modal="true" aria-label={title} className="bg-white w-full max-h-[88%] rounded-t-3xl flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom-8 duration-200">
-        <div className={`${dark ? 'bg-slate-900 text-white' : 'bg-white'} px-4 pt-2 pb-3 shrink-0 border-b ${dark ? 'border-slate-800' : 'border-slate-100'}`}>
+        <div className={`${dark ? 'bg-slate-900 text-white' : 'bg-white'} px-4 pt-2 pb-3 shrink-0 border-b ${dark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className={`w-10 h-1 rounded-full mx-auto mb-2 ${dark ? 'bg-slate-600' : 'bg-slate-300'}`} />
           <div className="flex items-center gap-2.5">
             {icon && <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${iconClass}`}>{icon}</div>}
             <div className="min-w-0 flex-1">
               <h3 className={`font-bold text-base leading-tight truncate ${dark ? 'text-white' : 'text-slate-900'}`}>{title}</h3>
-              {subtitle && (
-                <p className={sol ? `text-xs font-semibold truncate ${dark ? 'text-slate-200' : 'text-slate-700'}` : `text-[11px] truncate ${dark ? 'text-slate-300' : 'text-slate-500'}`}>{subtitle}</p>
-              )}
+              {subtitle && <p className={`text-xs font-semibold truncate ${dark ? 'text-slate-200' : 'text-slate-700'}`}>{subtitle}</p>}
             </div>
             <button
-              onClick={onClose}
+              type="button"
+              onClick={requestClose}
               aria-label="Cerrar"
-              className={`${sol ? 'w-12 h-12' : 'w-10 h-10'} rounded-full flex items-center justify-center ${dark ? (sol ? 'text-white hover:bg-white/10' : 'text-slate-300 hover:bg-white/10') : sol ? 'text-slate-800 hover:bg-slate-100' : 'text-slate-500 hover:bg-slate-100'} ${sol ? FOCUS_SOL : FOCUS}`}
+              className={`w-12 h-12 shrink-0 rounded-full flex items-center justify-center ${dark ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'} ${focus}`}
             >
-              <X className="w-5 h-5" />
+              <X className="w-6 h-6" />
             </button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">{children}</div>
-        {footer && <div className="border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0 bg-white">{footer}</div>}
+        <div ref={bodyRef} className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+          {children}
+        </div>
+        {(footer || error) && (
+          <div className="border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0 bg-white">
+            <FooterError error={error} />
+            {footer}
+          </div>
+        )}
       </div>
     </Overlay>
   );
@@ -284,40 +364,50 @@ export const ConfirmDialog: React.FC<{
   error?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
-  /** 'sol': alto contraste para campo (módulo bovino): mensaje text-sm slate-900, botones de 48 px, foco sky. */
+  /** 'sol': foco y botón de confirmar sky (módulo bovino). El alto contraste ya es el estilo por defecto. */
   contrast?: 'sol';
-}> = ({ title, message, confirmLabel, danger, icon, requireText, error, onConfirm, onCancel, contrast }) => {
+  /** Texto del botón de cancelar (por defecto "Cancelar"). */
+  cancelLabel?: string;
+}> = ({ title, message, confirmLabel, danger, icon, requireText, error, onConfirm, onCancel, contrast, cancelLabel = 'Cancelar' }) => {
   useEscape(onCancel);
   const sol = contrast === 'sol';
   const focus = sol ? FOCUS_SOL : FOCUS;
-  const btnH = sol ? 'h-12 text-base' : 'h-11 text-sm';
+  const inputId = useId();
   const [typed, setTyped] = useState('');
   const blocked = !!requireText && typed.trim().toLowerCase() !== requireText.trim().toLowerCase();
   return (
     <Overlay className="bg-black/70 backdrop-blur-xs flex items-center justify-center p-4" onBackdrop={onCancel}>
       <div role="alertdialog" aria-modal="true" aria-label={title} className="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl space-y-3">
-        <div className={`w-12 h-12 rounded-full flex items-center justify-center ${danger ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-700'}`}>
+        <div className={`w-12 h-12 rounded-full flex items-center justify-center ${danger ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800'}`}>
           {icon || <AlertTriangle className="w-6 h-6" />}
         </div>
-        <h3 className={`text-slate-900 ${sol ? 'font-black text-lg' : 'font-bold text-base'}`}>{title}</h3>
-        <div className={`space-y-2 ${sol ? 'text-sm text-slate-900' : 'text-xs text-slate-600'}`}>{message}</div>
+        <h3 className="text-slate-900 font-black text-lg leading-tight">{title}</h3>
+        <div className="space-y-2 text-sm text-slate-800">{message}</div>
         {requireText && (
           <div>
-            <label className={sol ? 'text-xs font-semibold text-slate-700' : 'text-[11px] text-slate-500'} htmlFor="confirm-text">
-              Escribe <strong className="text-slate-800">{requireText}</strong> para confirmar
+            <label className="text-xs font-semibold text-slate-700" htmlFor={inputId}>
+              Escribe <strong className="text-slate-900">{requireText}</strong> para confirmar
             </label>
-            <input id="confirm-text" value={typed} onChange={(e) => setTyped(e.target.value)} className={`mt-1 w-full ${sol ? 'h-12 text-base border-slate-300' : 'h-11 text-sm border-slate-200'} px-3 rounded-xl bg-slate-50 border text-slate-900 ${focus}`} />
+            <input
+              id={inputId}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              autoComplete="off"
+              enterKeyHint="done"
+              className={`mt-1 w-full h-12 text-base px-3 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 ${focus}`}
+            />
           </div>
         )}
         <ErrorBox error={error} />
-        <div className="grid grid-cols-2 gap-2 pt-1">
-          <button onClick={onCancel} className={`${btnH} rounded-xl font-bold ${sol ? 'bg-slate-200 text-slate-900' : 'bg-slate-100 text-slate-700'} ${focus}`}>
-            Cancelar
+        <div className="grid grid-cols-2 gap-3 pt-1">
+          <button type="button" onClick={onCancel} className={`h-12 text-base rounded-xl font-bold bg-slate-200 text-slate-900 hover:bg-slate-300 ${focus}`}>
+            {cancelLabel}
           </button>
           <button
+            type="button"
             onClick={onConfirm}
             disabled={blocked}
-            className={`${btnH} rounded-xl font-bold disabled:opacity-50 ${danger ? 'bg-rose-600 text-white' : sol ? 'bg-sky-600 text-white' : 'bg-slate-900 text-white'} ${focus}`}
+            className={`h-12 text-base rounded-xl font-bold disabled:opacity-50 ${danger ? 'bg-rose-700 text-white hover:bg-rose-800' : sol ? 'bg-sky-700 text-white hover:bg-sky-800' : 'bg-slate-900 text-white hover:bg-slate-800'} ${focus}`}
           >
             {confirmLabel}
           </button>
@@ -329,15 +419,15 @@ export const ConfirmDialog: React.FC<{
 
 export const ErrorBox: React.FC<{ error?: string | null }> = ({ error }) =>
   error ? (
-    <div role="alert" className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-start gap-2">
-      <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
+    <div role="alert" className="p-3 bg-rose-50 border-2 border-rose-300 text-rose-900 rounded-xl text-sm font-semibold flex items-start gap-2">
+      <AlertTriangle className="w-5 h-5 shrink-0 mt-px" aria-hidden="true" />
       <span>{error}</span>
     </div>
   ) : null;
 
 export const SectionLabel: React.FC<{ index?: number; label: string; right?: React.ReactNode }> = ({ index, label, right }) => (
   <div className="flex items-center justify-between min-h-6">
-    <span className="text-[11px] font-bold tracking-wider uppercase text-slate-500">
+    <span className="text-xs font-bold tracking-wider uppercase text-slate-600">
       {index !== undefined ? `${index} · ` : ''}
       {label}
     </span>
@@ -345,26 +435,64 @@ export const SectionLabel: React.FC<{ index?: number; label: string; right?: Rea
   </div>
 );
 
+/**
+ * Fila etiqueta + campo. Si no se pasa `htmlFor`, genera un id con useId y se lo
+ * inyecta al campo hijo (NumberInput, TextInput, DatePill, Stepper o un input nativo),
+ * junto con aria-describedby (pista y error) y aria-invalid cuando hay error.
+ */
 export const FieldRow: React.FC<{ label: string; hint?: React.ReactNode; error?: string | null; htmlFor?: string; children: React.ReactNode }> = ({
   label,
   hint,
   error,
   htmlFor,
   children,
-}) => (
-  <div className="py-2 border-b border-slate-100 last:border-b-0">
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <label htmlFor={htmlFor} className="text-sm font-semibold text-slate-800">
-          {label}
-        </label>
-        {hint && <div className="text-[10px] text-slate-500">{hint}</div>}
+}) => {
+  const autoId = useId();
+  const el = React.Children.count(children) === 1 && React.isValidElement(children) ? (children as React.ReactElement<Record<string, unknown>>) : null;
+  // Solo campos: inputs nativos o componentes (NumberInput, TextInput, DatePill, Stepper…); nunca fragmentos ni <div>
+  const native = !!el && typeof el.type === 'string';
+  const child = el && el.type !== React.Fragment && (!native || ['input', 'select', 'textarea'].includes(el.type as string)) ? el : null;
+  const childId = child && typeof child.props.id === 'string' ? (child.props.id as string) : undefined;
+  const id = htmlFor || childId || autoId;
+  const hintId = hint ? `${id}-hint` : undefined;
+  const errId = error ? `${id}-error` : undefined;
+  const describedBy = [hintId, errId].filter(Boolean).join(' ') || undefined;
+  let content: React.ReactNode = children;
+  if (child) {
+    const extra: Record<string, unknown> = {};
+    if (!childId) extra.id = id;
+    if (native) {
+      if (describedBy && child.props['aria-describedby'] === undefined) extra['aria-describedby'] = describedBy;
+      if (error && child.props['aria-invalid'] === undefined) extra['aria-invalid'] = true;
+    } else {
+      if (describedBy && child.props.ariaDescribedBy === undefined) extra.ariaDescribedBy = describedBy;
+      if (error && child.props.invalid === undefined) extra.invalid = true;
+    }
+    content = React.cloneElement(child, extra);
+  }
+  return (
+    <div className="py-2 border-b border-slate-100 last:border-b-0">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <label htmlFor={child || htmlFor ? id : undefined} className="text-sm font-semibold text-slate-900">
+            {label}
+          </label>
+          {hint && (
+            <div id={hintId} className="text-xs text-slate-600">
+              {hint}
+            </div>
+          )}
+        </div>
+        <div className="shrink-0">{content}</div>
       </div>
-      <div className="shrink-0">{children}</div>
+      {error && (
+        <p id={errId} className="text-xs font-semibold text-rose-700 mt-1">
+          {error}
+        </p>
+      )}
     </div>
-    {error && <p className="text-[11px] text-rose-600 mt-1">{error}</p>}
-  </div>
-);
+  );
+};
 
 export const NumberInput: React.FC<{
   id?: string;
@@ -375,34 +503,51 @@ export const NumberInput: React.FC<{
   className?: string;
   invalid?: boolean;
   ariaLabel?: string;
-}> = ({ id, value, onChange, decimal, placeholder = '0', className = 'w-32 bg-slate-50 text-slate-900', invalid, ariaLabel }) => (
-  <input
-    id={id}
-    aria-label={ariaLabel}
-    value={value}
-    inputMode={decimal ? 'decimal' : 'numeric'}
-    placeholder={placeholder}
-    onChange={(e) => onChange(e.target.value.replace(decimal ? /[^0-9.,]/g : /[^0-9]/g, ''))}
-    className={`h-11 rounded-xl text-right px-3 tabular-nums font-bold text-sm border ${invalid ? 'border-rose-300' : 'border-slate-200'} ${className} ${FOCUS}`}
-  />
-);
+  ariaDescribedBy?: string;
+  autoFocus?: boolean;
+}> = ({ id, value, onChange, decimal, placeholder = '0', className = 'w-32 bg-slate-50 text-slate-900', invalid, ariaLabel, ariaDescribedBy, autoFocus }) => {
+  // El consumidor puede fijar su propia altura o tamaño de texto en className
+  const h = /(^|\s)h-\d/.test(className) ? '' : 'h-11';
+  const size = /(^|\s)text-(xs|sm|base|lg|\dxl)/.test(className) ? '' : 'text-base';
+  return (
+    <input
+      id={id}
+      aria-label={ariaLabel}
+      aria-invalid={invalid || undefined}
+      aria-describedby={ariaDescribedBy}
+      value={value}
+      inputMode={decimal ? 'decimal' : 'numeric'}
+      enterKeyHint="done"
+      autoComplete="off"
+      autoFocus={autoFocus}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value.replace(decimal ? /[^0-9.,]/g : /[^0-9]/g, ''))}
+      className={`${h} ${size} rounded-xl text-right px-3 tabular-nums font-bold placeholder:text-slate-500 ${invalid ? 'border-2 border-rose-500' : 'border border-slate-300'} ${className} ${FOCUS}`}
+    />
+  );
+};
 
-export const TextInput: React.FC<{ id?: string; value: string; onChange: (v: string) => void; placeholder?: string; maxLength?: number; ariaLabel?: string }> = ({
-  id,
-  value,
-  onChange,
-  placeholder,
-  maxLength,
-  ariaLabel,
-}) => (
+export const TextInput: React.FC<{
+  id?: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  maxLength?: number;
+  ariaLabel?: string;
+  ariaDescribedBy?: string;
+  invalid?: boolean;
+}> = ({ id, value, onChange, placeholder, maxLength, ariaLabel, ariaDescribedBy, invalid }) => (
   <input
     id={id}
     aria-label={ariaLabel}
+    aria-invalid={invalid || undefined}
+    aria-describedby={ariaDescribedBy}
     value={value}
     maxLength={maxLength}
     placeholder={placeholder}
+    enterKeyHint="done"
     onChange={(e) => onChange(e.target.value)}
-    className={`w-full h-11 rounded-xl bg-slate-50 border border-slate-200 px-3 text-sm text-slate-900 ${FOCUS}`}
+    className={`w-full h-11 rounded-xl bg-slate-50 px-3 text-base text-slate-900 placeholder:text-slate-500 ${invalid ? 'border-2 border-rose-500' : 'border border-slate-300'} ${FOCUS}`}
   />
 );
 
@@ -413,24 +558,34 @@ export const Stepper: React.FC<{
   max?: number;
   tone?: Tone;
   ariaLabel?: string;
-}> = ({ value, onChange, min = 0, max = Number.MAX_SAFE_INTEGER, tone = 'slate', ariaLabel = 'Cantidad' }) => {
+  id?: string;
+  ariaDescribedBy?: string;
+  invalid?: boolean;
+}> = ({ value, onChange, min = 0, max = Number.MAX_SAFE_INTEGER, tone = 'slate', ariaLabel = 'Cantidad', id, ariaDescribedBy, invalid }) => {
   const t = TONE[tone];
   const set = (v: number) => onChange(Math.min(max, Math.max(min, Math.round(v || 0))));
   return (
     <div className="flex items-center gap-2">
       <button type="button" aria-label="Restar" onClick={() => set(value - 1)} disabled={value <= min} className={`w-11 h-11 rounded-full ${t.soft} flex items-center justify-center disabled:opacity-40 ${FOCUS}`}>
-        <Minus className="w-4 h-4" />
+        <Minus className="w-5 h-5" />
       </button>
       <input
+        id={id}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={invalid || undefined}
         value={String(value)}
         inputMode="numeric"
+        enterKeyHint="done"
         onChange={(e) => set(Number(e.target.value.replace(/[^0-9]/g, '')))}
-        className={`w-16 h-12 rounded-2xl border border-slate-200 text-slate-900 text-center text-lg font-bold tabular-nums ${FOCUS}`}
+        className={`w-20 h-12 rounded-2xl text-slate-900 text-center text-lg font-bold tabular-nums ${invalid ? 'border-2 border-rose-500' : 'border border-slate-300'} ${FOCUS}`}
       />
       <button type="button" aria-label="Sumar" onClick={() => set(value + 1)} disabled={value >= max} className={`w-11 h-11 rounded-full ${t.soft} flex items-center justify-center disabled:opacity-40 ${FOCUS}`}>
-        <Plus className="w-4 h-4" />
+        <Plus className="w-5 h-5" />
       </button>
+      <span className="sr-only" aria-live="polite">
+        {ariaLabel}: {value}
+      </span>
     </div>
   );
 };
@@ -448,6 +603,8 @@ export function ChipGroup<T extends string>({
   tone = 'slate',
   onColor,
   size = 'md',
+  ariaLabel,
+  id,
 }: {
   options: ChipOption<T>[];
   value: T | undefined;
@@ -455,19 +612,22 @@ export function ChipGroup<T extends string>({
   tone?: Tone;
   onColor?: boolean;
   size?: 'md' | 'lg';
+  /** Nombre del grupo para lectores de pantalla (p. ej. "Unidad"). */
+  ariaLabel?: string;
+  id?: string;
 }) {
   const t = TONE[tone];
   return (
-    <div className="flex flex-wrap gap-2" role="radiogroup">
+    <div id={id} className="flex flex-wrap gap-2.5" role="radiogroup" aria-label={ariaLabel}>
       {options.map((o) => {
         const active = o.key === value;
         const cls = onColor
           ? active
             ? `bg-white ${t.text} border-white`
-            : 'bg-white/20 text-current border-white/30 hover:bg-white/30'
+            : 'bg-white/20 text-current border-white/40 hover:bg-white/30'
           : active
             ? `${t.solid} border-transparent`
-            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50';
+            : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50';
         return (
           <button
             key={o.key}
@@ -475,10 +635,10 @@ export function ChipGroup<T extends string>({
             role="radio"
             aria-checked={active}
             onClick={() => onChange(o.key)}
-            className={`${size === 'lg' ? 'h-12' : 'h-10'} ${o.icon ? 'pl-1.5' : 'pl-4'} pr-4 rounded-full border text-sm font-semibold flex items-center gap-2 transition-colors ${cls} ${FOCUS}`}
+            className={`${size === 'lg' ? 'h-12' : 'h-11'} ${o.icon ? 'pl-1.5' : 'pl-4'} pr-4 rounded-full border text-sm font-semibold flex items-center gap-2 transition-colors ${cls} ${onColor ? FOCUS_ON_DARK : FOCUS}`}
           >
             {o.icon && (
-              <span className={`w-8 h-8 rounded-full flex items-center justify-center ${onColor ? `bg-white ${t.text}` : active ? 'bg-white/25' : 'bg-slate-100 text-slate-600'}`}>
+              <span className={`w-8 h-8 rounded-full flex items-center justify-center ${onColor ? `bg-white ${t.text}` : active ? 'bg-white/25' : 'bg-slate-100 text-slate-700'}`}>
                 {o.icon}
               </span>
             )}
@@ -491,19 +651,29 @@ export function ChipGroup<T extends string>({
 }
 
 /** Fecha legible que envuelve un <input type="date"> nativo. */
-export const DatePill: React.FC<{ value: string; onChange: (v: string) => void; min?: string; max?: string; ariaLabel?: string }> = ({
+export const DatePill: React.FC<{ value: string; onChange: (v: string) => void; min?: string; max?: string; ariaLabel?: string; id?: string; ariaDescribedBy?: string; invalid?: boolean }> = ({
   value,
   onChange,
   min,
   max,
   ariaLabel = 'Fecha',
+  id,
+  ariaDescribedBy,
+  invalid,
 }) => (
-  <label className={`relative h-11 px-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 flex items-center gap-2 cursor-pointer focus-within:ring-2 focus-within:ring-amber-500`}>
-    <CalendarDays className="w-4 h-4 text-amber-600" />
+  <label
+    className={`relative h-11 px-3 bg-slate-50 rounded-xl font-bold text-sm text-slate-900 flex items-center gap-2 cursor-pointer focus-within:ring-2 focus-within:ring-slate-900 focus-within:ring-offset-2 ${
+      invalid ? 'border-2 border-rose-500' : 'border border-slate-300'
+    }`}
+  >
+    <CalendarDays className="w-5 h-5 text-amber-700" aria-hidden="true" />
     <span className="whitespace-nowrap">{shortDate(value)}</span>
     <input
+      id={id}
       type="date"
       aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
+      aria-invalid={invalid || undefined}
       value={value}
       min={min}
       max={max}
@@ -520,13 +690,13 @@ export const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void
   hint,
   tone = 'amber',
 }) => (
-  <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className={`w-full flex items-center justify-between gap-3 min-h-11 text-left ${FOCUS} rounded-xl`}>
+  <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className={`w-full flex items-center justify-between gap-3 min-h-12 text-left ${FOCUS} rounded-xl`}>
     <span className="min-w-0">
-      <span className="block text-sm font-semibold text-slate-800">{label}</span>
-      {hint && <span className="block text-[10px] text-slate-500">{hint}</span>}
+      <span className="block text-sm font-semibold text-slate-900">{label}</span>
+      {hint && <span className="block text-xs text-slate-600">{hint}</span>}
     </span>
-    <span className={`w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 ${checked ? (tone === 'amber' ? 'bg-amber-500' : TONE[tone].solid.split(' ')[0]) : 'bg-slate-300'}`}>
-      <span className={`block w-5 h-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : ''}`} />
+    <span className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${checked ? (tone === 'amber' ? 'bg-amber-500' : TONE[tone].solid.split(' ')[0]) : 'bg-slate-500'}`}>
+      <span className={`block w-6 h-6 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : ''}`} />
     </span>
   </button>
 );
@@ -549,7 +719,7 @@ export const StageProgressBar: React.FC<{ day: number; totalDays: number; ranges
           {ranges.map((r) => {
             const w = ((r.toDay - r.fromDay + 1) / total) * 100;
             const done = day >= r.fromDay;
-            return <div key={r.stage} style={{ width: `${w}%` }} className={`rounded-full ${STAGE_STYLES[r.stage].seg} ${done ? '' : 'opacity-30'}`} />;
+            return <div key={r.stage} style={{ width: `${w}%` }} className={`rounded-full ${STAGE_STYLES[r.stage].seg} ${done ? '' : 'opacity-40'}`} />;
           })}
         </div>
         {day >= 1 && (
@@ -565,7 +735,7 @@ export const StageProgressBar: React.FC<{ day: number; totalDays: number; ranges
             <span
               key={r.stage}
               style={{ width: `${((r.toDay - r.fromDay + 1) / total) * 100}%` }}
-              className={`text-[10px] truncate text-center ${r.stage === currentStage ? `${STAGE_STYLES[r.stage].text} font-bold` : 'text-slate-500'}`}
+              className={`text-xs truncate text-center ${r.stage === currentStage ? `${STAGE_STYLES[r.stage].text} font-bold` : 'text-slate-600'}`}
             >
               {r.stage}
             </span>
@@ -581,7 +751,7 @@ export const StatStrip: React.FC<{ items: { label: string; value: React.ReactNod
     {items.map((it) => (
       <div key={it.label} className="px-1.5 text-center min-w-0">
         <p className={`text-lg font-black tabular-nums truncate ${it.tone || 'text-slate-900'}`}>{it.value}</p>
-        <p className="text-[10px] text-slate-500 truncate">{it.label}</p>
+        <p className="text-xs text-slate-600 truncate">{it.label}</p>
       </div>
     ))}
   </div>
@@ -589,9 +759,11 @@ export const StatStrip: React.FC<{ items: { label: string; value: React.ReactNod
 
 export const EmptyState: React.FC<{ icon: React.ReactNode; title: string; hint?: string; action?: React.ReactNode }> = ({ icon, title, hint, action }) => (
   <div className="text-center py-8 px-4 space-y-2">
-    <div className="w-16 h-16 rounded-full bg-white shadow-xs border border-slate-100 text-slate-400 flex items-center justify-center mx-auto">{icon}</div>
-    <p className="font-bold text-slate-600 text-sm">{title}</p>
-    {hint && <p className="text-xs text-slate-500 max-w-xs mx-auto">{hint}</p>}
+    <div className="w-16 h-16 rounded-full bg-white shadow-xs border border-slate-200 text-slate-500 flex items-center justify-center mx-auto" aria-hidden="true">
+      {icon}
+    </div>
+    <p className="font-bold text-slate-800 text-sm">{title}</p>
+    {hint && <p className="text-sm text-slate-600 max-w-xs mx-auto">{hint}</p>}
     {action && <div className="pt-1">{action}</div>}
   </div>
 );
@@ -603,6 +775,7 @@ export const FabButton: React.FC<{ label: string; onClick: () => void; variant?:
   className = 'bottom-24 right-4',
 }) => (
   <button
+    type="button"
     onClick={onClick}
     className={`absolute ${className} z-30 h-14 pl-2 pr-5 rounded-full font-bold text-sm shadow-lg flex items-center gap-2 active:scale-95 transition ${
       variant === 'amber' ? 'bg-amber-400 text-slate-900 shadow-amber-500/30' : 'bg-slate-900 text-white'
@@ -625,30 +798,30 @@ export const BalanceCard: React.FC<{ income: number; expenses: number; variant?:
   const balance = Math.round((income - expenses) * 100) / 100;
   const empty = income === 0 && expenses === 0;
   const chip = empty ? (
-    <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">Sin movimientos</span>
+    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">Sin movimientos</span>
   ) : balance >= 0 ? (
-    <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1"><TrendingUp className="w-4 h-4" /> Ganancia</span>
+    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1"><TrendingUp className="w-4 h-4" /> Ganancia</span>
   ) : (
-    <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 inline-flex items-center gap-1"><TrendingDown className="w-4 h-4" /> Pérdida</span>
+    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-300 inline-flex items-center gap-1"><TrendingDown className="w-4 h-4" /> Pérdida</span>
   );
   const highlight = variant === 'highlight';
   return (
-    <div className={highlight ? 'bg-gradient-to-br from-amber-400 to-amber-300 rounded-2xl p-4 text-slate-900 shadow-sm' : 'bg-white rounded-2xl p-4 shadow-sm border border-amber-100'}>
+    <div className={highlight ? 'bg-gradient-to-br from-amber-400 to-amber-300 rounded-2xl p-4 text-slate-900 shadow-sm' : 'bg-white rounded-2xl p-4 shadow-sm border border-amber-200'}>
       <div className="flex items-center justify-between">
-        <span className={`text-xs font-semibold ${highlight ? 'text-slate-800' : 'text-slate-500'}`}>Balance general</span>
+        <span className={`text-xs font-semibold ${highlight ? 'text-slate-900' : 'text-slate-600'}`}>Balance general</span>
         {chip}
       </div>
-      <p className={`text-3xl font-black tabular-nums mt-1 ${balance < 0 ? (highlight ? 'text-rose-800' : 'text-rose-600') : 'text-slate-900'}`}>{usd(balance)}</p>
-      {scopeLabel && <p className={`text-[10px] ${highlight ? 'text-slate-700' : 'text-slate-500'}`}>{scopeLabel}</p>}
-      <div className={highlight ? 'grid grid-cols-2 gap-2 mt-3' : 'grid grid-cols-2 mt-3 pt-3 border-t border-slate-100 divide-x divide-slate-100'}>
+      <p className={`text-3xl font-black tabular-nums mt-1 ${balance < 0 ? (highlight ? 'text-rose-800' : 'text-rose-700') : 'text-slate-900'}`}>{usd(balance)}</p>
+      {scopeLabel && <p className={`text-xs ${highlight ? 'text-slate-800' : 'text-slate-600'}`}>{scopeLabel}</p>}
+      <div className={highlight ? 'grid grid-cols-2 gap-2 mt-3' : 'grid grid-cols-2 mt-3 pt-3 border-t border-slate-200 divide-x divide-slate-200'}>
         {[
-          { label: 'Gastos', value: expenses, cls: 'bg-rose-50 text-rose-600', arrow: <ArrowDownLeft className="w-5 h-5" /> },
-          { label: 'Ingresos', value: income, cls: 'bg-emerald-50 text-emerald-600', arrow: <ArrowUpRight className="w-5 h-5" /> },
+          { label: 'Gastos', value: expenses, cls: 'bg-rose-50 text-rose-700', arrow: <ArrowDownLeft className="w-5 h-5" /> },
+          { label: 'Ingresos', value: income, cls: 'bg-emerald-50 text-emerald-700', arrow: <ArrowUpRight className="w-5 h-5" /> },
         ].map((x, i) => (
           <div key={x.label} className={`flex items-center gap-2.5 ${highlight ? 'bg-white rounded-xl p-3' : i === 1 ? 'pl-3' : ''}`}>
-            <span className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold ${x.cls}`}>{x.arrow}</span>
+            <span className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold ${x.cls}`} aria-hidden="true">{x.arrow}</span>
             <div className="min-w-0">
-              <p className="text-[11px] text-slate-500">{x.label}</p>
+              <p className="text-xs text-slate-600">{x.label}</p>
               <p className="text-base font-bold text-slate-900 tabular-nums truncate">{usd(x.value)}</p>
             </div>
           </div>
@@ -699,18 +872,25 @@ export const Donut: React.FC<{ segments: { label: string; value: number; color: 
 
 export const KpiTile: React.FC<{ label: string; value: string; hint?: string; status?: 'good' | 'warn' | 'bad' }> = ({ label, value, hint, status }) => (
   <div className={`${CARD} p-3 min-w-0`}>
-    <p className="text-[11px] text-slate-500 truncate">{label}</p>
+    <p className="text-xs text-slate-600 truncate">{label}</p>
     <p
       className={`text-xl font-black tabular-nums truncate ${
-        status === 'good' ? 'text-emerald-600' : status === 'warn' ? 'text-amber-600' : status === 'bad' ? 'text-rose-600' : 'text-slate-900'
+        status === 'good' ? 'text-emerald-700' : status === 'warn' ? 'text-amber-700' : status === 'bad' ? 'text-rose-700' : 'text-slate-900'
       }`}
     >
       {value}
     </p>
-    {hint && <p className="text-[10px] text-slate-500 leading-snug">{hint}</p>}
+    {hint && <p className="text-xs text-slate-600 leading-snug">{hint}</p>}
   </div>
 );
 
+/** Oscurece un fondo -500/-600 a -700 para que el texto blanco tenga contraste al sol. */
+const darkenActive = (cls: string) => cls.replace(/\b(bg-[a-z]+)-(500|600)\b/g, '$1-700');
+
+/**
+ * Sub-pestañas en rejilla: todas visibles a 360 px (sin scroll horizontal),
+ * icono encima del texto, 56 px de alto.
+ */
 export function SubTabs<T extends string>({
   tabs,
   active,
@@ -721,23 +901,29 @@ export function SubTabs<T extends string>({
   onChange: (t: T) => void;
 }) {
   return (
-    <div role="tablist" className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1 [scrollbar-width:none]">
+    <div role="tablist" className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
       {tabs.map((t) => {
         const on = t.id === active;
         return (
           <button
             key={t.id}
+            type="button"
             role="tab"
             aria-selected={on}
             onClick={() => onChange(t.id)}
-            className={`relative h-11 px-4 rounded-full border text-sm font-semibold flex items-center gap-2 shrink-0 ${
-              on ? `${t.activeClass} text-white border-transparent` : 'border-slate-300 bg-white text-slate-700'
+            className={`relative h-14 min-w-0 px-0.5 rounded-xl border text-xs font-semibold tracking-tight flex flex-col items-center justify-center gap-0.5 ${
+              on ? `${darkenActive(t.activeClass)} text-white border-transparent shadow-sm` : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
             } ${FOCUS}`}
           >
-            {t.icon}
-            {t.label}
+            <span aria-hidden="true" className="flex items-center justify-center [&>svg]:w-5 [&>svg]:h-5">
+              {t.icon}
+            </span>
+            <span className="max-w-full truncate leading-tight">{t.label}</span>
             {!!t.badge && (
-              <span className="min-w-5 h-5 px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center">{t.badge}</span>
+              <span className="absolute top-1 right-1 min-w-5 h-5 px-1 rounded-full bg-rose-700 text-white text-xs font-bold flex items-center justify-center ring-2 ring-white">
+                {t.badge}
+                <span className="sr-only"> pendientes</span>
+              </span>
             )}
           </button>
         );
@@ -754,15 +940,16 @@ export function SegmentedTabs<T extends string>({ tabs, active, onChange }: { ta
         return (
           <button
             key={t.id}
+            type="button"
             role="tab"
             aria-selected={on}
             onClick={() => onChange(t.id)}
-            className={`h-11 rounded-xl border text-sm font-semibold flex items-center justify-center gap-1.5 ${
-              on ? 'bg-white border-amber-300 text-slate-900 shadow-xs ring-1 ring-amber-200' : 'bg-slate-100 border-slate-200 text-slate-500'
+            className={`h-11 min-w-0 px-1 rounded-xl border-2 text-sm flex items-center justify-center gap-1.5 ${
+              on ? 'bg-white border-slate-900 text-slate-900 font-bold shadow-xs' : 'bg-slate-100 border-slate-200 text-slate-700 font-semibold hover:bg-slate-200'
             } ${FOCUS}`}
           >
             {t.icon}
-            {t.label}
+            <span className="truncate">{t.label}</span>
           </button>
         );
       })}
@@ -771,8 +958,8 @@ export function SegmentedTabs<T extends string>({ tabs, active, onChange }: { ta
 }
 
 export const BackLink: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <button onClick={onClick} className={`h-10 px-2 -ml-2 rounded-xl text-sm font-semibold text-slate-600 flex items-center gap-1 ${FOCUS}`}>
-    <ChevronLeft className="w-4 h-4" /> {label}
+  <button type="button" onClick={onClick} className={`h-11 pl-1 pr-3 -ml-1 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-200/60 flex items-center gap-1 ${FOCUS}`}>
+    <ChevronLeft className="w-5 h-5" /> {label}
   </button>
 );
 
@@ -798,10 +985,10 @@ export const PrimaryButton: React.FC<{ tone: Tone; onClick: () => void; children
 export const TotalFooter: React.FC<{ label: string; total: number; children: React.ReactNode; note?: string }> = ({ label, total, children, note }) => (
   <div>
     <div className="flex items-end justify-between">
-      <span className="text-xs text-slate-500">{label}</span>
+      <span className="text-sm text-slate-700">{label}</span>
       <span className="text-2xl font-black tabular-nums text-slate-900">{usd(total)}</span>
     </div>
-    {note && <p className="text-[10px] text-slate-500 mt-0.5">{note}</p>}
+    {note && <p className="text-xs text-slate-600 mt-0.5">{note}</p>}
     <div className="mt-3">{children}</div>
   </div>
 );

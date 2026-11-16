@@ -30,6 +30,7 @@ import {
   toNum,
   usd,
   useDomainRunner,
+  RemovableChip,
 } from '../ui';
 
 type Who = 'animal' | 'varios' | 'lote';
@@ -211,9 +212,7 @@ export const TratamientoSheet: React.FC<{ animalIds?: string[]; lotId?: string; 
           {targets.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {targets.map((v) => (
-                <button key={v.id} type="button" onClick={() => setIds((l) => l.filter((x) => x !== v.id))} aria-label={`Quitar #${v.tag}`} className={`h-10 px-3 rounded-full bg-sky-600 text-white text-sm font-bold ${FOCUS_B}`}>
-                  #{v.tag} ✕
-                </button>
+                <RemovableChip key={v.id} label={`#${v.tag}`} onRemove={() => setIds((l) => l.filter((x) => x !== v.id))} />
               ))}
             </div>
           )}

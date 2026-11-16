@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import {
   X,
   Plus,
@@ -13,7 +13,10 @@ import {
   ShoppingCart,
   Receipt,
   MapPin,
+  ChevronDown,
+  Wheat,
 } from 'lucide-react';
+import { ConfirmDialog, ErrorBox, IconBtn, ModalHeader, btnClass, inputClass, useBackClose } from '../common/ui';
 import { FinancialMovement, PorcinoAnimal, WarehouseItem } from '../../types';
 import { evaluateWarehouseReplenishment } from '../../models/PorcinoCalculations';
 import { isActiveAnimal, headCount, round2 } from '../../models/porcinoRules';
@@ -401,7 +404,7 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
     }
     flash(
       `Se descontaron ${amountNum} ${showConsumeDialog.unit} de ${showConsumeDialog.name}${
-        targetLabel ? ` e imputaron a ${targetLabel}` : ' (consumo general)'
+        targetLabel ? ` y se cargaron a ${targetLabel}` : ' (uso general)'
       }.`
     );
     setShowConsumeDialog(null);
@@ -484,133 +487,148 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
     );
   };
 
-  const errorBox = dialogError && (
-    <div className="p-2 bg-rose-100 border border-rose-300 rounded-lg text-[11px] font-bold text-rose-800">{dialogError}</div>
-  );
+  // ---- Atrás de Android / Escape: cierra primero el diálogo interno abierto (preguntando si tiene datos) ----
+  const layer: 'assign' | 'consume' | 'purchase' | 'new' | 'main' = assignItem
+    ? 'assign'
+    : showConsumeDialog
+      ? 'consume'
+      : showPurchaseDialog
+        ? 'purchase'
+        : showNewItemModal
+          ? 'new'
+          : 'main';
+  const layerDirty =
+    layer === 'consume'
+      ? !!consumeAmount.trim() || !!consumeTargetText.trim()
+      : layer === 'purchase'
+        ? !!purchaseQty.trim() || !!purchaseInvoice.trim() || !!purchaseNotes.trim()
+        : layer === 'new'
+          ? [newItemName, newItemSubCategory, newItemQty, newItemCost, newItemMonthly, newItemSupplier, newItemExpiration].some((v) => !!v.trim())
+          : false;
+  const resetNewItem = () => {
+    setNewItemName('');
+    setNewItemSubCategory('');
+    setNewItemQty('');
+    setNewItemCost('');
+    setNewItemMonthly('');
+    setNewItemSupplier('');
+    setNewItemExpiration('');
+  };
+  const closeTop = () => {
+    setDialogError(null);
+    if (layer === 'assign') setAssignItem(null);
+    else if (layer === 'consume') setShowConsumeDialog(null);
+    else if (layer === 'purchase') setShowPurchaseDialog(false);
+    else if (layer === 'new') {
+      setShowNewItemModal(false);
+      resetNewItem();
+    } else onClose();
+  };
+  const { requestClose, confirmDialog } = useBackClose(true, closeTop, layerDirty);
+  const titleId = useId();
+
+  const errorBox = <ErrorBox error={dialogError} />;
+  const labelCls = 'block text-sm font-semibold text-slate-900 mb-1';
+  const hintCls = 'text-xs text-slate-600 mt-1';
+
+  const tabs: { id: WarehouseItem['category']; label: string; Icon: React.ElementType }[] = [
+    { id: 'alimentos', label: 'Alimentos', Icon: Package },
+    { id: 'medicinas', label: 'Medicinas', Icon: Pill },
+    { id: 'otros', label: 'Otros', Icon: Wrench },
+  ];
+  const tabLabel = tabs.find((t) => t.id === activeTab)?.label || '';
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200"
+      onClick={(e) => e.target === e.currentTarget && layer === 'main' && requestClose()}
+    >
       <div
         id="warehouse-modal-container"
-        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[90vh] max-h-[750px]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white text-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[90vh] max-h-[750px]"
       >
-        {/* Header */}
-        <div className="bg-slate-900 text-white p-4 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center">
-              <Package className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <h3 className="font-bold text-base text-white leading-tight">
-                Almacén {WAREHOUSE_RUBRO_LABEL[rubro]}
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                {isAvicola ? 'Alimento e insumos de los pollos · consumo cargado al lote' : rubro === 'bovino' ? 'Alimento e insumos del ganado bovino' : 'Alimentos, medicinas y proyección de stock a 2 meses'}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        <ModalHeader
+          title={`Almacén ${WAREHOUSE_RUBRO_LABEL[rubro]}`}
+          subtitle={isAvicola ? 'Alimento e insumos de los pollos · lo usado se carga al lote' : 'Alimentos, medicinas y cuánto alcanzan'}
+          titleId={titleId}
+          rubro={rubro}
+          icon={<Package />}
+          onClose={requestClose}
+        />
 
         {headerExtra}
 
-        {/* Feedback alert */}
         {successMessage && (
-          <div className="bg-emerald-600 text-white px-4 py-2 text-xs flex items-center gap-2 font-medium">
-            <Check className="w-4 h-4" /> {successMessage}
+          <div role="status" className="bg-emerald-700 text-white px-4 py-2 text-sm flex items-center gap-2 font-semibold shrink-0">
+            <Check className="w-5 h-5 shrink-0" aria-hidden="true" /> {successMessage}
           </div>
         )}
 
-        {/* Category Tabs: Alimentos, Medicinas, Otros */}
-        <div className="border-b border-slate-200 bg-slate-50 px-2 sm:px-4 pt-2 shrink-0">
-          {/* Pestañas desplazables: nunca empujan los botones de acción fuera de la pantalla */}
-          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-            <button
-              onClick={() => setActiveTab('alimentos')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-                activeTab === 'alimentos'
-                  ? 'border-emerald-600 text-emerald-800 bg-white rounded-t-lg'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Package className="w-3.5 h-3.5" />
-              Alimentos
-              <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded-full">
-                {countByCategory.alimentos}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('medicinas')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-                activeTab === 'medicinas'
-                  ? 'border-blue-600 text-blue-800 bg-white rounded-t-lg'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Pill className="w-3.5 h-3.5" />
-              Medicinas
-              <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded-full">
-                {countByCategory.medicinas}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('otros')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-                activeTab === 'otros'
-                  ? 'border-amber-600 text-amber-800 bg-white rounded-t-lg'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              Otros / Insumos
-              <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded-full">
-                {countByCategory.otros}
-              </span>
-            </button>
-          </div>
+        {/* Pestañas: Alimentos, Medicinas, Otros (todas visibles, 44 px) */}
+        <div role="tablist" aria-label="Tipo de insumo" className="grid grid-cols-3 gap-1 p-1.5 bg-slate-100 border-b border-slate-200 shrink-0">
+          {tabs.map(({ id, label, Icon }) => {
+            const on = activeTab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setActiveTab(id)}
+                className={`min-h-11 rounded-lg flex items-center justify-center gap-1.5 text-sm font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
+                  on ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-700 hover:bg-white/60'
+                }`}
+              >
+                <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span className="truncate">{label}</span>
+                <span className="text-xs bg-slate-200 text-slate-800 px-1.5 rounded-full">{countByCategory[id]}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Acciones principales: fila propia y a todo el ancho (táctil en móvil) */}
+        {/* Acciones principales */}
         <div className="grid grid-cols-2 gap-2 px-3 pt-3 bg-white shrink-0">
           <button
+            type="button"
             onClick={() => {
               setDialogError(null);
               setNewItemLocation(locationFilter !== ALL_LOCATIONS ? locationFilter : GENERAL_LOCATION);
               setShowNewItemModal(true);
             }}
-            className="flex items-center justify-center gap-1.5 min-h-10 px-3 py-2 text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl transition-colors cursor-pointer shadow-xs"
+            className={btnClass({ rubro: 'general' })}
           >
-            <Plus className="w-4 h-4" /> Nuevo ítem
+            <Plus className="w-5 h-5" aria-hidden="true" /> Nuevo insumo
           </button>
           {onPurchaseItem ? (
             <button
+              type="button"
               onClick={() => openPurchase()}
               disabled={safeItems.length === 0}
-              title={safeItems.length === 0 ? 'Primero crea el insumo con "Nuevo ítem"' : 'Registrar compra de un insumo existente'}
-              className="flex items-center justify-center gap-1.5 min-h-10 px-3 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors cursor-pointer shadow-xs"
+              className={btnClass({ variant: 'secondary' })}
             >
-              <ShoppingCart className="w-4 h-4" /> Registrar compra
+              <ShoppingCart className="w-5 h-5" aria-hidden="true" /> Registrar compra
             </button>
           ) : (
             <span />
           )}
+          {onPurchaseItem && safeItems.length === 0 && <p className="col-span-2 text-xs text-slate-600">Para registrar una compra, primero crea el insumo con “Nuevo insumo”.</p>}
           {onPurchaseItem && (
             <button
+              type="button"
+              aria-expanded={showPurchaseHistory}
               onClick={() => setShowPurchaseHistory((v) => !v)}
-              className="col-span-2 flex items-center justify-between gap-1.5 px-3 py-2 text-[11px] font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl cursor-pointer"
+              className="col-span-2 min-h-11 flex items-center justify-between gap-2 px-3 text-sm font-semibold text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
             >
               <span className="flex items-center gap-1.5">
-                <Receipt className="w-3.5 h-3.5 text-rose-600" /> Historial de compras ({sortedPurchases.length})
+                <Receipt className="w-4 h-4 text-rose-700" aria-hidden="true" /> Compras anteriores ({sortedPurchases.length})
               </span>
-              <span className="font-bold text-rose-700">
-                ${purchasesTotal.toLocaleString()} {showPurchaseHistory ? '▲' : '▼'}
+              <span className="font-bold text-rose-800 flex items-center gap-1">
+                ${purchasesTotal.toLocaleString()}
+                <ChevronDown className={`w-4 h-4 transition-transform ${showPurchaseHistory ? 'rotate-180' : ''}`} aria-hidden="true" />
               </span>
             </button>
           )}
@@ -619,229 +637,183 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
         {showPurchaseHistory && (
           <div className="mx-3 mt-2 max-h-48 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100 bg-white shrink-0">
             {sortedPurchases.length === 0 ? (
-              <p className="p-3 text-center text-[11px] text-slate-400">Aún no hay compras registradas.</p>
+              <p className="p-3 text-center text-sm text-slate-600">Aún no hay compras registradas.</p>
             ) : (
               sortedPurchases.map((m) => (
-                <div key={m.id} className="p-2.5 flex items-start justify-between gap-2 text-[11px]">
+                <div key={m.id} className="p-2.5 flex items-start justify-between gap-2 text-xs">
                   <div className="min-w-0">
-                    <p className="font-semibold text-slate-800 truncate">{m.concept}</p>
-                    <p className="text-slate-500 truncate">
+                    <p className="font-semibold text-slate-900 truncate">{m.concept}</p>
+                    <p className="text-slate-600 truncate">
                       {m.date}
                       {m.details ? ` · ${m.details}` : ''}
                     </p>
                   </div>
-                  <span className="font-bold text-rose-700 shrink-0">-${toNumber(m.amount).toFixed(2)}</span>
+                  <span className="font-bold text-rose-800 shrink-0">-${toNumber(m.amount).toFixed(2)}</span>
                 </div>
               ))
             )}
           </div>
         )}
 
-        {/* Search Bar */}
+        {/* Buscar y filtrar por ubicación */}
         <div className="p-3 border-b border-slate-100 bg-white flex items-center gap-2 shrink-0">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <Search className="w-5 h-5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
             <input
-              type="text"
-              placeholder={`Buscar en ${activeTab}...`}
+              type="search"
+              aria-label={`Buscar en ${tabLabel.toLowerCase()}`}
+              placeholder={`Buscar en ${tabLabel.toLowerCase()}…`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-slate-800"
+              enterKeyHint="search"
+              className={`${inputClass} pl-10`}
             />
           </div>
           {locationsEnabled && (
-            <div className="relative shrink-0 max-w-[45%]">
-              <MapPin className="w-3.5 h-3.5 text-indigo-500 absolute left-2.5 top-2.5 pointer-events-none" />
-              <select
-                aria-label="Filtrar por ubicación"
-                value={locationFilter}
-                onChange={(e) => setLocationFilter(e.target.value)}
-                className="w-full pl-7 pr-2 py-1.5 text-xs bg-slate-50 rounded-xl border border-slate-200 text-slate-800 font-semibold"
-              >
-                <option value={ALL_LOCATIONS}>Todas las ubicaciones</option>
-                <option value={GENERAL_LOCATION}>Almacén general</option>
-                {usedLocations.map((id) => (
-                  <option key={id} value={id}>
-                    {locLabel(id)}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select aria-label="Filtrar por ubicación" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} className={`${inputClass} max-w-[45%] font-semibold`}>
+              <option value={ALL_LOCATIONS}>Todas las ubicaciones</option>
+              <option value={GENERAL_LOCATION}>Almacén general</option>
+              {usedLocations.map((id) => (
+                <option key={id} value={id}>
+                  {locLabel(id)}
+                </option>
+              ))}
+            </select>
           )}
         </div>
 
-        {/* Alimentos Summary Banner (Requisito 3: Total Kilos y Total Sacos de 40kg) */}
-        {activeTab === 'alimentos' && (
-          <div className="mx-4 mt-3 p-3 bg-emerald-900 text-white rounded-2xl shadow-sm flex items-center justify-between border border-emerald-800">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-emerald-800/80 flex items-center justify-center font-black text-emerald-300 text-sm">
-                🌽
-              </div>
-              <div>
-                <span className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider block">
-                  Inventario Total de Alimentos
-                </span>
-                <div className="flex items-baseline gap-2">
-                  <strong className="text-base text-white font-black">
-                    {totalKgFoods.toLocaleString()} kg
-                  </strong>
-                  <span className="text-xs text-emerald-200 font-semibold">
-                    (~{totalSacks40kg.toLocaleString()} bultos / sacos de 40kg)
-                  </span>
+        {/* Lista */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {/* Total de alimentos (kilos y sacos de 40 kg) */}
+          {activeTab === 'alimentos' && (
+            <div className="p-3 bg-emerald-900 text-white rounded-2xl flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-emerald-800 flex items-center justify-center shrink-0" aria-hidden="true">
+                  <Wheat className="w-5 h-5 text-emerald-100" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-xs text-emerald-100 font-bold block">Total de alimento</span>
+                  <strong className="text-base text-white font-black">{totalKgFoods.toLocaleString()} kg</strong>
+                  <span className="text-xs text-emerald-100 font-semibold block">≈ {totalSacks40kg.toLocaleString()} sacos de 40 kg</span>
                 </div>
               </div>
+              <div className="text-right shrink-0">
+                <span className="text-xs text-emerald-100 block">Vale</span>
+                <strong className="text-sm font-bold text-white">${Math.round(totalValueFoods).toLocaleString()}</strong>
+              </div>
             </div>
+          )}
 
-            <div className="text-right">
-              <span className="text-[10px] text-emerald-300 block">Valorización Stock</span>
-              <strong className="text-xs font-bold text-emerald-100">
-                ${Math.round(totalValueFoods).toLocaleString()} USD
-              </strong>
-            </div>
-          </div>
-        )}
-
-        {/* Items List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {filteredItems.length === 0 ? (
-            <div className="text-center py-10 text-slate-400 text-xs">
-              No se encontraron insumos en esta categoría.
-            </div>
+            <div className="text-center py-10 text-slate-600 text-sm">No hay insumos en esta pestaña.</div>
           ) : (
             filteredItems.map((item) => {
               // Cobertura y alerta calculadas por evaluateWarehouseReplenishment
               const monthsOfStock = item.monthsOfSupply;
               const isUnderTwoMonths = item.isCritical;
-
-              // Cálculo de sacos de 40kg (Requisito 3)
-              const kgEquivalent =
-                item.unit === 'bultos (40kg)'
-                  ? item.quantity * 40
-                  : item.unit === 'kg'
-                  ? item.quantity
-                  : null;
-              const sacks40kg =
-                kgEquivalent !== null ? Math.round(kgEquivalent / 40) : null;
+              // Sacos de 40 kg
+              const kgEquivalent = item.unit === 'bultos (40kg)' ? item.quantity * 40 : item.unit === 'kg' ? item.quantity : null;
+              const sacks40kg = kgEquivalent !== null ? Math.round(kgEquivalent / 40) : null;
 
               return (
-                <div
-                  key={item.id}
-                  className={`p-3.5 rounded-xl border transition-all ${
-                    isUnderTwoMonths
-                      ? 'border-amber-300 bg-amber-50/40'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-slate-900 text-sm">{item.name}</h4>
-                        {isUnderTwoMonths && (
-                          <span className="flex items-center gap-1 text-[10px] font-bold bg-amber-500 text-white px-2 py-0.5 rounded-full shadow-xs">
-                            <AlertTriangle className="w-2.5 h-2.5" /> Alerta: &lt; 2 meses de stock
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5">{item.subCategory}</p>
+                <div key={item.id} className={`p-3 rounded-xl border ${isUnderTwoMonths ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-slate-900 text-base leading-tight">{item.name}</h4>
+                      {item.subCategory && <p className="text-xs text-slate-600 mt-0.5">{item.subCategory}</p>}
+                      {isUnderTwoMonths && (
+                        <span className="inline-flex items-center gap-1 mt-1 text-xs font-bold bg-amber-400 text-slate-900 px-2 py-0.5 rounded-full">
+                          <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" /> Alcanza menos de 2 meses
+                        </span>
+                      )}
                       {lotMode && (
-                        <span className={`inline-flex items-center gap-1 mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${item.loteId ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
-                          <MapPin className="w-3 h-3" /> {lotLabel(item.loteId)}
+                        <span className={`inline-flex items-center gap-1 mt-1 ml-1 text-xs font-bold px-2 py-0.5 rounded-full ${item.loteId ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-700'}`}>
+                          <MapPin className="w-3.5 h-3.5" aria-hidden="true" /> {lotLabel(item.loteId)}
                         </span>
                       )}
                       {locationsEnabled && item.rubro !== 'avicola' && (
-                        <span
-                          className={`inline-flex items-center gap-1 mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            item.animalId ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          <MapPin className="w-3 h-3" /> {locLabel(item.animalId)}
+                        <span className={`inline-flex items-center gap-1 mt-1 ml-1 text-xs font-bold px-2 py-0.5 rounded-full ${item.animalId ? 'bg-indigo-100 text-indigo-900' : 'bg-slate-100 text-slate-700'}`}>
+                          <MapPin className="w-3.5 h-3.5" aria-hidden="true" /> {locLabel(item.animalId)}
                         </span>
                       )}
                     </div>
 
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <span className="text-base font-black text-slate-900">
                         {item.quantity.toLocaleString()} {item.unit}
                       </span>
                       {sacks40kg !== null && (
-                        <span className="text-[11px] text-emerald-700 font-bold block">
-                          {item.unit === 'kg'
-                            ? `(${sacks40kg} sacos de 40kg)`
-                            : `(${kgEquivalent?.toLocaleString()} kg totales)`}
+                        <span className="text-xs text-emerald-800 font-bold block">
+                          {item.unit === 'kg' ? `(${sacks40kg} sacos de 40 kg)` : `(${kgEquivalent?.toLocaleString()} kg)`}
                         </span>
                       )}
-                      <p className="text-[10px] text-slate-400">
+                      <p className="text-xs text-slate-600">
                         ${item.unitCostUsd} / {item.unit}
                       </p>
                     </div>
                   </div>
 
-                  {/* Stock projection bar */}
-                  <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <div className="text-[11px] text-slate-600">
-                      Consumo estimado: <strong>{item.monthlyConsumptionRate} {item.unit}/mes</strong>
-                      <span className="text-slate-400 ml-2">
-                        {item.monthlyConsumptionRate > 0
-                          ? `(Cobertura: ~${monthsOfStock.toFixed(1)} meses)`
-                          : '(sin consumo mensual definido)'}
+                  <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-700">
+                    {item.monthlyConsumptionRate > 0 ? (
+                      <>
+                        Se usan <strong>{item.monthlyConsumptionRate} {item.unit}/mes</strong> · alcanza ~{monthsOfStock.toFixed(1)} meses
+                      </>
+                    ) : (
+                      'Sin consumo mensual anotado'
+                    )}
+                    {isUnderTwoMonths && item.requiredPurchaseForTwoMonths > 0 && (
+                      <span className="block text-amber-900 font-semibold">
+                        Comprar ~{round2(item.requiredPurchaseForTwoMonths)} {item.unit} para cubrir 2 meses
                       </span>
-                      {isUnderTwoMonths && item.requiredPurchaseForTwoMonths > 0 && (
-                        <span className="block text-[10px] text-amber-700 font-semibold">
-                          Comprar ~{round2(item.requiredPurchaseForTwoMonths)} {item.unit} para cubrir 2 meses
-                        </span>
-                      )}
-                    </div>
+                    )}
+                  </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {onAssignLocation && item.rubro !== 'avicola' && locationsEnabled && (
-                        <button
-                          onClick={() => openAssign(item)}
-                          disabled={toNumber(item.quantity) <= 0}
-                          className="flex items-center gap-1 text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                          title="Asignar o mover stock a un lote/cerdo o al almacén general"
-                        >
-                          <MapPin className="w-3.5 h-3.5" /> Ubicar
-                        </button>
-                      )}
-                      {item.rubro === 'avicola' && !lotMode ? (
-                        <span
-                          className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-lg"
-                          title="El consumo de insumos avícolas se registra desde el lote para cargarlo a sus gastos"
-                        >
-                          Avícola · consumir desde el lote
-                        </span>
-                      ) : (
+                  {/* Acciones: 44 px y separadas; Eliminar aparte, a la derecha */}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {item.rubro === 'avicola' && !lotMode ? (
+                      <span className="text-xs font-bold text-amber-900 bg-amber-100 px-2.5 py-1 rounded-lg">Se usa desde el lote de pollos</span>
+                    ) : (
                       <button
+                        type="button"
                         onClick={() => openConsume(item)}
                         disabled={toNumber(item.quantity) <= 0}
-                        className="flex items-center gap-1 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                        title="Descontar consumo y cargarlo al animal/lote"
+                        className="min-h-11 px-3 flex items-center gap-1.5 text-sm font-bold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
                       >
-                        <MinusCircle className="w-3.5 h-3.5" /> Consumir
+                        <MinusCircle className="w-4 h-4" aria-hidden="true" /> Usar
                       </button>
-                      )}
-                      {onPurchaseItem && (
-                        <button
-                          onClick={() => openPurchase(item)}
-                          className="flex items-center gap-1 text-xs font-bold text-rose-800 bg-rose-100 hover:bg-rose-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                          title="Registrar compra / reposición de este insumo"
-                        >
-                          <ShoppingCart className="w-3.5 h-3.5" /> Comprar
-                        </button>
-                      )}
-                      {onDeleteItem && (
-                        <button
-                          onClick={() => {
-                            setDialogError(null);
-                            setItemToDelete(item);
-                          }}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="Eliminar insumo del inventario"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
+                    )}
+                    {onPurchaseItem && (
+                      <button
+                        type="button"
+                        onClick={() => openPurchase(item)}
+                        className="min-h-11 px-3 flex items-center gap-1.5 text-sm font-bold text-rose-900 bg-rose-100 hover:bg-rose-200 rounded-xl transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+                      >
+                        <ShoppingCart className="w-4 h-4" aria-hidden="true" /> Comprar
+                      </button>
+                    )}
+                    {onAssignLocation && item.rubro !== 'avicola' && locationsEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => openAssign(item)}
+                        disabled={toNumber(item.quantity) <= 0}
+                        className="min-h-11 px-3 flex items-center gap-1.5 text-sm font-bold text-indigo-900 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+                      >
+                        <MapPin className="w-4 h-4" aria-hidden="true" /> Mover
+                      </button>
+                    )}
+                    {onDeleteItem && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDialogError(null);
+                          setItemToDelete(item);
+                        }}
+                        aria-label={`Eliminar ${item.name}`}
+                        className="ml-auto w-11 h-11 flex items-center justify-center text-rose-700 hover:bg-rose-50 border border-slate-200 rounded-xl transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+                      >
+                        <Trash2 className="w-5 h-5" aria-hidden="true" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -849,614 +821,457 @@ export const WarehouseModal: React.FC<WarehouseModalProps> = ({
           )}
         </div>
 
-        {/* Modal interno: Registrar Consumo animal/lote */}
+        {/* Diálogo interno: Usar (descontar consumo) */}
         {showConsumeDialog && (
-          <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-center">
-                <h4 className="font-bold text-slate-900 text-sm">
-                  Descontar Consumo de Insumo
-                </h4>
-                <button
-                  onClick={() => setShowConsumeDialog(null)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+          <InnerDialog title="Usar insumo" icon={<MinusCircle className="w-5 h-5 text-emerald-700" />} onClose={requestClose}>
+            <p className="text-sm text-slate-700">
+              <strong className="text-slate-900">{showConsumeDialog.name}</strong> · hay{' '}
+              <strong className="text-slate-900">
+                {showConsumeDialog.quantity} {showConsumeDialog.unit}
+              </strong>
+            </p>
+
+            <form onSubmit={handleApplyConsumption} className="space-y-3" noValidate>
+              <div>
+                <label htmlFor="wh-consume-amount" className={labelCls}>
+                  Cantidad usada ({showConsumeDialog.unit})
+                </label>
+                <input
+                  id="wh-consume-amount"
+                  type="number"
+                  step="any"
+                  min="0"
+                  max={showConsumeDialog.quantity}
+                  inputMode="decimal"
+                  enterKeyHint="done"
+                  placeholder="0"
+                  value={consumeAmount}
+                  onChange={(e) => setConsumeAmount(e.target.value)}
+                  className={`${inputClass} font-bold`}
+                />
               </div>
 
-              <p className="text-xs text-slate-500">
-                Ítem: <strong className="text-slate-800">{showConsumeDialog.name}</strong> — stock disponible:{' '}
-                <strong className="text-slate-800">
-                  {showConsumeDialog.quantity} {showConsumeDialog.unit}
-                </strong>
-              </p>
-
-              <form onSubmit={handleApplyConsumption} className="space-y-3 text-xs">
+              {lotMode ? (
                 <div>
-                  <label className="block text-slate-600 font-semibold mb-1">
-                    Cantidad a Descontar ({showConsumeDialog.unit}):
+                  <label htmlFor="wh-consume-lot" className={labelCls}>
+                    Lote de pollos que lo usa
                   </label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    max={showConsumeDialog.quantity}
-                    placeholder="0"
-                    value={consumeAmount}
-                    onChange={(e) => setConsumeAmount(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-
-                {lotMode ? (
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Lote de pollos que lo consume:</label>
-                    <select
-                      value={consumeTargetId}
-                      onChange={(e) => setConsumeTargetId(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-900 bg-white"
-                    >
-                      {lotLocations!.length === 0 && <option value={NO_TARGET}>No hay lotes activos</option>}
-                      {lotLocations!.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] text-slate-500 mt-1">El costo se registra como gasto del lote y aparece en sus finanzas.</p>
-                  </div>
-                ) : (
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">
-                    {rubro === 'bovino' ? 'Destino del consumo:' : 'Destino del Consumo (animal / lote):'}
-                  </label>
-                  <select
-                    value={consumeTargetId}
-                    onChange={(e) => setConsumeTargetId(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-900 bg-white"
-                  >
-                    <option value={NO_TARGET}>Consumo general de la granja (sin imputar)</option>
-                    {activeAnimals.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} ({a.category}{headCount(a) > 1 ? ` · ${headCount(a)} cab.` : ''})
+                  <select id="wh-consume-lot" value={consumeTargetId} onChange={(e) => setConsumeTargetId(e.target.value)} className={inputClass}>
+                    {lotLocations!.length === 0 && <option value={NO_TARGET}>No hay lotes activos</option>}
+                    {lotLocations!.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.label}
                       </option>
                     ))}
-                    <option value={FREE_TARGET}>Otro destino (texto libre)</option>
+                  </select>
+                  <p className={hintCls}>El costo se anota como gasto del lote.</p>
+                </div>
+              ) : (
+                <div>
+                  <label htmlFor="wh-consume-target" className={labelCls}>
+                    ¿Para quién?
+                  </label>
+                  <select id="wh-consume-target" value={consumeTargetId} onChange={(e) => setConsumeTargetId(e.target.value)} className={inputClass}>
+                    <option value={NO_TARGET}>Uso general de la granja</option>
+                    {activeAnimals.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.code} ({a.category}
+                        {headCount(a) > 1 ? ` · ${headCount(a)} cab.` : ''})
+                      </option>
+                    ))}
+                    <option value={FREE_TARGET}>Otro (escribirlo)</option>
                   </select>
                   {consumeTargetId === FREE_TARGET && (
                     <input
                       type="text"
+                      aria-label="Destino del consumo"
                       value={consumeTargetText}
                       onChange={(e) => setConsumeTargetText(e.target.value)}
                       placeholder="Ej: Lote Engorde 12"
-                      className="w-full mt-1.5 px-3 py-2 border border-slate-300 rounded-xl text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                      className={`${inputClass} mt-2`}
                     />
                   )}
                 </div>
-                )}
+              )}
 
-                <div className="p-2.5 bg-emerald-50 rounded-xl text-emerald-800 text-[11px] leading-relaxed">
-                  Se descontará del stock
-                  {lotMode
-                    ? ' y su costo se cargará al lote elegido.'
-                    : consumeTargetId !== NO_TARGET && consumeTargetId !== FREE_TARGET
-                    ? ' y su costo se imputará al costo acumulado del animal/lote seleccionado.'
-                    : '. Si eliges un animal o lote, el costo se imputa a su costo acumulado.'}
-                  {showConsumeDialog.expensedOnPurchase
-                    ? ' La compra ya se registró como egreso, no se crea otro.'
-                    : ' Se registrará el egreso correspondiente en el balance.'}
-                </div>
-
-                {errorBox}
-
-                <div className="flex items-center gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowConsumeDialog(null)}
-                    className="flex-1 py-2 border border-slate-300 rounded-xl text-slate-600 font-bold hover:bg-slate-50"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer"
-                  >
-                    {isSaving ? 'Guardando...' : 'Confirmar Deducción'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Modal interno: Registrar Compra de insumo existente */}
-        {showPurchaseDialog && onPurchaseItem && (
-          <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3 text-xs max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-center">
-                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                  <ShoppingCart className="w-4 h-4 text-rose-600" /> Registrar compra de insumo
-                </h4>
-                <button onClick={() => setShowPurchaseDialog(false)} className="p-1 text-slate-400 hover:text-slate-600">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <form onSubmit={handleRegisterPurchase} className="space-y-2.5">
-                <div>
-                  <label className="block font-semibold text-slate-700">Insumo comprado:</label>
-                  <select
-                    value={purchaseItemId}
-                    onChange={(e) => {
-                      const it = safeItems.find((i) => i.id === e.target.value);
-                      setPurchaseItemId(e.target.value);
-                      if (it && !purchasePrice && toNumber(it.unitCostUsd) > 0) setPurchasePrice(String(it.unitCostUsd));
-                      if (it && !purchaseSupplier && it.supplier) setPurchaseSupplier(it.supplier);
-                      if (it) setPurchaseLocation(it.animalId || GENERAL_LOCATION);
-                    }}
-                    required
-                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white"
-                  >
-                    <option value="">Selecciona un insumo…</option>
-                    {(['alimentos', 'medicinas', 'otros'] as const).map((cat) => {
-                      const list = safeItems.filter((i) => i.category === cat);
-                      if (list.length === 0) return null;
-                      return (
-                        <optgroup key={cat} label={cat === 'alimentos' ? 'Alimentos' : cat === 'medicinas' ? 'Medicinas' : 'Otros / Insumos'}>
-                          {list.map((i) => (
-                            <option key={i.id} value={i.id}>
-                              {i.name} — stock {i.quantity} {i.unit}
-                              {locationsEnabled && i.animalId ? ` · ${locLabel(i.animalId)}` : ''}
-                            </option>
-                          ))}
-                        </optgroup>
-                      );
-                    })}
-                  </select>
-                  <p className="text-[10px] text-slate-500 mt-1">
-                    ¿Es un producto nuevo? Ciérralo y usa <strong>Nuevo ítem</strong> (puedes registrar la compra ahí mismo).
-                  </p>
-                </div>
-
-                {locationsEnabled && purchaseItem?.rubro !== 'avicola' && (
-                  <div>
-                    <label className="block font-semibold text-slate-700">¿A dónde entra la compra? (opcional)</label>
-                    <select
-                      value={purchaseLocation}
-                      onChange={(e) => setPurchaseLocation(e.target.value)}
-                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white"
-                    >
-                      <LocationOptions animals={activeAnimals} />
-                    </select>
-                    {purchaseItem && (purchaseItem.animalId || GENERAL_LOCATION) !== purchaseLocation && (
-                      <p className="text-[10px] text-indigo-700 mt-1">
-                        Entrará como stock de {locLabel(purchaseLocation || undefined)} (fila propia de {purchaseItem.name} en esa ubicación).
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block font-semibold text-slate-700">
-                      Cantidad{purchaseItem ? ` (${purchaseItem.unit})` : ''}:
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      inputMode="decimal"
-                      placeholder="0"
-                      value={purchaseQty}
-                      onChange={(e) => setPurchaseQty(e.target.value)}
-                      required
-                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900 font-bold"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700">
-                      Precio / {purchaseItem ? purchaseItem.unit : 'unidad'} ($):
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      inputMode="decimal"
-                      placeholder="0.00"
-                      value={purchasePrice}
-                      onChange={(e) => setPurchasePrice(e.target.value)}
-                      required
-                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900 font-bold"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block font-semibold text-slate-700">Fecha de compra:</label>
-                    <input
-                      type="date"
-                      max={todayISO()}
-                      value={purchaseDate}
-                      onChange={(e) => setPurchaseDate(e.target.value)}
-                      required
-                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700">N.º factura:</label>
-                    <input
-                      type="text"
-                      placeholder="Opcional"
-                      value={purchaseInvoice}
-                      onChange={(e) => setPurchaseInvoice(e.target.value)}
-                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700">Proveedor:</label>
-                  <input
-                    type="text"
-                    placeholder="Opcional"
-                    value={purchaseSupplier}
-                    onChange={(e) => setPurchaseSupplier(e.target.value)}
-                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700">Notas:</label>
-                  <input
-                    type="text"
-                    placeholder="Opcional"
-                    value={purchaseNotes}
-                    onChange={(e) => setPurchaseNotes(e.target.value)}
-                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900"
-                  />
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-0.5">
-                  <div className="flex justify-between font-bold">
-                    <span>Total de la compra</span>
-                    <span>${purchaseTotal.toFixed(2)}</span>
-                  </div>
-                  <p className="text-[10px] text-rose-800/90">
-                    Se suma al stock, se recalcula el costo promedio y se registra como egreso “Compra de insumos” en el
-                    balance.
-                    {purchaseItem && !purchaseItem.expensedOnPurchase && toNumber(purchaseItem.quantity) > 0 && (
-                      <>
-                        {' '}El stock actual aún no estaba en el balance: se asentará también (
-                        ${round2(toNumber(purchaseItem.quantity) * toNumber(purchaseItem.unitCostUsd)).toFixed(2)}).
-                      </>
-                    )}
-                  </p>
-                </div>
-
-                {errorBox}
-
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowPurchaseDialog(false)}
-                    className="flex-1 min-h-10 py-2 border border-slate-300 rounded-xl text-slate-600 font-bold"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="flex-1 min-h-10 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-xl font-bold"
-                  >
-                    {isSaving ? 'Guardando...' : 'Guardar compra'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Modal interno: Crear Nuevo Ítem */}
-        {showNewItemModal && (
-          <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3 text-xs max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-center">
-                <h4 className="font-bold text-slate-900 text-sm">
-                  Registrar Nuevo Ítem en {activeTab.toUpperCase()}
-                </h4>
-                <button
-                  onClick={() => setShowNewItemModal(false)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <form onSubmit={handleCreateNewItem} className="space-y-2.5">
-                <div>
-                  <label className="block font-semibold text-slate-700">Nombre del Ítem:</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: Balanceado Pre-iniciador"
-                    value={newItemName}
-                    onChange={(e) => setNewItemName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700">Subcategoría / Uso:</label>
-                  <input
-                    type="text"
-                    placeholder="Ej: Lechones Destete"
-                    value={newItemSubCategory}
-                    onChange={(e) => setNewItemSubCategory(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
-                  />
-                </div>
-
-                {lotMode && (
-                  <div>
-                    <label className="block font-semibold text-slate-700">Lote (opcional):</label>
-                    <select
-                      value={newItemLocation}
-                      onChange={(e) => setNewItemLocation(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900 bg-white"
-                    >
-                      <option value={GENERAL_LOCATION}>Bodega general (todos los lotes)</option>
-                      {lotLocations!.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Asígnalo a un lote si es solo para ese galpón.</p>
-                  </div>
-                )}
-
-                {locationsEnabled && (
-                  <div>
-                    <label className="block font-semibold text-slate-700">Ubicación (opcional):</label>
-                    <select
-                      value={newItemLocation}
-                      onChange={(e) => setNewItemLocation(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900 bg-white"
-                    >
-                      <LocationOptions animals={activeAnimals} />
-                    </select>
-                    <p className="text-[10px] text-slate-500 mt-0.5">
-                      Asígnalo a un lote o cerdo si es solo para él; al consumirlo, el costo se le carga automáticamente.
-                    </p>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block font-semibold text-slate-700">Cantidad Inicial:</label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      required
-                      placeholder="0"
-                      value={newItemQty}
-                      onChange={(e) => setNewItemQty(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700">Unidad de Medida:</label>
-                    <select
-                      value={newItemUnit}
-                      onChange={(e) => setNewItemUnit(e.target.value as WarehouseItem['unit'])}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900 bg-white"
-                    >
-                      <option value="kg">Kilogramos (kg)</option>
-                      <option value="g">Gramos (g)</option>
-                      <option value="litros">Litros (L)</option>
-                      <option value="ml">Mililitros (ml)</option>
-                      <option value="unidades">Unidades / Dosis</option>
-                      <option value="bultos (40kg)">Bultos (40kg)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block font-semibold text-slate-700">Costo Unitario ($):</label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      placeholder="0.00"
-                      value={newItemCost}
-                      onChange={(e) => setNewItemCost(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700">Consumo Mensual:</label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      placeholder="0"
-                      value={newItemMonthly}
-                      onChange={(e) => setNewItemMonthly(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block font-semibold text-slate-700">Proveedor:</label>
-                    <input
-                      type="text"
-                      placeholder="Opcional"
-                      value={newItemSupplier}
-                      onChange={(e) => setNewItemSupplier(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700">Vencimiento:</label>
-                    <input
-                      type="date"
-                      min={todayISO()}
-                      value={newItemExpiration}
-                      onChange={(e) => setNewItemExpiration(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900"
-                    />
-                  </div>
-                </div>
-
-                <label className="flex items-start gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={registerPurchase}
-                    onChange={(e) => setRegisterPurchase(e.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <span className="text-[11px] text-slate-700">
-                    Registrar la compra como egreso en el balance
-                    {toNumber(newItemQty) > 0 && toNumber(newItemCost) > 0 && (
-                      <strong> (${round2(toNumber(newItemQty) * toNumber(newItemCost)).toFixed(2)})</strong>
-                    )}
-                    . Si no, el egreso se registra al consumir.
-                  </span>
-                </label>
-
-                {errorBox}
-
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowNewItemModal(false)}
-                    className="flex-1 py-2 border border-slate-300 rounded-xl text-slate-600 font-bold"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-bold"
-                  >
-                    {isSaving ? 'Guardando...' : 'Guardar Ítem'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Modal interno: Ubicar / mover stock */}
-        {assignItem && onAssignLocation && (
-          <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3 text-xs max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-center">
-                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                  <MapPin className="w-4 h-4 text-indigo-600" /> Ubicar insumo
-                </h4>
-                <button onClick={() => setAssignItem(null)} className="p-1 text-slate-400 hover:text-slate-600" aria-label="Cerrar">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <p className="text-slate-500">
-                <strong className="text-slate-800">{assignItem.name}</strong> — {assignItem.quantity} {assignItem.unit} en{' '}
-                <strong className="text-slate-800">{locLabel(assignItem.animalId)}</strong>
+              <p className="p-2.5 bg-emerald-50 rounded-xl text-emerald-900 text-xs leading-relaxed">
+                Se descuenta del almacén
+                {lotMode
+                  ? ' y el costo se carga al lote elegido.'
+                  : consumeTargetId !== NO_TARGET && consumeTargetId !== FREE_TARGET
+                    ? ' y el costo se suma al animal o lote elegido.'
+                    : '. Si eliges un animal o lote, el costo se le suma.'}
+                {showConsumeDialog.expensedOnPurchase ? ' La compra ya estaba en el balance: no se anota otro gasto.' : ' Se anota el gasto en el balance.'}
               </p>
-              <form onSubmit={handleAssign} className="space-y-2.5">
+
+              {errorBox}
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button type="button" onClick={requestClose} className={btnClass({ variant: 'secondary' })}>
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isSaving} className={btnClass({ rubro: 'general' })}>
+                  {isSaving ? 'Guardando…' : 'Descontar'}
+                </button>
+              </div>
+            </form>
+          </InnerDialog>
+        )}
+
+        {/* Diálogo interno: Registrar compra de un insumo existente */}
+        {showPurchaseDialog && onPurchaseItem && (
+          <InnerDialog title="Registrar compra" icon={<ShoppingCart className="w-5 h-5 text-rose-700" />} onClose={requestClose}>
+            <form onSubmit={handleRegisterPurchase} className="space-y-3" noValidate>
+              <div>
+                <label htmlFor="wh-purchase-item" className={labelCls}>
+                  Insumo comprado
+                </label>
+                <select
+                  id="wh-purchase-item"
+                  value={purchaseItemId}
+                  onChange={(e) => {
+                    const it = safeItems.find((i) => i.id === e.target.value);
+                    setPurchaseItemId(e.target.value);
+                    if (it && !purchasePrice && toNumber(it.unitCostUsd) > 0) setPurchasePrice(String(it.unitCostUsd));
+                    if (it && !purchaseSupplier && it.supplier) setPurchaseSupplier(it.supplier);
+                    if (it) setPurchaseLocation(it.animalId || GENERAL_LOCATION);
+                  }}
+                  className={inputClass}
+                >
+                  <option value="">Elige un insumo…</option>
+                  {(['alimentos', 'medicinas', 'otros'] as const).map((cat) => {
+                    const list = safeItems.filter((i) => i.category === cat);
+                    if (list.length === 0) return null;
+                    return (
+                      <optgroup key={cat} label={cat === 'alimentos' ? 'Alimentos' : cat === 'medicinas' ? 'Medicinas' : 'Otros'}>
+                        {list.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {i.name} — hay {i.quantity} {i.unit}
+                            {locationsEnabled && i.animalId ? ` · ${locLabel(i.animalId)}` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
+                </select>
+                <p className={hintCls}>¿Es un producto nuevo? Ciérralo y usa “Nuevo insumo” (ahí también puedes anotar la compra).</p>
+              </div>
+
+              {locationsEnabled && purchaseItem?.rubro !== 'avicola' && (
                 <div>
-                  <label className="block font-semibold text-slate-700">Mover a:</label>
-                  <select
-                    value={assignTo}
-                    onChange={(e) => setAssignTo(e.target.value)}
-                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white"
-                  >
-                    <LocationOptions animals={activeAnimals} generalLabel="Almacén general" />
+                  <label htmlFor="wh-purchase-loc" className={labelCls}>
+                    ¿A dónde entra? (opcional)
+                  </label>
+                  <select id="wh-purchase-loc" value={purchaseLocation} onChange={(e) => setPurchaseLocation(e.target.value)} className={inputClass}>
+                    <LocationOptions animals={activeAnimals} />
                   </select>
+                  {purchaseItem && (purchaseItem.animalId || GENERAL_LOCATION) !== purchaseLocation && (
+                    <p className="text-xs text-indigo-800 mt-1">Entrará como existencia de {locLabel(purchaseLocation || undefined)}.</p>
+                  )}
                 </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-semibold text-slate-700">Cantidad ({assignItem.unit}):</label>
+                  <label htmlFor="wh-purchase-qty" className={labelCls}>
+                    Cantidad{purchaseItem ? ` (${purchaseItem.unit})` : ''}
+                  </label>
                   <input
+                    id="wh-purchase-qty"
                     type="number"
                     step="any"
                     min="0"
-                    max={assignItem.quantity}
                     inputMode="decimal"
-                    value={assignQty}
-                    onChange={(e) => setAssignQty(e.target.value)}
-                    required
-                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-slate-900 font-bold"
+                    placeholder="0"
+                    value={purchaseQty}
+                    onChange={(e) => setPurchaseQty(e.target.value)}
+                    className={`${inputClass} font-bold`}
                   />
                 </div>
-                <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-[11px]">
-                  Es un traslado interno: no crea gastos en el balance. El costo se carga al lote o cerdo cuando se consume.
+                <div>
+                  <label htmlFor="wh-purchase-price" className={labelCls}>
+                    Precio por {purchaseItem ? purchaseItem.unit : 'unidad'} ($)
+                  </label>
+                  <input
+                    id="wh-purchase-price"
+                    type="number"
+                    step="any"
+                    min="0"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={purchasePrice}
+                    onChange={(e) => setPurchasePrice(e.target.value)}
+                    className={`${inputClass} font-bold`}
+                  />
                 </div>
-                {errorBox}
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setAssignItem(null)}
-                    className="flex-1 min-h-10 py-2 border border-slate-300 rounded-xl text-slate-600 font-bold"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="flex-1 min-h-10 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl font-bold"
-                  >
-                    {isSaving ? 'Guardando...' : 'Asignar'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Modal de Confirmación de Eliminación de Ítem (Requisito 3) */}
-        {itemToDelete && (
-          <div className="fixed inset-0 z-70 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-            <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3 border border-slate-200">
-              <div className="flex items-center gap-2.5 text-rose-600 font-black text-sm">
-                <div className="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center">
-                  <Trash2 className="w-4 h-4 text-rose-600" />
-                </div>
-                <span>Eliminar Ítem del Inventario</span>
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                ¿Estás seguro de que deseas eliminar permanentemente{' '}
-                <strong className="text-slate-900">{itemToDelete.name}</strong> del
-                almacén? Esta acción no se puede deshacer.
-              </p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label htmlFor="wh-purchase-date" className={labelCls}>
+                    Fecha
+                  </label>
+                  <input id="wh-purchase-date" type="date" max={todayISO()} value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label htmlFor="wh-purchase-invoice" className={labelCls}>
+                    N.º de factura
+                  </label>
+                  <input id="wh-purchase-invoice" type="text" placeholder="Opcional" value={purchaseInvoice} onChange={(e) => setPurchaseInvoice(e.target.value)} className={inputClass} />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="wh-purchase-supplier" className={labelCls}>
+                  Proveedor
+                </label>
+                <input id="wh-purchase-supplier" type="text" placeholder="Opcional" value={purchaseSupplier} onChange={(e) => setPurchaseSupplier(e.target.value)} className={inputClass} />
+              </div>
+
+              <div>
+                <label htmlFor="wh-purchase-notes" className={labelCls}>
+                  Notas
+                </label>
+                <input id="wh-purchase-notes" type="text" placeholder="Opcional" value={purchaseNotes} onChange={(e) => setPurchaseNotes(e.target.value)} className={inputClass} />
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-0.5">
+                <div className="flex justify-between font-bold text-base">
+                  <span>Total</span>
+                  <span>${purchaseTotal.toFixed(2)}</span>
+                </div>
+                <p className="text-xs text-rose-900">
+                  Se suma al almacén y se anota como gasto “Compra de insumos” en el balance.
+                  {purchaseItem && !purchaseItem.expensedOnPurchase && toNumber(purchaseItem.quantity) > 0 && (
+                    <>
+                      {' '}Lo que ya había aún no estaba en el balance: también se anota (${round2(toNumber(purchaseItem.quantity) * toNumber(purchaseItem.unitCostUsd)).toFixed(2)}).
+                    </>
+                  )}
+                </p>
+              </div>
+
               {errorBox}
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setItemToDelete(null)}
-                  className="flex-1 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                >
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button type="button" onClick={requestClose} className={btnClass({ variant: 'secondary' })}>
                   Cancelar
                 </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmDelete}
-                  disabled={isSaving}
-                  className="flex-1 py-2 disabled:opacity-60 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs"
-                >
-                  Eliminar Ítem
+                <button type="submit" disabled={isSaving} className={btnClass({ rubro: 'porcino' })}>
+                  {isSaving ? 'Guardando…' : 'Guardar compra'}
                 </button>
               </div>
-            </div>
-          </div>
+            </form>
+          </InnerDialog>
         )}
+
+        {/* Diálogo interno: Nuevo insumo */}
+        {showNewItemModal && (
+          <InnerDialog title={`Nuevo insumo · ${tabLabel}`} icon={<Plus className="w-5 h-5 text-emerald-700" />} onClose={requestClose}>
+            <form onSubmit={handleCreateNewItem} className="space-y-3" noValidate>
+              <div>
+                <label htmlFor="wh-new-name" className={labelCls}>
+                  Nombre
+                </label>
+                <input id="wh-new-name" type="text" placeholder="Ej: Alimento iniciador" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} className={inputClass} />
+              </div>
+
+              <div>
+                <label htmlFor="wh-new-sub" className={labelCls}>
+                  ¿Para qué se usa? (opcional)
+                </label>
+                <input id="wh-new-sub" type="text" placeholder="Ej: Lechones destetados" value={newItemSubCategory} onChange={(e) => setNewItemSubCategory(e.target.value)} className={inputClass} />
+              </div>
+
+              {lotMode && (
+                <div>
+                  <label htmlFor="wh-new-lot" className={labelCls}>
+                    Lote (opcional)
+                  </label>
+                  <select id="wh-new-lot" value={newItemLocation} onChange={(e) => setNewItemLocation(e.target.value)} className={inputClass}>
+                    <option value={GENERAL_LOCATION}>Bodega general (todos los lotes)</option>
+                    {lotLocations!.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className={hintCls}>Asígnalo a un lote si es solo para ese galpón.</p>
+                </div>
+              )}
+
+              {locationsEnabled && (
+                <div>
+                  <label htmlFor="wh-new-loc" className={labelCls}>
+                    Ubicación (opcional)
+                  </label>
+                  <select id="wh-new-loc" value={newItemLocation} onChange={(e) => setNewItemLocation(e.target.value)} className={inputClass}>
+                    <LocationOptions animals={activeAnimals} />
+                  </select>
+                  <p className={hintCls}>Si es solo para un lote o cerdo, al usarlo el costo se le carga solo.</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label htmlFor="wh-new-qty" className={labelCls}>
+                    Cantidad que hay
+                  </label>
+                  <input id="wh-new-qty" type="number" step="any" min="0" inputMode="decimal" placeholder="0" value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label htmlFor="wh-new-unit" className={labelCls}>
+                    Unidad
+                  </label>
+                  <select id="wh-new-unit" value={newItemUnit} onChange={(e) => setNewItemUnit(e.target.value as WarehouseItem['unit'])} className={inputClass}>
+                    <option value="kg">Kilos (kg)</option>
+                    <option value="g">Gramos (g)</option>
+                    <option value="litros">Litros (L)</option>
+                    <option value="ml">Mililitros (ml)</option>
+                    <option value="unidades">Unidades / dosis</option>
+                    <option value="bultos (40kg)">Sacos de 40 kg</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label htmlFor="wh-new-cost" className={labelCls}>
+                    Precio por unidad ($)
+                  </label>
+                  <input id="wh-new-cost" type="number" step="any" min="0" inputMode="decimal" placeholder="0.00" value={newItemCost} onChange={(e) => setNewItemCost(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label htmlFor="wh-new-monthly" className={labelCls}>
+                    Se usa al mes
+                  </label>
+                  <input id="wh-new-monthly" type="number" step="any" min="0" inputMode="decimal" placeholder="0" value={newItemMonthly} onChange={(e) => setNewItemMonthly(e.target.value)} className={inputClass} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label htmlFor="wh-new-supplier" className={labelCls}>
+                    Proveedor
+                  </label>
+                  <input id="wh-new-supplier" type="text" placeholder="Opcional" value={newItemSupplier} onChange={(e) => setNewItemSupplier(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label htmlFor="wh-new-exp" className={labelCls}>
+                    Vence
+                  </label>
+                  <input id="wh-new-exp" type="date" min={todayISO()} value={newItemExpiration} onChange={(e) => setNewItemExpiration(e.target.value)} className={inputClass} />
+                </div>
+              </div>
+
+              <label className="flex items-start gap-3 min-h-11 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+                <input type="checkbox" checked={registerPurchase} onChange={(e) => setRegisterPurchase(e.target.checked)} className="mt-0.5 w-5 h-5 shrink-0 accent-emerald-700" />
+                <span className="text-sm text-slate-800">
+                  Anotar la compra como gasto en el balance
+                  {toNumber(newItemQty) > 0 && toNumber(newItemCost) > 0 && <strong> (${round2(toNumber(newItemQty) * toNumber(newItemCost)).toFixed(2)})</strong>}. Si no, el gasto se
+                  anota al usarlo.
+                </span>
+              </label>
+
+              {errorBox}
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button type="button" onClick={requestClose} className={btnClass({ variant: 'secondary' })}>
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isSaving} className={btnClass({ rubro: 'general' })}>
+                  {isSaving ? 'Guardando…' : 'Guardar insumo'}
+                </button>
+              </div>
+            </form>
+          </InnerDialog>
+        )}
+
+        {/* Diálogo interno: Mover existencias entre ubicaciones */}
+        {assignItem && onAssignLocation && (
+          <InnerDialog title="Mover insumo" icon={<MapPin className="w-5 h-5 text-indigo-700" />} onClose={requestClose}>
+            <p className="text-sm text-slate-700">
+              <strong className="text-slate-900">{assignItem.name}</strong> — {assignItem.quantity} {assignItem.unit} en{' '}
+              <strong className="text-slate-900">{locLabel(assignItem.animalId)}</strong>
+            </p>
+            <form onSubmit={handleAssign} className="space-y-3" noValidate>
+              <div>
+                <label htmlFor="wh-assign-to" className={labelCls}>
+                  Mover a
+                </label>
+                <select id="wh-assign-to" value={assignTo} onChange={(e) => setAssignTo(e.target.value)} className={inputClass}>
+                  <LocationOptions animals={activeAnimals} generalLabel="Almacén general" />
+                </select>
+              </div>
+              <div>
+                <label htmlFor="wh-assign-qty" className={labelCls}>
+                  Cantidad ({assignItem.unit})
+                </label>
+                <input
+                  id="wh-assign-qty"
+                  type="number"
+                  step="any"
+                  min="0"
+                  max={assignItem.quantity}
+                  inputMode="decimal"
+                  value={assignQty}
+                  onChange={(e) => setAssignQty(e.target.value)}
+                  className={`${inputClass} font-bold`}
+                />
+              </div>
+              <p className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs">
+                Es solo un cambio de lugar: no se anota ningún gasto. El costo se carga al lote o cerdo cuando se usa.
+              </p>
+              {errorBox}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button type="button" onClick={requestClose} className={btnClass({ variant: 'secondary' })}>
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isSaving} className={btnClass({ rubro: 'general' })}>
+                  {isSaving ? 'Guardando…' : 'Mover'}
+                </button>
+              </div>
+            </form>
+          </InnerDialog>
+        )}
+      </div>
+
+      {/* Confirmación para eliminar un insumo */}
+      {itemToDelete && (
+        <ConfirmDialog
+          title={`¿Eliminar ${itemToDelete.name}?`}
+          message={<p>Se borra del almacén para siempre. Esta acción no se puede deshacer.</p>}
+          confirmLabel={isSaving ? 'Eliminando…' : 'Eliminar'}
+          danger
+          icon={<Trash2 className="w-6 h-6" />}
+          error={dialogError}
+          onConfirm={() => void handleConfirmDelete()}
+          onCancel={() => {
+            setDialogError(null);
+            setItemToDelete(null);
+          }}
+        />
+      )}
+      {confirmDialog}
+    </div>
+  );
+};
+
+/** Diálogo interno del almacén: tarjeta centrada con título y botón Cerrar de 44 px. */
+const InnerDialog: React.FC<{ title: string; icon?: React.ReactNode; onClose: () => void; children: React.ReactNode }> = ({ title, icon, onClose, children }) => {
+  const id = useId();
+  return (
+    <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3">
+      <div role="dialog" aria-modal="true" aria-labelledby={id} className="bg-white text-slate-900 rounded-2xl p-4 max-w-sm w-full shadow-2xl space-y-3 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between gap-2">
+          <h4 id={id} className="font-bold text-slate-900 text-base flex items-center gap-2">
+            {icon && <span aria-hidden="true">{icon}</span>}
+            {title}
+          </h4>
+          <IconBtn aria-label="Cerrar" onClick={onClose}>
+            <X className="w-6 h-6" />
+          </IconBtn>
+        </div>
+        {children}
       </div>
     </div>
   );

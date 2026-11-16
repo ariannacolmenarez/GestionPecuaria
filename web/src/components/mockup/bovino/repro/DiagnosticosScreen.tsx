@@ -77,10 +77,10 @@ export default function DiagnosticosScreen({ screen }: StageBProps) {
           {pregnant.length === 0 && <p className="text-sm text-slate-800">No hay vacas preñadas registradas.</p>}
           {pregnant.map((v) => (
             <li key={v.id}>
-              <button type="button" onClick={() => navigate({ s: 'animal', id: v.id }, 'hato')} className={`w-full bg-white rounded-2xl border-2 border-slate-200 p-3 flex items-center gap-3 text-left ${FOCUS_B}`}>
+              <button type="button" onClick={() => navigate({ s: 'animal', id: v.id })} className={`w-full bg-white rounded-2xl border-2 border-slate-200 p-3 flex items-center gap-3 text-left ${FOCUS_B}`}>
                 <span className="text-lg font-black tabular-nums text-slate-900 min-w-[3.5rem]">#{v.tag}</span>
                 <span className="flex-1 text-sm">
-                  <span className="block font-black text-sky-900">FPP {fd(v.repro?.fpp)}</span>
+                  <span className="block font-black text-sky-900">Parto {fd(v.repro?.fpp)}</span>
                   <span className="block text-amber-900 font-bold">Secar {fd(v.repro?.dryOffDate)}</span>
                 </span>
                 {v.repro?.dried ? <StatusChip tone="warn">Seca</StatusChip> : v.repro?.lactating ? <StatusChip tone="solid">En ordeño</StatusChip> : null}
@@ -100,7 +100,7 @@ export default function DiagnosticosScreen({ screen }: StageBProps) {
                   <span className="text-base font-black tabular-nums text-slate-900 min-w-[3.5rem]">#{v?.tag || '?'}</span>
                   <span className="flex-1 text-sm text-slate-900">
                     {fd(e.date)} · {e.method === 'palpacion' ? 'Palpación' : 'Ecografía'}
-                    {e.expectedCalvingDate ? ` · FPP ${fd(e.expectedCalvingDate)}` : ''}
+                    {e.expectedCalvingDate ? ` · parto ${fd(e.expectedCalvingDate)}` : ''}
                     {e.notes ? <span className="block text-xs text-slate-700">{e.notes}</span> : null}
                   </span>
                   <StatusChip tone={e.result === 'preñada' ? 'ok' : e.result === 'vacia' ? 'neutral' : 'warn'}>{e.result === 'preñada' ? 'Preñada' : e.result === 'vacia' ? 'Vacía' : 'Dudosa'}</StatusChip>

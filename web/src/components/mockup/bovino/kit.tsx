@@ -241,7 +241,7 @@ export const BarChart: React.FC<{ points: ChartPoint[]; unit?: string; height?: 
         return (
           <g key={f}>
             <line x1={pad.l} x2={w - pad.r} y1={y} y2={y} className="stroke-slate-300" strokeWidth={1} />
-            <text x={pad.l - 4} y={y + 4} textAnchor="end" className="fill-slate-700" fontSize={12} fontWeight={600}>
+            <text x={pad.l - 4} y={y + 4} textAnchor="end" className="fill-slate-700" fontSize={13} fontWeight={600}>
               {num(max * f, max * f < 10 ? 1 : 0)}
             </text>
           </g>
@@ -256,7 +256,7 @@ export const BarChart: React.FC<{ points: ChartPoint[]; unit?: string; height?: 
               <title>{`${p.label}: ${num(p.value, 1)} ${unit}${p.mark ? ` · ${p.mark}` : ''}`}</title>
             </rect>
             {i % step === 0 && (
-              <text x={x + bw * 0.35} y={height - 5} textAnchor="middle" className="fill-slate-700" fontSize={12} fontWeight={600}>
+              <text x={x + bw * 0.35} y={height - 5} textAnchor="middle" className="fill-slate-700" fontSize={13} fontWeight={600}>
                 {p.label}
               </text>
             )}
@@ -292,7 +292,7 @@ export const LineChart: React.FC<{ points: ChartPoint[]; refValue?: number | nul
         return (
           <g key={f}>
             <line x1={pad.l} x2={w - pad.r} y1={yy} y2={yy} className="stroke-slate-300" strokeWidth={1} />
-            <text x={pad.l - 4} y={yy + 4} textAnchor="end" className="fill-slate-700" fontSize={12} fontWeight={600}>
+            <text x={pad.l - 4} y={yy + 4} textAnchor="end" className="fill-slate-700" fontSize={13} fontWeight={600}>
               {num(max * f, 0)}
             </text>
           </g>
@@ -302,7 +302,7 @@ export const LineChart: React.FC<{ points: ChartPoint[]; refValue?: number | nul
         <g>
           <line x1={pad.l} x2={w - pad.r} y1={y(refValue)} y2={y(refValue)} className="stroke-amber-500" strokeWidth={1.5} strokeDasharray="5 4" />
           {refLabel && (
-            <text x={w - pad.r} y={y(refValue) - 4} textAnchor="end" className="fill-amber-800" fontSize={12} fontWeight={800}>
+            <text x={w - pad.r} y={y(refValue) - 4} textAnchor="end" className="fill-amber-800" fontSize={13} fontWeight={800}>
               {refLabel}
             </text>
           )}
@@ -315,17 +315,17 @@ export const LineChart: React.FC<{ points: ChartPoint[]; refValue?: number | nul
             <title>{`${p.label}: ${num(p.value, 1)}${p.mark ? ` · ${p.mark}` : ''}`}</title>
           </circle>
           {p.mark && (
-            <text x={x(i)} y={y(p.value) - 8} textAnchor="middle" className="fill-rose-700" fontSize={12} fontWeight={800}>
+            <text x={x(i)} y={y(p.value) - 8} textAnchor="middle" className="fill-rose-700" fontSize={13} fontWeight={800}>
               {p.mark}
             </text>
           )}
           {i === peakIndex && !p.mark && (
-            <text x={x(i)} y={y(p.value) - 8} textAnchor="middle" className="fill-emerald-800" fontSize={12} fontWeight={800}>
+            <text x={x(i)} y={y(p.value) - 8} textAnchor="middle" className="fill-emerald-800" fontSize={13} fontWeight={800}>
               Pico
             </text>
           )}
           {i % step === 0 && (
-            <text x={x(i)} y={height - 5} textAnchor="middle" className="fill-slate-700" fontSize={12} fontWeight={600}>
+            <text x={x(i)} y={height - 5} textAnchor="middle" className="fill-slate-700" fontSize={13} fontWeight={600}>
               {p.label}
             </text>
           )}
@@ -340,7 +340,7 @@ export const DataToggle: React.FC<{ headers: string[]; rows: (string | number)[]
   const [open, setOpen] = useState(false);
   return (
     <div>
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={`h-11 px-3 rounded-xl text-sm font-bold text-sky-800 flex items-center gap-1 ${FOCUS_B}`}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={`h-12 px-3 rounded-xl text-sm font-bold text-sky-800 flex items-center gap-1 ${FOCUS_B}`}>
         {label}
         <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>

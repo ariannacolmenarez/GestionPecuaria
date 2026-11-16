@@ -107,7 +107,7 @@ export const LotMenu: React.FC<{ lot: BovinoLot; onClose: () => void }> = ({ lot
         {perms.moverLotes && open && <MenuRow icon={<Users className="w-5 h-5" />} title="Editar" onClick={() => { onClose(); openSheet({ kind: 'lote', lotId: lot.id }); }} />}
         {perms.moverLotes && open && <MenuRow icon={<Users className="w-5 h-5" />} title="Mover a otro potrero" onClick={() => { onClose(); openSheet({ kind: 'mover', lotId: lot.id }); }} />}
         {perms.cerrarLote && open && lot.type === 'ceba' && (
-          <MenuRow icon={<Users className="w-5 h-5" />} title="Liquidar lote" subtitle="Costo total, venta y utilidad del ciclo" onClick={() => { onClose(); navigate({ s: 'liquidacion', loteId: lot.id }, 'mas'); }} />
+          <MenuRow icon={<Users className="w-5 h-5" />} title="Liquidar lote" subtitle="Costo total, venta y utilidad del ciclo" onClick={() => { onClose(); navigate({ s: 'liquidacion', loteId: lot.id }); }} />
         )}
         {perms.cerrarLote && open && lot.type !== 'ceba' && <MenuRow icon={<Users className="w-5 h-5" />} title="Cerrar lote" subtitle={heads ? `Tiene ${heads} animales activos` : undefined} onClick={() => setAsk('cerrar')} />}
         {perms.administrar && <MenuRow icon={<Users className="w-5 h-5" />} title="Eliminar" subtitle="Solo si nunca tuvo animales ni registros" onClick={() => setAsk('eliminar')} />}

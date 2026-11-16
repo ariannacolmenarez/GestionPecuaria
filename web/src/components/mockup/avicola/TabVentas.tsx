@@ -3,7 +3,7 @@
  * Nueva/Editar venta (con autocompletar de clientes) y abonos.
  */
 import React, { useMemo, useState } from 'react';
-import { Beef, Drumstick, Package, Phone, Plus, Search, ShoppingCart, Trash2, User, X } from 'lucide-react';
+import { Beef, CheckCircle2, Drumstick, Package, Phone, Plus, Search, ShoppingCart, Trash2, Truck, User, X } from 'lucide-react';
 import type { AvicolaLot, AvicolaProduct, AvicolaSale, AvicolaSaleUnit } from '../../../models/FarmModel';
 import { avicolaCustomers, filterLotSales, isLotActive, lotBirds, lotFinancials, salePending, saleIsPaid, suggestedSaleTotal } from '../../../models/avicolaDomain';
 import { AVICOLA_PRODUCTS, AVICOLA_SALE_UNITS } from '../../../models/avicolaReference';
@@ -46,6 +46,8 @@ export const TabVentas: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
   const [filter, setFilter] = useState<SaleFilter>('todas');
   const [form, setForm] = useState<{ sale?: AvicolaSale } | null>(null);
   const [abono, setAbono] = useState<AvicolaSale | null>(null);
+  // "Marcar pagada" y "Entregar" cambian la contabilidad y el galpón: se confirman antes
+  const [quick, setQuick] = useState<{ kind: 'paid' | 'delivered'; sale: AvicolaSale } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const birds = useMemo(() => lotBirds(data, lot.id), [data, lot.id]);
   const fin = useMemo(() => lotFinancials(data, lot.id), [data, lot.id]);
@@ -66,14 +68,14 @@ export const TabVentas: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
   return (
     <div className="space-y-3">
       <div className={`${CARD} p-4`}>
-        <p className="text-xs text-slate-500">Total vendido</p>
+        <p className="text-xs text-slate-600">Total vendido</p>
         <p className="text-3xl font-black tabular-nums text-slate-900">{usd(fin.salesTotal)}</p>
         <div className="h-2 rounded-full bg-slate-100 mt-2 overflow-hidden" role="progressbar" aria-label={`Cobrado ${collectedPct}%`} aria-valuenow={collectedPct} aria-valuemin={0} aria-valuemax={100}>
           <div className="h-full bg-violet-600 rounded-full" style={{ width: `${collectedPct}%` }} />
         </div>
         <p className="text-xs mt-1.5 text-slate-600">
           Cobrado <strong className="text-slate-900">{usd(fin.collected)}</strong> · Pendiente{' '}
-          <strong className={fin.pending > 0 ? 'text-rose-600' : 'text-slate-900'}>{usd(fin.pending)}</strong>
+          <strong className={fin.pending > 0 ? 'text-rose-700' : 'text-slate-900'}>{usd(fin.pending)}</strong>
         </p>
         <div className="grid grid-cols-3 divide-x divide-slate-200 mt-3 pt-3 border-t border-slate-100 text-center">
           {[
@@ -83,40 +85,41 @@ export const TabVentas: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
           ].map(([l, v, c]) => (
             <div key={l as string}>
               <p className={`text-lg font-black tabular-nums ${c}`}>{num(v as number)}</p>
-              <p className="text-[10px] text-slate-500">{l}</p>
+              <p className="text-xs text-slate-600">{l}</p>
             </div>
           ))}
         </div>
       </div>
 
       <div className="relative">
-        <Search className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+        <Search className="w-5 h-5 text-slate-600 absolute left-4 top-1/2 -translate-y-1/2" />
         <input
           aria-label="Buscar por nombre o teléfono"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por nombre o teléfono"
-          className={`w-full h-12 bg-white rounded-2xl border border-slate-200 pl-11 pr-11 text-sm ${FOCUS}`}
+          className={`w-full h-12 bg-white rounded-2xl border border-slate-300 pl-11 pr-12 text-base ${FOCUS}`}
         />
         {search && (
-          <button aria-label="Limpiar búsqueda" onClick={() => setSearch('')} className="absolute right-1 top-1 w-10 h-10 flex items-center justify-center text-slate-500">
-            <X className="w-4 h-4" />
+          <button aria-label="Limpiar búsqueda" onClick={() => setSearch('')} className={`absolute right-0.5 top-0.5 w-11 h-11 rounded-xl flex items-center justify-center text-slate-700 ${FOCUS}`}>
+            <X className="w-5 h-5" />
           </button>
         )}
       </div>
-      <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1">
+      <div className="flex flex-wrap gap-2">
         {(['todas', 'encargos', 'deben', 'pagadas'] as SaleFilter[]).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`h-10 px-4 rounded-full border text-sm font-semibold shrink-0 capitalize ${filter === f ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700'} ${FOCUS}`}
+            aria-pressed={filter === f}
+            className={`h-11 px-4 rounded-full border text-sm font-semibold shrink-0 capitalize ${filter === f ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-300 text-slate-800'} ${FOCUS}`}
           >
             {f}
             <span className="ml-1 tabular-nums">{counts[f]}</span>
           </button>
         ))}
       </div>
-      <p className="text-[11px] text-slate-500">{sales.length === 1 ? '1 venta' : `${sales.length} ventas`}</p>
+      <p className="text-xs text-slate-600">{sales.length === 1 ? '1 venta' : `${sales.length} ventas`}</p>
       <ErrorBox error={error} />
 
       {sales.length === 0 ? (
@@ -127,7 +130,7 @@ export const TabVentas: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
             icon={<Search className="w-7 h-7" />}
             title="No hay ventas con este filtro"
             action={
-              <button onClick={() => { setFilter('todas'); setSearch(''); }} className={`h-10 px-4 rounded-xl bg-slate-900 text-white text-sm font-bold ${FOCUS}`}>
+              <button onClick={() => { setFilter('todas'); setSearch(''); }} className={`h-11 px-4 rounded-xl bg-slate-900 text-white text-sm font-bold ${FOCUS}`}>
                 Ver todas
               </button>
             }
@@ -144,7 +147,7 @@ export const TabVentas: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
                 <span className="w-10 h-10 rounded-full bg-violet-50 text-violet-700 font-bold flex items-center justify-center shrink-0">{s.customerName.trim()[0]?.toUpperCase() || '?'}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block font-bold text-sm text-slate-900 truncate">{s.customerName}</span>
-                  <span className="block text-[11px] text-slate-500">
+                  <span className="block text-xs text-slate-600">
                     {shortDate(s.date)}
                     {s.phone ? ` · ${s.phone}` : ''}
                   </span>
@@ -152,36 +155,36 @@ export const TabVentas: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
                 <span className="font-black text-slate-900 tabular-nums">{usd(s.total)}</span>
               </button>
               <div className="flex flex-wrap gap-1.5">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{s.product}</span>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{s.product}</span>
                 {(s.birds > 0 || s.weight) && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
                     {s.birds > 0 ? `${s.birds} pollos` : ''}
                     {s.birds > 0 && s.weight ? ' · ' : ''}
                     {s.weight ? `${num(s.weight, 2)} ${UNIT_SHORT[s.unit]}` : ''}
                   </span>
                 )}
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${paid ? 'bg-emerald-100 text-emerald-800' : s.paidAmount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>
-                  {paid ? 'Pagada' : s.paidAmount > 0 ? `Abonó ${usd(s.paidAmount)} · debe ${usd(pending)}` : `Debe ${usd(pending)}`}
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${paid ? 'bg-emerald-100 text-emerald-800' : s.paidAmount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>
+                  {paid ? 'Pagada' : s.paidAmount > 0 ? `Pagó ${usd(s.paidAmount)} · debe ${usd(pending)}` : `Debe ${usd(pending)}`}
                 </span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.delivered ? 'bg-sky-100 text-sky-800' : late ? 'bg-rose-100 text-rose-800' : 'bg-violet-100 text-violet-800'}`}>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${s.delivered ? 'bg-sky-100 text-sky-800' : late ? 'bg-rose-100 text-rose-800' : 'bg-violet-100 text-violet-800'}`}>
                   {s.delivered ? 'Entregada' : s.isOrder ? `Encargo${s.deliveryDate ? ` · entrega ${shortDate(s.deliveryDate)}` : ''}` : 'Sin entregar'}
                 </span>
               </div>
-              {s.notes && <p className="text-[11px] text-slate-500 truncate">{s.notes}</p>}
+              {s.notes && <p className="text-xs text-slate-600 truncate">{s.notes}</p>}
               {(!paid || !s.delivered) && (
                 <div className="grid grid-cols-3 gap-2">
                   {!paid && (
-                    <button onClick={() => setAbono(s)} className={`h-10 rounded-xl text-xs font-bold bg-violet-50 text-violet-700 ${FOCUS}`}>
-                      Abonar
+                    <button onClick={() => setAbono(s)} className={`h-12 px-1 rounded-xl text-sm font-bold leading-tight bg-violet-50 border border-violet-300 text-violet-800 ${FOCUS}`}>
+                      Pagó una parte
                     </button>
                   )}
                   {!paid && (
-                    <button onClick={() => run(actions.markSalePaid({ saleId: s.id }))} className={`h-10 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 ${FOCUS}`}>
+                    <button onClick={() => setQuick({ kind: 'paid', sale: s })} className={`h-12 px-1 rounded-xl text-sm font-bold leading-tight bg-emerald-50 border border-emerald-300 text-emerald-800 ${FOCUS}`}>
                       Marcar pagada
                     </button>
                   )}
                   {!s.delivered && (
-                    <button onClick={() => run(actions.markSaleDelivered({ saleId: s.id }))} className={`h-10 rounded-xl text-xs font-bold bg-sky-50 text-sky-700 ${FOCUS}`}>
+                    <button onClick={() => setQuick({ kind: 'delivered', sale: s })} className={`h-12 px-1 rounded-xl text-sm font-bold leading-tight bg-sky-50 border border-sky-300 text-sky-800 ${FOCUS}`}>
                       Entregar
                     </button>
                   )}
@@ -195,6 +198,30 @@ export const TabVentas: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
       {active && <FabButton label="Nueva venta" onClick={() => setForm({})} />}
       {form && <VentaFormSheet lot={lot} sale={form.sale} onClose={() => setForm(null)} />}
       {abono && <AbonoSheet sale={abono} onClose={() => setAbono(null)} />}
+      {quick && (
+        <ConfirmDialog
+          title={quick.kind === 'paid' ? `¿${quick.sale.customerName} pagó todo?` : `¿Entregaste el pedido de ${quick.sale.customerName}?`}
+          icon={quick.kind === 'paid' ? <CheckCircle2 className="w-6 h-6" /> : <Truck className="w-6 h-6" />}
+          confirmLabel={quick.kind === 'paid' ? 'Sí, pagó' : 'Sí, entregado'}
+          cancelLabel="No"
+          message={
+            quick.kind === 'paid' ? (
+              <p>
+                Se anota el cobro de <strong>{usd(salePending(quick.sale))}</strong> que falta y se suma a Ingresos del lote.
+              </p>
+            ) : (
+              <p>
+                {quick.sale.birds > 0 ? `Salen ${quick.sale.birds} pollos del galpón.` : 'La venta quedará como entregada.'}
+              </p>
+            )
+          }
+          onCancel={() => setQuick(null)}
+          onConfirm={() => {
+            run(quick.kind === 'paid' ? actions.markSalePaid({ saleId: quick.sale.id }) : actions.markSaleDelivered({ saleId: quick.sale.id }));
+            setQuick(null);
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -233,6 +260,8 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tried, setTried] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const customerRef = React.useRef<HTMLInputElement>(null);
 
   const unitInfo = AVICOLA_SALE_UNITS.find((u) => u.key === unit)!;
   const unitsForTotal = unit === 'unidad' ? (product === 'pollo' ? nBirds : parseNum(units) || 0) : undefined;
@@ -246,7 +275,7 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
     birds: product === 'pollo' && nBirds < 1 ? 'Indica cuántos pollos' : nBirds > maxBirds ? `Solo hay ${maxBirds} pollos disponibles` : null,
     weight: unit !== 'unidad' && !(parseNum(weight) > 0) && !totalEdited ? 'Escribe el peso' : null,
     total: !(totalNum > 0) ? 'El total debe ser mayor a 0' : null,
-    abono: pay === 'abono' && !(parseNum(abono) > 0 && parseNum(abono) <= totalNum) ? 'El abono debe ser mayor a 0 y no superar el total' : null,
+    abono: pay === 'abono' && !(parseNum(abono) > 0 && parseNum(abono) <= totalNum) ? 'Lo que pagó debe ser mayor a 0 y no superar el total' : null,
   };
 
   const reset = () => {
@@ -265,7 +294,9 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
   const save = (again: boolean) => {
     setTried(true);
     setError(null);
+    setAttempt((n) => n + 1);
     const first = Object.values(errs).find(Boolean);
+    if (errs.customer) customerRef.current?.focus();
     if (first) return setError(first);
     const common = {
       customerName: customer.trim(),
@@ -312,13 +343,20 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
         price !== (sale ? String(sale.unitPrice) : '') ||
         weight !== (sale?.weight ? String(sale.weight) : '') ||
         phone !== (sale?.phone || '') ||
-        notes !== (sale?.notes || '')
+        notes !== (sale?.notes || '') ||
+        nBirds !== (sale?.birds || 0) ||
+        units !== (sale?.units ? String(sale.units) : '') ||
+        (!editing && (totalEdited || !!abono))
       }
+      error={error}
+      errorKey={attempt}
       header={
         <div className="relative">
-          <User className="w-5 h-5 text-violet-600 absolute left-4 top-7 -translate-y-1/2" />
+          <User className="w-5 h-5 text-violet-700 absolute left-4 top-7 -translate-y-1/2" />
           <input
+            ref={customerRef}
             aria-label="Cliente"
+            aria-invalid={tried && !!errs.customer}
             autoFocus={!editing}
             value={customer}
             onChange={(e) => {
@@ -330,7 +368,7 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
             placeholder="Ej: Nombre del cliente"
             className={`h-14 w-full bg-white text-slate-900 rounded-2xl border-2 ${tried && errs.customer ? 'border-rose-500' : 'border-slate-900'} pl-12 pr-4 text-base ${FOCUS}`}
           />
-          <p className="text-xs text-violet-100 mt-1">Escribe el nombre y elige un cliente anterior si ya te compró.</p>
+          <p className="text-sm text-white font-semibold mt-1">Escribe el nombre y elige un cliente anterior si ya te compró.</p>
           {suggest && matches.length > 0 && (
             <ul role="listbox" className="absolute z-10 left-0 right-0 top-15 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-56 overflow-y-auto text-slate-900">
               {matches.map((c) => (
@@ -347,9 +385,9 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
                   >
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold truncate">{c.name}</span>
-                      {c.phone && <span className="block text-[11px] text-slate-500">{c.phone}</span>}
+                      {c.phone && <span className="block text-xs text-slate-600">{c.phone}</span>}
                     </span>
-                    <span className="text-[11px] text-slate-500 shrink-0">{c.purchases} compras</span>
+                    <span className="text-xs text-slate-600 shrink-0">{c.purchases} compras</span>
                   </button>
                 </li>
               ))}
@@ -361,7 +399,7 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
         <TotalFooter label="Total de la venta" total={totalNum > 0 ? totalNum : 0} note={note}>
           <div className={editing ? 'grid grid-cols-[auto_1fr] gap-3' : 'grid grid-cols-2 gap-3'}>
             {editing ? (
-              <button onClick={() => setConfirmDelete(true)} aria-label="Eliminar venta" className={`h-12 w-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center ${FOCUS}`}>
+              <button onClick={() => setConfirmDelete(true)} aria-label="Eliminar venta" className={`h-12 w-12 rounded-2xl bg-rose-50 border border-rose-300 text-rose-700 flex items-center justify-center ${FOCUS}`}>
                 <Trash2 className="w-5 h-5" />
               </button>
             ) : (
@@ -376,12 +414,12 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
         </TotalFooter>
       }
     >
-      <ErrorBox error={error} />
       <section className="space-y-2">
-        <SectionLabel index={1} label="Qué vende" right={isNewCustomer ? <span className="bg-rose-500 text-white text-[10px] font-bold rounded-full px-2 py-0.5">Cliente nuevo</span> : undefined} />
+        <SectionLabel index={1} label="Qué vende" right={isNewCustomer ? <span className="bg-rose-700 text-white text-xs font-bold rounded-full px-2 py-0.5">Cliente nuevo</span> : undefined} />
         <ChipGroup
           tone="violet"
           size="lg"
+          ariaLabel="Qué vende"
           value={product}
           onChange={(p) => {
             setProduct(p);
@@ -392,7 +430,7 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
       </section>
       <section className="space-y-2">
         <SectionLabel index={2} label="Precio · ¿Cómo lo cobras?" />
-        <ChipGroup tone="violet" value={unit} onChange={setUnit} options={AVICOLA_SALE_UNITS.map((u) => ({ key: u.key, label: u.label }))} />
+        <ChipGroup tone="violet" ariaLabel="Cómo lo cobras" value={unit} onChange={setUnit} options={AVICOLA_SALE_UNITS.map((u) => ({ key: u.key, label: u.label }))} />
         <FieldRow label={unitInfo.priceLabel} htmlFor="v-price">
           <NumberInput id="v-price" value={price} onChange={setPrice} decimal />
         </FieldRow>
@@ -400,9 +438,16 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
       <section>
         <SectionLabel index={3} label={product === 'pollo' ? 'Pollos y peso' : 'Cantidad y peso'} />
         {product === 'pollo' ? (
-          <FieldRow label="Pollos" hint={`${maxBirds} disponibles`} error={tried ? errs.birds : null}>
-            <Stepper value={nBirds} onChange={setNBirds} min={0} max={maxBirds} tone="violet" ariaLabel="Pollos" />
-          </FieldRow>
+          <>
+            <FieldRow label="Pollos" hint={`${maxBirds} disponibles`} error={tried ? errs.birds : null}>
+              <Stepper id="v-birds" value={nBirds} onChange={setNBirds} min={0} max={maxBirds} tone="violet" ariaLabel="Pollos" />
+            </FieldRow>
+            {maxBirds > 1 && nBirds !== maxBirds && (
+              <button type="button" onClick={() => setNBirds(maxBirds)} className={`h-11 px-4 mb-1 rounded-full border border-violet-300 bg-violet-50 text-violet-800 text-sm font-bold ${FOCUS}`}>
+                Todos ({num(maxBirds)})
+              </button>
+            )}
+          </>
         ) : (
           unit === 'unidad' && (
             <FieldRow label="Unidades" htmlFor="v-units">
@@ -421,17 +466,7 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
         <FieldRow
           label="Total a cobrar"
           htmlFor="v-total"
-          hint={
-            totalEdited ? (
-              <button type="button" onClick={() => setTotalEdited(false)} className="text-violet-700 font-bold">
-                Recalcular ({usd(suggested)})
-              </button>
-            ) : unit === 'unidad' ? (
-              'Precio × unidades. Puedes cambiarlo.'
-            ) : (
-              'Precio × peso. Puedes cambiarlo.'
-            )
-          }
+          hint={totalEdited ? 'Lo cambiaste a mano.' : unit === 'unidad' ? 'Precio × unidades. Puedes cambiarlo.' : 'Precio × peso. Puedes cambiarlo.'}
           error={tried ? errs.total : null}
         >
           <NumberInput
@@ -445,22 +480,28 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
             className="w-32 bg-violet-50 text-violet-900"
           />
         </FieldRow>
+        {totalEdited && (
+          <button type="button" onClick={() => setTotalEdited(false)} className={`h-11 px-4 my-1 rounded-xl border border-violet-300 bg-violet-50 text-violet-800 text-sm font-bold ${FOCUS}`}>
+            Recalcular: {usd(suggested)}
+          </button>
+        )}
         {/* El cobro cambia la contabilidad: siempre visible en ventas nuevas (no escondido en "Más datos") */}
         {!editing && (
           <div className="py-2 space-y-2">
-            <p className="text-sm font-semibold text-slate-800">¿Cuánto pagó?</p>
+            <SectionLabel label="¿Cuánto pagó?" />
             <ChipGroup
               tone="violet"
+              ariaLabel="¿Cuánto pagó?"
               value={pay}
               onChange={setPay}
               options={[
                 { key: 'nada', label: 'Nada' },
                 { key: 'todo', label: 'Todo' },
-                { key: 'abono', label: 'Abono' },
+                { key: 'abono', label: 'Una parte' },
               ]}
             />
             {pay === 'abono' && (
-              <FieldRow label="Monto del abono" htmlFor="v-abono" error={tried ? errs.abono : null}>
+              <FieldRow label="¿Cuánto pagó ahora?" htmlFor="v-abono" error={tried ? errs.abono : null}>
                 <NumberInput id="v-abono" value={abono} onChange={setAbono} decimal />
               </FieldRow>
             )}
@@ -477,14 +518,14 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
                   type="button"
                   onClick={() => setMore(true)}
                   aria-label="Ver estado de entrega"
-                  className={`h-10 px-3 rounded-full text-[11px] font-bold ${
+                  className={`h-11 px-3 rounded-full text-xs font-bold ${
                     isOrder ? 'bg-amber-100 text-amber-800' : delivered ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'
                   } ${FOCUS}`}
                 >
                   {isOrder ? `Encargo · ${shortDate(deliveryDate)}` : delivered ? 'Entregada' : 'Sin entregar'}
                 </button>
               )}
-              <button type="button" onClick={() => setMore((m) => !m)} className={`h-10 px-2 text-sm font-bold text-violet-700 ${FOCUS}`}>
+              <button type="button" onClick={() => setMore((m) => !m)} className={`h-11 px-3 text-sm font-bold text-violet-800 ${FOCUS}`}>
                 {more ? 'Ocultar' : 'Mostrar'}
               </button>
             </span>
@@ -494,8 +535,8 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
           <div className="space-y-1">
             <FieldRow label="Teléfono" htmlFor="v-phone">
               <div className="relative">
-                <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input id="v-phone" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={`w-44 h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 pl-9 pr-3 text-sm ${FOCUS}`} />
+                <Phone className="w-4 h-4 text-slate-600 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input id="v-phone" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={`w-44 h-11 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 pl-9 pr-3 text-base ${FOCUS}`} />
               </div>
             </FieldRow>
             <Toggle
@@ -517,7 +558,12 @@ const VentaFormSheet: React.FC<{ lot: AvicolaLot; sale?: AvicolaSale; onClose: (
             <FieldRow label="Fecha de la venta">
               <DatePill value={date} onChange={setDate} max={today} min={lot.startDate} />
             </FieldRow>
-            <textarea aria-label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notas (opcional)" className={`w-full rounded-xl bg-slate-50 border border-slate-200 text-slate-900 p-3 text-sm ${FOCUS}`} />
+            <div className="space-y-1 pt-1">
+              <label htmlFor="v-notes" className="text-sm font-semibold text-slate-900">
+                Notas (opcional)
+              </label>
+              <textarea id="v-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={`w-full rounded-xl bg-slate-50 border border-slate-300 text-slate-900 p-3 text-base ${FOCUS}`} />
+            </div>
           </div>
         )}
       </section>
@@ -547,33 +593,49 @@ const PaymentsHistory: React.FC<{ sale: AvicolaSale }> = ({ sale }) => {
   const { actions, data } = useAvicola();
   const live = data.sales.find((s) => s.id === sale.id) || sale;
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<AvicolaSale['payments'][number] | null>(null);
   return (
     <section className="space-y-2">
       <SectionLabel label="Cobros" right={<span className="text-xs font-bold text-slate-700">Debe {usd(salePending(live))}</span>} />
       <ErrorBox error={error} />
       {live.payments.length === 0 ? (
-        <p className="text-xs text-slate-500">Sin cobros registrados.</p>
+        <p className="text-sm text-slate-600">Sin cobros registrados.</p>
       ) : (
         live.payments.map((p) => (
           <div key={p.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-2.5 text-sm">
             <span>
-              {shortDate(p.date)} {p.notes ? <span className="text-[11px] text-slate-500">· {p.notes}</span> : null}
+              {shortDate(p.date)} {p.notes ? <span className="text-xs text-slate-600">· {p.notes}</span> : null}
             </span>
             <span className="flex items-center gap-2">
               <strong className="text-emerald-700 tabular-nums">{usd(p.amount)}</strong>
               <button
-                aria-label="Eliminar cobro"
-                onClick={() => {
-                  const r = actions.deleteSalePayment({ saleId: live.id, paymentId: p.id });
-                  setError(r.ok ? null : r.error);
-                }}
-                className={`w-10 h-10 rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center ${FOCUS}`}
+                aria-label={`Eliminar cobro de ${usd(p.amount)}`}
+                onClick={() => setDeleting(p)}
+                className={`w-11 h-11 rounded-lg text-slate-600 hover:bg-rose-50 hover:text-rose-700 flex items-center justify-center ${FOCUS}`}
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-5 h-5" />
               </button>
             </span>
           </div>
         ))
+      )}
+      {deleting && (
+        <ConfirmDialog
+          title="¿Eliminar este cobro?"
+          danger
+          confirmLabel="Eliminar"
+          message={
+            <p>
+              Se quitará el cobro de <strong>{usd(deleting.amount)}</strong> del {shortDate(deleting.date)} y de Ingresos del lote. La venta volverá a deber ese monto.
+            </p>
+          }
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => {
+            const r = actions.deleteSalePayment({ saleId: live.id, paymentId: deleting.id });
+            setError(r.ok ? null : r.error);
+            setDeleting(null);
+          }}
+        />
       )}
     </section>
   );
@@ -588,37 +650,47 @@ const AbonoSheet: React.FC<{ sale: AvicolaSale; onClose: () => void }> = ({ sale
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(today);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const a = parseNum(amount);
+  const bad = !!error && (!(a > 0) || a > pending + 0.004);
   const save = () => {
-    const a = parseNum(amount);
-    if (!(a > 0) || a > pending + 0.004) return setError(`El abono debe ser mayor a 0 y máximo ${usd(pending)}.`);
+    setAttempt((n) => n + 1);
+    if (!(a > 0) || a > pending + 0.004) return setError(`Lo que pagó debe ser mayor a 0 y máximo ${usd(pending)}.`);
     const r = actions.registerSalePayment({ saleId: sale.id, amount: a, date });
     if (!r.ok) return setError(r.error);
     onClose();
   };
   return (
     <BottomSheet
-      title={`Registrar abono · ${sale.customerName}`}
+      title={`Pago parcial · ${sale.customerName}`}
       subtitle={`Venta del ${shortDate(sale.date)}`}
       icon={<Package className="w-5 h-5" />}
-      iconClass="bg-violet-50 text-violet-700"
+      iconClass="bg-violet-50 text-violet-800"
       onClose={onClose}
+      dirty={!!amount}
+      error={error}
+      errorKey={attempt}
       footer={
         <div className="grid grid-cols-2 gap-2">
           <PrimaryButton tone="slate" outline onClick={onClose}>
             Cancelar
           </PrimaryButton>
           <PrimaryButton tone="violet" onClick={save}>
-            Guardar abono
+            Guardar pago
           </PrimaryButton>
         </div>
       }
     >
       <p className="text-sm">
-        Debe <strong className="text-rose-600">{usd(pending)}</strong>
+        Debe <strong className="text-rose-700">{usd(pending)}</strong>
       </p>
-      <ErrorBox error={error} />
-      <NumberInput value={amount} onChange={setAmount} decimal ariaLabel="Monto del abono" className="w-full h-14 text-2xl bg-slate-50" />
-      <button type="button" onClick={() => setAmount(String(pending))} className={`h-10 px-4 rounded-full bg-violet-50 text-violet-700 text-sm font-semibold ${FOCUS}`}>
+      <div className="space-y-1">
+        <label htmlFor="abono-monto" className="text-sm font-semibold text-slate-900">
+          ¿Cuánto pagó ahora?
+        </label>
+        <NumberInput id="abono-monto" value={amount} onChange={setAmount} decimal autoFocus invalid={bad} className="w-full h-14 text-2xl bg-slate-50" />
+      </div>
+      <button type="button" onClick={() => setAmount(String(pending))} className={`h-11 px-4 rounded-full border border-violet-300 bg-violet-50 text-violet-800 text-sm font-semibold ${FOCUS}`}>
         Todo lo que debe
       </button>
       <FieldRow label="Fecha">

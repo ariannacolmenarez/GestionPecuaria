@@ -124,7 +124,7 @@ export const PotreroDetail: React.FC<{ id: string }> = ({ id }) => {
           <KV k="Descanso promedio" v={avgRest !== null ? `${avgRest} d` : '—'} />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          {pv.heads > 0 && <SecondaryBtn onClick={() => navigate({ s: 'animales', filtro: { paddockId: id } }, 'hato')}>Ver animales</SecondaryBtn>}
+          {pv.heads > 0 && <SecondaryBtn onClick={() => navigate({ s: 'animales', filtro: { paddockId: id } })}>Ver animales</SecondaryBtn>}
           {perms.moverLotes && pv.status !== 'mantenimiento' && (
             <PrimaryBtn className="h-12 text-sm" onClick={() => openSheet({ kind: 'mover', toPaddockId: id })}>
               Mover aquí

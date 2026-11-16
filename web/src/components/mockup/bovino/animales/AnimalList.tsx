@@ -1,5 +1,9 @@
-/** A2 · Lista de animales: búsqueda por arete, filtros, orden y selección múltiple. */
-import React, { useEffect, useMemo, useState } from 'react';
+/**
+ * A2 · Lista de animales: búsqueda por arete, filtros, orden y selección múltiple.
+ * Búsqueda, categoría, filtros, orden y "ver más" se recuerdan al volver de una ficha
+ * (viewState por screenKey); el scroll lo recupera BovinoModule. Solo el buscador queda fijo.
+ */
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRightLeft, Beef, Scale, SlidersHorizontal, Syringe, Users, X } from 'lucide-react';
 import type { BovinoAnimalView } from '../../../../models/bovinoCalc';
 import type { BovinoCategoryKey } from '../../../../models/bovinoModel';
@@ -7,6 +11,7 @@ import { useBovino } from '../context';
 import { pushBackHandler } from '../../../../utils/backButton';
 import type { AnimalEstadoFiltro, AnimalFiltro } from '../routes';
 import { searchAnimals, LotPickerSheet } from '../pickers';
+import { useScreenKey, useViewState } from '../viewState';
 import { AnimalRow, AreteInput, BottomBarPortal, ChipFilter, EmptyBlock, Fab, FOCUS_B, PickerButton, BottomSheet, num, usePaged } from '../ui';
 
 type Cat = 'todas' | BovinoCategoryKey;
@@ -38,14 +43,15 @@ const tagNum = (t: string) => {
 
 export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
   const { index, perms, navigate, openSheet, home } = useBovino();
-  const [q, setQ] = useState('');
-  const [cat, setCat] = useState<Cat>(filtro?.category || 'todas');
-  const [lotId, setLotId] = useState<string | undefined>(filtro?.lotId);
-  const [paddockId, setPaddockId] = useState<string | undefined>(filtro?.paddockId);
-  const [estado, setEstado] = useState<AnimalEstadoFiltro | undefined>(filtro?.estado);
-  const [sexo, setSexo] = useState<'hembra' | 'macho' | undefined>(filtro?.sexo);
-  const [situacion, setSituacion] = useState<NonNullable<AnimalFiltro['situacion']>>(filtro?.situacion || 'activos');
-  const [sort, setSort] = useState<Sort>('arete');
+  const k = useScreenKey();
+  const [q, setQ] = useViewState(`${k}q`, '');
+  const [cat, setCat] = useViewState<Cat>(`${k}cat`, filtro?.category || 'todas');
+  const [lotId, setLotId] = useViewState<string | undefined>(`${k}lot`, filtro?.lotId);
+  const [paddockId, setPaddockId] = useViewState<string | undefined>(`${k}pad`, filtro?.paddockId);
+  const [estado, setEstado] = useViewState<AnimalEstadoFiltro | undefined>(`${k}estado`, filtro?.estado);
+  const [sexo, setSexo] = useViewState<'hembra' | 'macho' | undefined>(`${k}sexo`, filtro?.sexo);
+  const [situacion, setSituacion] = useViewState<NonNullable<AnimalFiltro['situacion']>>(`${k}sit`, filtro?.situacion || 'activos');
+  const [sort, setSort] = useViewState<Sort>(`${k}sort`, 'arete');
   const [showFilters, setShowFilters] = useState(false);
   const [lotPicker, setLotPicker] = useState(false);
   const [selecting, setSelecting] = useState(false);
@@ -100,11 +106,18 @@ export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
     return arr;
   }, [base, q, sort]);
 
-  const { shown, more, reset } = usePaged<BovinoAnimalView>(list);
+  const { shown, more, reset } = usePaged<BovinoAnimalView>(list, 50, `${k}paged`);
   // "Todos" marca TODOS los activos que pasan el filtro (no solo los visibles en la página)
   const activeInList = useMemo(() => list.filter((v) => v.active), [list]);
   const allSelected = activeInList.length > 0 && activeInList.every((v) => selected.includes(v.id));
-  useEffect(() => reset(), [q, cat, lotId, paddockId, estado, sexo, situacion, sort]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Al cambiar búsqueda o filtros vuelve a los primeros 50 (no al montar: al volver se conserva "ver más")
+  const filterSig = JSON.stringify([q, cat, lotId, paddockId, estado, sexo, situacion, sort]);
+  const prevSig = useRef(filterSig);
+  useEffect(() => {
+    if (prevSig.current === filterSig) return;
+    prevSig.current = filterSig;
+    reset();
+  }, [filterSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const weights = list.map((v) => v.weightKg).filter((w): w is number => w !== null);
   const avgW = weights.length ? weights.reduce((s, x) => s + x, 0) / weights.length : null;
@@ -138,14 +151,17 @@ export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
 
   return (
     <div className="relative min-h-full">
-      <div className="sticky top-0 bg-slate-50 z-10 px-4 pt-3 pb-2 space-y-2 border-b border-slate-200">
-        <AreteInput value={q} onChange={setQ} placeholder="Buscar arete o nombre" />
+      {/* Solo el buscador queda fijo: así se ve más lista en pantalla */}
+      <div className="sticky top-0 bg-slate-50 z-10 px-4 pt-3 pb-2 border-b border-slate-200">
+        <AreteInput value={q} onChange={setQ} placeholder="Buscar arete o nombre" allowLetters />
+      </div>
+      <div className="px-4 pt-3 space-y-2">
         <ChipFilter options={CATS.map((c) => ({ ...c, count: catCount(c.key) }))} value={cat} onChange={setCat} ariaLabel="Categoría" />
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setShowFilters(true)}
-            className={`h-11 px-4 rounded-full border-2 text-sm font-bold flex items-center gap-1.5 ${extraFilters ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}
+            className={`h-12 px-4 rounded-full border-2 text-sm font-bold flex items-center gap-1.5 ${extraFilters ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}
           >
             <SlidersHorizontal className="w-4 h-4" /> Filtros{extraFilters ? ` (${extraFilters})` : ''}
           </button>
@@ -154,7 +170,7 @@ export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
             <button
               type="button"
               onClick={() => setSelected(allSelected ? [] : activeInList.map((v) => v.id))}
-              className={`h-11 px-4 rounded-full border-2 border-sky-600 bg-sky-50 text-sm font-bold text-sky-900 ${FOCUS_B}`}
+              className={`h-12 px-4 rounded-full border-2 border-sky-700 bg-sky-50 text-sm font-bold text-sky-900 ${FOCUS_B}`}
             >
               {allSelected ? 'Ninguno' : `Todos (${activeInList.length})`}
             </button>
@@ -163,7 +179,7 @@ export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
             <button
               type="button"
               onClick={() => (selecting ? endSelection() : setSelecting(true))}
-              className={`h-11 px-4 rounded-full border-2 text-sm font-bold ${selecting ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}
+              className={`h-12 px-4 rounded-full border-2 text-sm font-bold ${selecting ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}
             >
               {selecting ? `Cancelar${selected.length ? ` (${selected.length})` : ''}` : 'Seleccionar'}
             </button>
@@ -177,7 +193,7 @@ export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
         )}
       </div>
 
-      <div className="p-4 space-y-2 pb-28">
+      <div className="px-4 pt-3 space-y-2 pb-28">
         <p className="text-sm font-bold text-slate-900">
           {num(list.length)} {list.length === 1 ? 'animal' : 'animales'}
           {avgW !== null ? ` · peso prom. ${num(avgW)} kg` : ''}
@@ -215,7 +231,7 @@ export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
             icon={<Scale className="w-5 h-5" />}
             label="Pesar"
             disabled={!selected.length}
-            onClick={() => (selected.length === 1 ? openSheet({ kind: 'pesaje', animalId: selected[0] }) : navigate({ s: 'ceba', pesar: true, animalIds: selected }, 'campo'))}
+            onClick={() => (selected.length === 1 ? openSheet({ kind: 'pesaje', animalId: selected[0] }) : navigate({ s: 'ceba', pesar: true, animalIds: selected }))}
           />
           {perms.moverLotes && <SelBtn icon={<Users className="w-5 h-5" />} label="Cambiar lote" disabled={!selected.length} onClick={() => openSheet({ kind: 'cambiarLote', animalIds: selected })} />}
         </BottomBarPortal>
@@ -227,7 +243,7 @@ export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
           footer={
             <div className="grid grid-cols-2 gap-2">
               <button type="button" onClick={clearFilters} className={`h-12 rounded-2xl border-2 border-slate-300 bg-white font-bold text-slate-900 ${FOCUS_B}`}>Quitar filtros</button>
-              <button type="button" onClick={() => setShowFilters(false)} className={`h-12 rounded-2xl bg-sky-600 text-white font-bold ${FOCUS_B}`}>Ver {num(list.length)}</button>
+              <button type="button" onClick={() => setShowFilters(false)} className={`h-12 rounded-2xl bg-sky-700 text-white font-bold ${FOCUS_B}`}>Ver {num(list.length)}</button>
             </div>
           }
         >
@@ -266,8 +282,8 @@ export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
           </FilterGroup>
           <FilterGroup label="Ordenar por">
             <div className="flex flex-wrap gap-2">
-              {([['arete', 'Arete'], ['recientes', 'Últimos registrados'], ['peso', 'Peso'], ['gmd', 'GMD']] as const).map(([k, l]) => (
-                <Pill key={k} on={sort === k} onClick={() => setSort(k)}>{l}</Pill>
+              {([['arete', 'Arete'], ['recientes', 'Últimos registrados'], ['peso', 'Peso'], ['gmd', 'Ganancia diaria']] as const).map(([key, l]) => (
+                <Pill key={key} on={sort === key} onClick={() => setSort(key)}>{l}</Pill>
               ))}
             </div>
           </FilterGroup>
@@ -289,7 +305,7 @@ export const AnimalList: React.FC<{ filtro?: AnimalFiltro }> = ({ filtro }) => {
 };
 
 const ActiveFilter: React.FC<{ label: string; onClear: () => void }> = ({ label, onClear }) => (
-  <button type="button" onClick={onClear} aria-label={`Quitar filtro ${label}`} className={`h-9 pl-3 pr-2 rounded-full bg-sky-100 text-sky-900 text-sm font-bold flex items-center gap-1 ${FOCUS_B}`}>
+  <button type="button" onClick={onClear} aria-label={`Quitar filtro ${label}`} className={`h-12 pl-4 pr-3 rounded-full bg-sky-100 text-sky-900 text-sm font-bold flex items-center gap-1.5 ${FOCUS_B}`}>
     {label} <X className="w-4 h-4" />
   </button>
 );
@@ -302,7 +318,7 @@ const FilterGroup: React.FC<{ label: string; children: React.ReactNode }> = ({ l
 );
 
 const Pill: React.FC<{ on: boolean; onClick: () => void; children: React.ReactNode }> = ({ on, onClick, children }) => (
-  <button type="button" onClick={onClick} aria-pressed={on} className={`h-11 px-4 rounded-full border-2 text-sm font-bold ${on ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}>
+  <button type="button" onClick={onClick} aria-pressed={on} className={`h-12 px-4 rounded-full border-2 text-sm font-bold ${on ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-900'} ${FOCUS_B}`}>
     {children}
   </button>
 );

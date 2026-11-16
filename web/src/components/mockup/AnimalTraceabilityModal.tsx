@@ -1,15 +1,17 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   X,
   History,
   Tag,
+  AlertTriangle,
+  TrendingUp,
+  ChevronDown,
   Scale,
   DollarSign,
   Calendar,
   Pill,
   Syringe,
   Plus,
-  ShieldCheck,
   Search,
   Activity,
   Heart,
@@ -19,19 +21,17 @@ import {
   Utensils,
   MapPin,
   Clock,
-  Sparkles,
-  Info,
-  Layers,
   Users,
 } from 'lucide-react';
 import { PorcinoAnimal, AnimalTraceEvent, ProductionFeedingPlan, WarehouseItem } from '../../types';
 import { AnimalSuppliesPanel, SupplyActions } from './porcino/AnimalSuppliesPanel';
 import { CategoryIcon, iconCategoryOf } from './porcino/CategoryIcon';
-import { isActiveAnimal } from '../../models/porcinoRules';
+import { isActiveAnimal, num } from '../../models/porcinoRules';
 import { getAnimalFeedingAndGrowthInfo, productionFeedingPlansDefault } from '../../data/pecuarioData';
 import { todayISO } from '../../utils/dates';
 import { newId } from '../../utils/ids';
 import { ModalActionReturn, NormalizedModalResult, runModalAction, toNumber } from './modalResult';
+import { Btn, ErrorBox, FieldError, FieldLabel, ModalHeader, fieldClass, inputClass, useBackClose, useFocusFirstInvalid } from '../common/ui';
 
 /** Datos del pesaje que acompañan al nuevo peso (para registrar UN solo evento). */
 export interface WeighingMeta {
@@ -101,6 +101,10 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
   const [isSaving, setIsSaving] = useState(false);
   const [newWeightValue, setNewWeightValue] = useState<string>('');
   const [eventCost, setEventCost] = useState<string>('');
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<'title' | 'date' | 'weight' | 'cost', string>>>({});
+  const [submitTry, setSubmitTry] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
+  useFocusFirstInvalid(formRef, Object.keys(fieldErrors).length ? 'invalid' : null, submitTry);
 
   // Más recientes primero
   const events = useMemo(
@@ -150,29 +154,24 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
     setNewWeightValue('');
     setEventCost('');
     setFormError(null);
+    setFieldErrors({});
   };
 
   const handleCreateEvent = async (ev: React.FormEvent) => {
     ev.preventDefault();
     setFormError(null);
     const title = eventTitle.trim();
-    if (!title) {
-      setFormError('Indica el título del evento.');
-      return;
-    }
-    if (!eventDate || eventDate > todayISO()) {
-      setFormError('La fecha del evento no puede ser futura.');
-      return;
-    }
     const isWeighing = eventType === 'pesaje' && newWeightValue.trim() !== '';
     const weightNum = toNumber(newWeightValue, NaN);
-    if (isWeighing && (!Number.isFinite(weightNum) || weightNum <= 0 || weightNum > 600)) {
-      setFormError('El peso debe estar entre 0 y 600 kg.');
-      return;
-    }
     const costNum = toNumber(eventCost);
-    if (costNum < 0) {
-      setFormError('El costo no puede ser negativo.');
+    const errs: Partial<Record<'title' | 'date' | 'weight' | 'cost', string>> = {};
+    if (!title) errs.title = 'Escribe un título corto (ej: Pesaje del lote).';
+    if (!eventDate || eventDate > todayISO()) errs.date = 'La fecha no puede ser futura.';
+    if (isWeighing && (!Number.isFinite(weightNum) || weightNum <= 0 || weightNum > 600)) errs.weight = 'El peso debe estar entre 0 y 600 kg.';
+    if (costNum < 0) errs.cost = 'El costo no puede ser negativo.';
+    setFieldErrors(errs);
+    if (Object.keys(errs).length) {
+      setSubmitTry((n) => n + 1);
       return;
     }
 
@@ -219,469 +218,354 @@ export const AnimalTraceabilityModal: React.FC<AnimalTraceabilityModalProps> = (
     setTimeout(() => setSuccessNotice(null), 3500);
   };
 
+  const eventDirty = showAddEventForm && !!(eventTitle.trim() || eventDescription.trim() || newWeightValue || eventCost);
+  const { requestClose, confirmDialog } = useBackClose(true, onClose, eventDirty);
+
+  const canSell = !!onRecordSlaughter && animal.healthStatus !== 'Matadero' && !animal.isSoldToSlaughter;
+  const canFarrow = !!onRecordFarrowing && animal.category === 'maternidad' && animal.healthStatus === 'Gestante';
+  const heads = animal.batchAnimalCount || 1;
+
+  const errAttrs = (k: 'title' | 'date' | 'weight' | 'cost', extra = '') => ({
+    'aria-invalid': !!fieldErrors[k],
+    'aria-describedby': fieldErrors[k] ? `trace-${k}-err` : undefined,
+    className: fieldClass(!!fieldErrors[k], extra),
+  });
+
   return (
     <div
       id="animal-traceability-modal-overlay"
-      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) requestClose();
+      }}
     >
       <div
         id="animal-traceability-card"
-        className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl border border-slate-200 my-auto flex flex-col max-h-[92vh]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="animal-trace-title"
+        className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[94vh]"
       >
-        {/* Header Profile Card */}
-        <div className="bg-slate-900 text-white p-4 shrink-0 relative overflow-hidden">
-          <div className="flex items-start justify-between relative z-10">
-            <div className="flex items-center gap-3">
-              <CategoryIcon category={iconCategoryOf(animal)} size="md" label={animal.code} className="border-2 border-emerald-500 shadow-md" />
-              <div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xl font-black font-mono tracking-tight text-white">
-                    {animal.code}
-                  </span>
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                    {animal.category.toUpperCase()}
-                  </span>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      animal.healthStatus === 'Optimo'
-                        ? 'bg-emerald-500/20 text-emerald-300'
-                        : animal.healthStatus === 'Gestante'
-                        ? 'bg-blue-500/20 text-blue-300'
-                        : animal.healthStatus === 'Lactante'
-                        ? 'bg-purple-500/20 text-purple-300'
-                        : 'bg-amber-500/20 text-amber-300'
-                    }`}
-                  >
-                    {animal.healthStatus}
-                  </span>
+        <ModalHeader
+          rubro="porcino"
+          icon={<CategoryIcon category={iconCategoryOf(animal)} size="sm" label={animal.code} />}
+          titleId="animal-trace-title"
+          title={<span className="font-mono">{animal.code}</span>}
+          subtitle={`${animal.category} · ${animal.healthStatus}${animal.origin ? ` · ${animal.origin === 'comprado' ? 'Comprado' : 'Nacido en la granja'}` : ''}`}
+          onClose={requestClose}
+        />
 
-                  {/* Origin tag */}
-                  {animal.origin && (
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        animal.origin === 'comprado'
-                          ? 'bg-blue-500/20 text-blue-300 border-blue-400/30'
-                          : 'bg-amber-500/20 text-amber-300 border-amber-400/30'
-                      }`}
-                    >
-                      {animal.origin === 'comprado' ? '🏷️ Comprado' : '🐣 Destetado en granja'}
-                    </span>
-                  )}
-
-                  {/* Requisito 1: Lote registrado de engorde */}
-                  {animal.category === 'engorde' && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-400/30 text-emerald-200 border border-emerald-400/50 flex items-center gap-1">
-                      <Users className="w-3 h-3 text-emerald-300" />
-                      {(animal.batchAnimalCount || 1) > 1 ? `Lote de ${animal.batchAnimalCount} animales` : 'Animal individual'}
-                    </span>
-                  )}
-                </div>
-
-                <p className="text-xs text-slate-300 mt-0.5">
-                  {animal.breed || 'Genética Porcina Certificada'} • {animal.stage || 'Etapa Productiva'}
-                </p>
-
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[11px] text-slate-300">
-                  {animal.category === 'engorde' && (
-                    <span className="flex items-center gap-1 font-bold text-emerald-300 bg-emerald-900/60 px-2 py-0.5 rounded-md border border-emerald-500/40">
-                      <Users className="w-3.5 h-3.5 text-emerald-300" /> {animal.batchAnimalCount || 1} {(animal.batchAnimalCount || 1) === 1 ? 'cerdo' : 'cerdos en el lote'}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1 font-semibold text-emerald-400">
-                    <Scale className="w-3.5 h-3.5" /> {animal.currentWeightKg} kg
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" /> Edad: <strong>{feedingInfo.ageText}</strong>
-                  </span>
-                  {animal.penLocation && (
-                    <span className="flex items-center gap-1 text-slate-300">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" /> {animal.penLocation}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1">
-                    <DollarSign className="w-3.5 h-3.5 text-slate-400" /> Costo: ${animal.accumulatedCostUsd}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* =========================================================================
-            REQUISITO 8: DETALLE DE EDAD, PESO ESPERADO, CONSUMO DIARIO Y ALIMENTO
-        ========================================================================= */}
-        {/* Plegado por defecto: una sola línea con lo esencial para dejar espacio a la trazabilidad */}
-        <div className="px-3 py-2 bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-emerald-50/80 border-b border-amber-200/90 shrink-0 space-y-2">
-          <button
-            type="button"
-            onClick={() => setShowNutrition((v) => !v)}
-            aria-expanded={showNutrition}
-            className="w-full flex items-center justify-between gap-2 text-left cursor-pointer"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs shrink-0">
-                <Utensils className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h4 className="font-black text-xs text-slate-900 truncate">Plan nutricional</h4>
-                <span className="text-[10px] text-slate-600 block truncate">
-                  {feedingInfo.stageName} • <strong>{feedingInfo.dailyConsumptionKg} kg/día</strong> • {feedingInfo.ageWeeks} sem.
+        <div className="flex-1 overflow-y-auto">
+          {/* Datos clave del animal */}
+          <div className="p-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {animal.category === 'engorde' && (
+              <div className="bg-slate-50 rounded-xl border border-slate-200 p-2.5">
+                <span className="text-xs text-slate-600 flex items-center gap-1">
+                  <Users className="w-4 h-4" aria-hidden="true" /> Cerdos
                 </span>
+                <strong className="text-base text-slate-900">{heads}</strong>
               </div>
-            </div>
-
-            <span className="flex items-center gap-1.5 shrink-0">
-            <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
-                isBelowWeight
-                  ? 'bg-amber-100 text-amber-900 border-amber-300'
-                  : isAboveWeight
-                  ? 'bg-blue-100 text-blue-900 border-blue-300'
-                  : 'bg-emerald-100 text-emerald-900 border-emerald-300'
-              }`}
-            >
-              {isBelowWeight ? '⚠️ Peso bajo' : isAboveWeight ? '📈 Sobrepeso' : '✅ Peso ideal'}
-            </span>
-            <span className="text-slate-500 text-xs font-bold">{showNutrition ? '▲' : '▼'}</span>
-            </span>
-          </button>
-
-          {/* 4 Key Metrics Grid */}
-          {showNutrition && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            {/* 1. Alimento Administrado */}
-            <div className="bg-white p-2 rounded-xl border border-amber-200/80 shadow-2xs">
-              <span className="text-[10px] text-slate-500 block font-semibold">Alimento Asignado</span>
-              <strong className="text-slate-900 font-bold text-[11px] block truncate" title={feedingInfo.feedName}>
-                {feedingInfo.feedName}
-              </strong>
-              <span className="text-[9px] text-amber-700 block mt-0.5">{feedingInfo.daysRange}</span>
-            </div>
-
-            {/* 2. Kilos diarios a consumir */}
-            <div className="bg-white p-2 rounded-xl border border-amber-200/80 shadow-2xs">
-              <span className="text-[10px] text-slate-500 block font-semibold">Consumo Diario</span>
-              <strong className="text-amber-900 font-black text-sm block">
-                {feedingInfo.dailyConsumptionKg} kg / día
-              </strong>
-              <span className="text-[9px] text-slate-500 block mt-0.5">
-                Total etapa: ~{feedingInfo.totalStageConsumptionKg} kg
-              </span>
-            </div>
-
-            {/* 3. Peso que debe tener según la etapa */}
-            <div className="bg-white p-2 rounded-xl border border-amber-200/80 shadow-2xs">
-              <span className="text-[10px] text-slate-500 block font-semibold">Peso Esperado (Etapa)</span>
-              <strong className="text-slate-900 font-black text-xs block">
-                {feedingInfo.expectedWeightRangeKg}
-              </strong>
-              <span className="text-[9px] text-slate-500 block mt-0.5">
-                Actual: <strong className="text-emerald-700">{animal.currentWeightKg} kg</strong>
-              </span>
-            </div>
-
-            {/* 4. Edad del Animal */}
-            <div className="bg-white p-2 rounded-xl border border-amber-200/80 shadow-2xs">
-              <span className="text-[10px] text-slate-500 block font-semibold">Edad Cronológica</span>
-              <strong className="text-slate-900 font-black text-xs block">
-                {feedingInfo.ageWeeks} semanas
-              </strong>
-              <span className="text-[9px] text-slate-500 block mt-0.5">
-                {feedingInfo.ageDays} días ({feedingInfo.ageMonths} meses)
-              </span>
-            </div>
-          </div>
-          )}
-        </div>
-
-        {/* Action & Filter Bar */}
-        <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
-          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-            <div className="relative flex-1">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-              <input
-                type="text"
-                placeholder="Buscar en trazabilidad..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-white rounded-xl border border-slate-200 text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="py-1.5 px-2.5 text-xs bg-white rounded-xl border border-slate-200 text-slate-700 font-semibold"
-            >
-              <option value="all">Todos los eventos</option>
-              <option value="pesaje">Pesajes</option>
-              <option value="vacunacion">Vacunas</option>
-              <option value="tratamiento">Tratamientos</option>
-              <option value="parto">Partos</option>
-              <option value="monta">Montas</option>
-              <option value="observacion">Observaciones</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {onRecordSlaughter && animal.healthStatus !== 'Matadero' && !animal.isSoldToSlaughter && (
-              <button
-                type="button"
-                onClick={onRecordSlaughter}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition-colors cursor-pointer shadow-xs"
-                title="Abrir formulario unificado de venta o salida a matadero"
-              >
-                <Truck className="w-3.5 h-3.5" />
-                <span>Vender / Matadero</span>
-              </button>
             )}
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-2.5">
+              <span className="text-xs text-slate-600 flex items-center gap-1">
+                <Scale className="w-4 h-4" aria-hidden="true" /> Peso
+              </span>
+              <strong className="text-base text-slate-900">{animal.currentWeightKg} kg</strong>
+            </div>
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-2.5">
+              <span className="text-xs text-slate-600 flex items-center gap-1">
+                <Clock className="w-4 h-4" aria-hidden="true" /> Edad
+              </span>
+              <strong className="text-base text-slate-900">{feedingInfo.ageText}</strong>
+            </div>
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-2.5">
+              <span className="text-xs text-slate-600 flex items-center gap-1">
+                <MapPin className="w-4 h-4" aria-hidden="true" /> Corral
+              </span>
+              <strong className="text-sm text-slate-900 block truncate">{animal.penLocation || '—'}</strong>
+            </div>
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-2.5">
+              <span className="text-xs text-slate-600 flex items-center gap-1">
+                <DollarSign className="w-4 h-4" aria-hidden="true" /> Costo
+              </span>
+              <strong className="text-base text-slate-900">${num(animal.accumulatedCostUsd).toFixed(2)}</strong>
+            </div>
+            <p className="col-span-2 sm:col-span-4 text-xs text-slate-600">
+              {animal.breed || 'Sin raza'}
+              {animal.stage ? ` · ${animal.stage}` : ''}
+            </p>
+          </div>
 
+          {/* Acciones principales */}
+          <div className="px-3 pb-3 grid grid-cols-2 gap-2">
+            <Btn rubro="porcino" icon={showAddEventForm ? <X /> : <Plus />} onClick={() => (showAddEventForm ? resetForm() : setShowAddEventForm(true))}>
+              {showAddEventForm ? 'Cancelar evento' : 'Agregar evento'}
+            </Btn>
+            {canFarrow ? (
+              <Btn variant="secondary" icon={<Heart />} onClick={onRecordFarrowing}>
+                Registrar parto
+              </Btn>
+            ) : canSell ? (
+              <Btn variant="secondary" icon={<Truck />} onClick={onRecordSlaughter}>
+                Vender
+              </Btn>
+            ) : null}
+            {canFarrow && canSell && (
+              <Btn variant="secondary" icon={<Truck />} onClick={onRecordSlaughter} className="col-span-2">
+                Vender
+              </Btn>
+            )}
+          </div>
+
+          {/* Alimentación (plegado: una línea con lo esencial) */}
+          <div className="mx-3 mb-3 rounded-2xl border border-amber-200 bg-amber-50">
             <button
               type="button"
-              onClick={() => setShowAddEventForm(!showAddEventForm)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl transition-colors cursor-pointer shadow-xs"
+              onClick={() => setShowNutrition((v) => !v)}
+              aria-expanded={showNutrition}
+              className="w-full min-h-12 px-3 py-2 flex items-center justify-between gap-2 text-left cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{showAddEventForm ? 'Cancelar' : 'Agregar Evento'}</span>
+              <span className="flex items-center gap-2 min-w-0">
+                <Utensils className="w-5 h-5 text-amber-800 shrink-0" aria-hidden="true" />
+                <span className="min-w-0">
+                  <span className="font-bold text-sm text-slate-900 block">Alimentación</span>
+                  <span className="text-xs text-slate-700 block truncate">
+                    {feedingInfo.stageName} · <strong>{feedingInfo.dailyConsumptionKg} kg/día</strong>
+                  </span>
+                </span>
+              </span>
+              <span className="flex items-center gap-1.5 shrink-0">
+                <span
+                  className={`text-xs font-bold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 ${
+                    isBelowWeight
+                      ? 'bg-amber-100 text-amber-900 border-amber-300'
+                      : isAboveWeight
+                      ? 'bg-blue-100 text-blue-900 border-blue-300'
+                      : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                  }`}
+                >
+                  {isBelowWeight ? (
+                    <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+                  ) : isAboveWeight ? (
+                    <TrendingUp className="w-3.5 h-3.5" aria-hidden="true" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                  )}
+                  {isBelowWeight ? 'Peso bajo' : isAboveWeight ? 'Sobrepeso' : 'Peso bien'}
+                </span>
+                <ChevronDown className={`w-5 h-5 text-slate-700 transition-transform ${showNutrition ? 'rotate-180' : ''}`} aria-hidden="true" />
+              </span>
             </button>
+            {showNutrition && (
+              <div className="grid grid-cols-2 gap-2 p-3 pt-0">
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200">
+                  <span className="text-xs text-slate-600 block">Alimento</span>
+                  <strong className="text-sm text-slate-900 block truncate">{feedingInfo.feedName}</strong>
+                  <span className="text-xs text-slate-600 block">{feedingInfo.daysRange}</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200">
+                  <span className="text-xs text-slate-600 block">Come por día</span>
+                  <strong className="text-sm text-slate-900 block">{feedingInfo.dailyConsumptionKg} kg</strong>
+                  <span className="text-xs text-slate-600 block">En la etapa: ~{feedingInfo.totalStageConsumptionKg} kg</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200">
+                  <span className="text-xs text-slate-600 block">Peso que debería tener</span>
+                  <strong className="text-sm text-slate-900 block">{feedingInfo.expectedWeightRangeKg}</strong>
+                  <span className="text-xs text-slate-600 block">Ahora: {animal.currentWeightKg} kg</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200">
+                  <span className="text-xs text-slate-600 block">Edad</span>
+                  <strong className="text-sm text-slate-900 block">{feedingInfo.ageWeeks} semanas</strong>
+                  <span className="text-xs text-slate-600 block">
+                    {feedingInfo.ageDays} días ({feedingInfo.ageMonths} meses)
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
 
-        {/* Success Alert */}
-        {successNotice && (
-          <div className="mx-4 mt-3 p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{successNotice}</span>
-          </div>
-        )}
-
-        {/* Modal Body / Timeline */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {/* Almacén del lote/cerdo: insumos asignados, compra directa y consumo */}
-          {supplyActions && isActiveAnimal(animal) && (
-            <AnimalSuppliesPanel animal={animal} items={warehouseItems || []} actions={supplyActions} />
+          {successNotice && (
+            <div role="status" className="mx-3 mb-3 p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-sm font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" aria-hidden="true" />
+              <span>{successNotice}</span>
+            </div>
           )}
 
-          {/* Add Trace Event Form Drawer */}
-          {showAddEventForm && (
-            <form
-              onSubmit={handleCreateEvent}
-              className="p-3.5 bg-emerald-50/60 rounded-2xl border border-emerald-200 space-y-2.5 text-xs animate-in fade-in"
-            >
-              <div className="flex items-center justify-between border-b border-emerald-200/80 pb-1.5">
-                <span className="font-bold text-emerald-950 flex items-center gap-1.5">
-                  <Activity className="w-4 h-4 text-emerald-700" /> Registrar Nuevo Evento de Trazabilidad
-                </span>
-                <span className="text-[10px] text-emerald-700 font-semibold">Animal: {animal.code}</span>
-              </div>
+          <div className="px-3 pb-4 space-y-3">
+            {/* Almacén del lote/cerdo: insumos asignados, compra directa y consumo */}
+            {supplyActions && isActiveAnimal(animal) && (
+              <AnimalSuppliesPanel animal={animal} items={warehouseItems || []} actions={supplyActions} />
+            )}
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-0.5">Tipo de Evento:</label>
-                  <select
-                    value={eventType}
-                    onChange={(e) => setEventType(e.target.value as AnimalTraceEvent['type'])}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-semibold"
-                  >
-                    <option value="pesaje">Pesaje de Control</option>
-                    <option value="vacunacion">Vacunación Sanitaria</option>
-                    <option value="tratamiento">Tratamiento Médico / Fármaco</option>
-                    <option value="monta">Monta / Inseminación</option>
-                    <option value="parto">Parto / Camada</option>
-                    <option value="traslado">Traslado de Galpón / Corral</option>
-                    <option value="observacion">Observación General</option>
-                  </select>
+            {/* Formulario de nuevo evento */}
+            {showAddEventForm && (
+              <form ref={formRef} onSubmit={handleCreateEvent} noValidate className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-3">
+                <h3 className="font-bold text-sm text-emerald-950 flex items-center gap-1.5">
+                  <Activity className="w-5 h-5 text-emerald-700" aria-hidden="true" /> Nuevo evento
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <FieldLabel htmlFor="trace-type">Qué pasó</FieldLabel>
+                    <select
+                      id="trace-type"
+                      value={eventType}
+                      onChange={(e) => setEventType(e.target.value as AnimalTraceEvent['type'])}
+                      className={inputClass}
+                    >
+                      <option value="pesaje">Pesaje</option>
+                      <option value="vacunacion">Vacuna</option>
+                      <option value="tratamiento">Tratamiento o medicina</option>
+                      <option value="monta">Monta</option>
+                      <option value="parto">Parto</option>
+                      <option value="traslado">Cambio de corral</option>
+                      <option value="observacion">Observación</option>
+                    </select>
+                  </div>
+                  <div>
+                    <FieldLabel htmlFor="trace-date">Fecha</FieldLabel>
+                    <input id="trace-date" type="date" max={todayISO()} value={eventDate} onChange={(e) => setEventDate(e.target.value)} {...errAttrs('date')} />
+                    <FieldError id="trace-date-err" error={fieldErrors.date} />
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-0.5">Fecha del Evento:</label>
+                  <FieldLabel htmlFor="trace-title">Título *</FieldLabel>
                   <input
-                    type="date"
-                    required
-                    max={todayISO()}
-                    value={eventDate}
-                    onChange={(e) => setEventDate(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900"
+                    id="trace-title"
+                    type="text"
+                    placeholder="Ej: Pesaje del lote, Vacuna Parvo…"
+                    value={eventTitle}
+                    onChange={(e) => setEventTitle(e.target.value)}
+                    {...errAttrs('title')}
                   />
+                  <FieldError id="trace-title-err" error={fieldErrors.title} />
                 </div>
-              </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-0.5">Título / Acción Realizada:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Pesaje de lote, Inyección de Complejo B, Vacuna Parvo..."
-                  value={eventTitle}
-                  onChange={(e) => setEventTitle(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
                 {eventType === 'pesaje' ? (
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-0.5">Nuevo Peso Registrado (kg):</label>
+                    <FieldLabel htmlFor="trace-weight" hint="Si escribes el peso, se actualiza el animal.">
+                      Nuevo peso (kg)
+                    </FieldLabel>
                     <input
+                      id="trace-weight"
                       type="number"
+                      inputMode="decimal"
                       step="0.1"
                       min="0"
                       max="600"
-                      placeholder={`Actual: ${animal.currentWeightKg} kg`}
+                      placeholder={`Ahora: ${animal.currentWeightKg} kg`}
                       value={newWeightValue}
                       onChange={(e) => setNewWeightValue(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-bold"
+                      {...errAttrs('weight', 'font-bold')}
                     />
+                    <FieldError id="trace-weight-err" error={fieldErrors.weight} />
                   </div>
                 ) : (
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-0.5">Costo Asociado ($ USD):</label>
+                    <FieldLabel htmlFor="trace-cost" hint="Se suma al costo del animal (no es un gasto en el Balance).">
+                      Costo ($)
+                    </FieldLabel>
                     <input
+                      id="trace-cost"
                       type="number"
+                      inputMode="decimal"
                       step="0.01"
                       min="0"
                       placeholder="0.00"
                       value={eventCost}
                       onChange={(e) => setEventCost(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900"
+                      {...errAttrs('cost')}
                     />
+                    <FieldError id="trace-cost-err" error={fieldErrors.cost} />
                   </div>
                 )}
-                <div className="text-[10px] text-slate-500 self-end pb-1">
-                  {eventType === 'pesaje'
-                    ? 'Con peso: se actualiza el animal y se registra el pesaje en una sola operación.'
-                    : 'El costo se imputa al animal (no genera egreso en el balance).'}
-                </div>
-              </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-0.5">Detalles / Procedimiento / Observaciones:</label>
-                <textarea
-                  rows={2}
-                  placeholder="Descripción detallada de la acción realizada al animal..."
-                  value={eventDescription}
-                  onChange={(e) => setEventDescription(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900"
-                />
-              </div>
-
-              {formError && (
-                <div className="p-2 bg-rose-100 border border-rose-300 rounded-lg text-[11px] font-bold text-rose-800">
-                  {formError}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-1">
-                <div className="w-1/2">
-                  <label className="block text-[10px] text-slate-500 font-semibold">Responsable:</label>
-                  <input
-                    type="text"
-                    value={eventResponsible}
-                    placeholder="Nombre o rol"
-                    onChange={(e) => setEventResponsible(e.target.value)}
-                    className="w-full px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-900"
+                <div>
+                  <FieldLabel htmlFor="trace-desc">Detalles (opcional)</FieldLabel>
+                  <textarea
+                    id="trace-desc"
+                    rows={2}
+                    value={eventDescription}
+                    onChange={(e) => setEventDescription(e.target.value)}
+                    className={`${inputClass} py-2`}
                   />
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={resetForm}
-                    className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded-xl font-semibold"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white rounded-xl font-bold shadow-xs cursor-pointer"
-                  >
-                    {isSaving ? 'Guardando...' : 'Guardar en Historial'}
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
 
-          {/* Timeline Feed */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs text-slate-500 font-semibold px-1">
-              <span>Línea de Tiempo de Trazabilidad ({filteredEvents.length} eventos)</span>
-              <span className="text-[11px] text-slate-400">Más recientes primero</span>
+                <div>
+                  <FieldLabel htmlFor="trace-resp">Quién lo hizo (opcional)</FieldLabel>
+                  <input id="trace-resp" type="text" value={eventResponsible} placeholder="Nombre" onChange={(e) => setEventResponsible(e.target.value)} className={inputClass} />
+                </div>
+
+                <ErrorBox error={formError} />
+
+                <Btn type="submit" rubro="porcino" size="lg" block disabled={isSaving}>
+                  {isSaving ? 'Guardando…' : 'Guardar evento'}
+                </Btn>
+              </form>
+            )}
+
+            {/* Historial */}
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 pt-1">
+              <History className="w-5 h-5 text-slate-700" aria-hidden="true" /> Historial ({filteredEvents.length})
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="relative col-span-2 sm:col-span-1">
+                <Search className="w-5 h-5 text-slate-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Buscar en el historial"
+                  placeholder="Buscar en el historial"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className={`${inputClass} pl-10`}
+                />
+              </div>
+              <select aria-label="Tipo de evento" value={filterType} onChange={(e) => setFilterType(e.target.value)} className={`${inputClass} col-span-2 sm:col-span-1`}>
+                <option value="all">Todos los eventos</option>
+                <option value="pesaje">Pesajes</option>
+                <option value="vacunacion">Vacunas</option>
+                <option value="tratamiento">Tratamientos</option>
+                <option value="parto">Partos</option>
+                <option value="monta">Montas</option>
+                <option value="observacion">Observaciones</option>
+              </select>
             </div>
 
             {filteredEvents.length === 0 ? (
-              <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-500 text-xs">
-                No hay eventos registrados en este criterio de búsqueda.
+              <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-slate-600 text-sm">
+                No hay eventos con este filtro.
               </div>
             ) : (
-              filteredEvents.map((ev, index) => {
-                const badge = getEventBadge(ev.type);
-                const IconComponent = badge.icon;
-
-                return (
-                  <div
-                    key={ev.id || index}
-                    className="relative pl-6 pb-2 before:absolute before:left-2.5 before:top-3 before:bottom-0 before:w-0.5 before:bg-slate-200 last:before:hidden"
-                  >
-                    {/* Timeline Node Dot */}
-                    <div className="absolute left-0 top-1 w-5 h-5 rounded-full bg-white border-2 border-emerald-600 flex items-center justify-center shadow-xs">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                    </div>
-
-                    <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-all space-y-1.5">
+              <ol className="space-y-2">
+                {filteredEvents.map((ev, index) => {
+                  const badge = getEventBadge(ev.type);
+                  const IconComponent = badge.icon;
+                  return (
+                    <li key={ev.id || index} className="bg-white p-3 rounded-2xl border border-slate-200 space-y-1">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${badge.bg}`}
-                          >
-                            <IconComponent className="w-3 h-3" /> {badge.label}
-                          </span>
-                          <h4 className="font-bold text-xs text-slate-900">{ev.title}</h4>
-                        </div>
-                        <span className="text-[10px] font-mono font-bold text-slate-500">
-                          {ev.date}
+                        <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-md border ${badge.bg}`}>
+                          <IconComponent className="w-3.5 h-3.5" aria-hidden="true" /> {badge.label}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-700 inline-flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5" aria-hidden="true" /> {ev.date}
                         </span>
                       </div>
-
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        {ev.description}
-                      </p>
-
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
-                        <span>Resp: <strong>{ev.responsible || 'Personal de Granja'}</strong></span>
-                        {ev.costUsd && (
-                          <span className="font-semibold text-emerald-700">
-                            Costo: ${ev.costUsd.toFixed(2)} USD
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
+                      <h4 className="font-bold text-sm text-slate-900">{ev.title}</h4>
+                      {ev.description && <p className="text-sm text-slate-700 leading-snug">{ev.description}</p>}
+                      {(ev.responsible || ev.costUsd) && (
+                        <div className="flex items-center justify-between text-xs text-slate-600 pt-1">
+                          <span>{ev.responsible ? `Por: ${ev.responsible}` : ''}</span>
+                          {ev.costUsd ? <span className="font-semibold text-emerald-800">Costo: ${ev.costUsd.toFixed(2)}</span> : null}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
             )}
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="bg-slate-50 p-3.5 border-t border-slate-200 flex items-center justify-between text-xs shrink-0">
-          <div className="flex items-center gap-1.5 text-slate-600 text-[11px]">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Trazabilidad auditada y registrada en el sistema pecuario</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-colors cursor-pointer"
-          >
-            Cerrar Ficha
-          </button>
-        </div>
+        {confirmDialog}
       </div>
     </div>
   );

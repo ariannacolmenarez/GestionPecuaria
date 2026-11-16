@@ -43,13 +43,13 @@ import {
   DatePill,
   Donut,
   EmptyState,
-  ErrorBox,
   FieldRow,
   FOCUS,
   KpiTile,
   NumberInput,
   parseNum,
   PrimaryButton,
+  SectionLabel,
   SegmentedTabs,
   shortDate,
   longDate,
@@ -98,7 +98,7 @@ const ResumenPanel: React.FC<{ lot: AvicolaLot; onGoToSanidad: () => void }> = (
   const segs = [
     { label: 'En galpón', value: birds.inShed, color: '#10b981' },
     { label: 'Bajas', value: birds.deaths, color: '#f43f5e' },
-    { label: 'Sacrificados', value: birds.delivered, color: '#f59e0b' },
+    { label: 'Entregados', value: birds.delivered, color: '#f59e0b' },
   ];
   const topClients = useMemo(() => {
     const m = new Map<string, { name: string; birds: number; total: number }>();
@@ -125,13 +125,13 @@ const ResumenPanel: React.FC<{ lot: AvicolaLot; onGoToSanidad: () => void }> = (
         <Donut segments={segs} size={120} />
         <div className="min-w-0 flex-1">
           <p className="text-3xl font-black tabular-nums text-slate-900">{num(birds.initial)}</p>
-          <p className="text-[11px] text-slate-500 mb-2">Total</p>
+          <p className="text-xs text-slate-600 mb-2">Total</p>
           {segs.map((s) => (
             <p key={s.label} className="flex items-center gap-1.5 text-xs py-0.5">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
               <span className="flex-1 text-slate-700">{s.label}</span>
               <strong className="tabular-nums">{num(s.value)}</strong>
-              <span className="text-[10px] bg-slate-100 text-slate-600 rounded px-1">{Math.round((s.value / total) * 100)}%</span>
+              <span className="text-xs bg-slate-100 text-slate-600 rounded px-1">{Math.round((s.value / total) * 100)}%</span>
             </p>
           ))}
         </div>
@@ -141,12 +141,12 @@ const ResumenPanel: React.FC<{ lot: AvicolaLot; onGoToSanidad: () => void }> = (
           ['Iniciados', birds.initial, 'bg-slate-100 border-slate-300 text-slate-800', <Egg key="a" className="w-4 h-4 mx-auto" />],
           ['En galpón', birds.inShed, 'bg-emerald-50 border-emerald-200 text-emerald-700', <Home key="b" className="w-4 h-4 mx-auto" />],
           ['Bajas', birds.deaths, 'bg-rose-50 border-rose-200 text-rose-600', <TrendingDown key="c" className="w-4 h-4 mx-auto" />],
-          ['Sacrificados', birds.delivered, 'bg-amber-50 border-amber-200 text-amber-700', <Truck key="d" className="w-4 h-4 mx-auto" />],
+          ['Entregados', birds.delivered, 'bg-amber-50 border-amber-200 text-amber-700', <Truck key="d" className="w-4 h-4 mx-auto" />],
         ].map(([l, v, cls, icon]) => (
           <div key={l as string} className={`rounded-xl border p-2 text-center ${cls}`}>
             {icon}
             <p className="text-base font-black tabular-nums">{num(v as number)}</p>
-            <p className="text-[10px] leading-tight break-words">{l}</p>
+            <p className="text-xs leading-tight break-words">{l}</p>
           </div>
         ))}
       </div>
@@ -160,7 +160,7 @@ const ResumenPanel: React.FC<{ lot: AvicolaLot; onGoToSanidad: () => void }> = (
           ['Encargos pendientes', String(fin.ordersCount), <Package key="d" className="w-4 h-4 text-violet-600" />],
         ].map(([l, v, icon]) => (
           <div key={l as string} className={`${CARD} p-3`}>
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <div className="flex items-center gap-1.5 text-xs text-slate-600">
               {icon}
               {l}
             </div>
@@ -174,7 +174,7 @@ const ResumenPanel: React.FC<{ lot: AvicolaLot; onGoToSanidad: () => void }> = (
           {topClients.map((c) => (
             <p key={c.name} className="flex justify-between text-xs py-1">
               <span className="truncate">{c.name}</span>
-              <span className="text-slate-500 shrink-0">
+              <span className="text-slate-600 shrink-0">
                 {c.birds} pollos · <strong className="text-slate-900">{usd(c.total)}</strong>
               </span>
             </p>
@@ -248,7 +248,7 @@ const ReportesPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
   ];
 
   const text = () =>
-    [`Resumen ${lot.name} (día ${rep.day}, ${rep.stage})`, ...rows.map(([k, v]) => `${k}: ${v}`), `Mortalidad: ${pct(rep.mortalityPercent)}`, `Costo por pollo: ${usd(rep.costPerBird)}`, rep.feedConversion !== null ? `Conversión: ${rep.feedConversion}` : '']
+    [`Resumen ${lot.name} (día ${rep.day}, ${rep.stage})`, ...rows.map(([k, v]) => `${k}: ${v}`), `Mortalidad: ${pct(rep.mortalityPercent)}`, `Costo por pollo: ${usd(rep.costPerBird)}`, rep.feedConversion !== null ? `Kg de alimento por kg de pollo: ${rep.feedConversion}` : '']
       .filter(Boolean)
       .join('\n');
 
@@ -291,27 +291,27 @@ const ReportesPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
     <div className="space-y-3">
       {empty && <p className="text-xs bg-slate-50 border border-slate-200 rounded-2xl p-3 text-slate-600">Los indicadores se llenan a medida que registras ventas, gastos, bajas y pesajes.</p>}
       <div className="grid grid-cols-2 gap-2">
-        <KpiTile label="Mortalidad" value={b.initial ? pct(rep.mortalityPercent) : '—'} hint="Bajas ÷ iniciados" status={rep.mortalityPercent <= 5 ? 'good' : rep.mortalityPercent <= 8 ? 'warn' : 'bad'} />
-        <KpiTile label="Viabilidad" value={b.initial ? pct(rep.viabilityPercent) : '—'} />
+        <KpiTile label="Mortalidad" value={b.initial ? pct(rep.mortalityPercent) : '—'} hint="De los pollos que entraron" status={rep.mortalityPercent <= 5 ? 'good' : rep.mortalityPercent <= 8 ? 'warn' : 'bad'} />
+        <KpiTile label="Pollos que viven" value={b.initial ? pct(rep.viabilityPercent) : '—'} hint="Iniciados que no murieron" />
         <KpiTile label="Costo por pollo" value={rep.costPerBird ? usd(rep.costPerBird) : '—'} hint={rep.costPerLiveBird ? `Por pollo vivo: ${usd(rep.costPerLiveBird)}` : undefined} />
-        <KpiTile label="Ingreso por pollo vendido" value={rep.incomePerBird ? usd(rep.incomePerBird) : '—'} />
-        <KpiTile label="Utilidad del lote" value={f.incomesTotal || f.expensesTotal ? usd(rep.utility) : '—'} hint={rep.utilityPerBird ? `${usd(rep.utilityPerBird)} por pollo` : undefined} status={f.incomesTotal || f.expensesTotal ? (rep.utility >= 0 ? 'good' : 'bad') : undefined} />
-        <KpiTile label="Margen" value={f.incomesTotal ? pct(rep.marginPercent) : '—'} hint="Utilidad ÷ ingresos" />
+        <KpiTile label="Venta por pollo" value={rep.incomePerBird ? usd(rep.incomePerBird) : '—'} />
+        <KpiTile label="Ganancia del lote" value={f.incomesTotal || f.expensesTotal ? usd(rep.utility) : '—'} hint={rep.utilityPerBird ? `${usd(rep.utilityPerBird)} por pollo` : undefined} status={f.incomesTotal || f.expensesTotal ? (rep.utility >= 0 ? 'good' : 'bad') : undefined} />
+        <KpiTile label="% de ganancia" value={f.incomesTotal ? pct(rep.marginPercent) : '—'} hint="De cada $100 que entran, lo que queda" />
         <KpiTile label="Peso último pesaje" value={rep.lastWeightG ? fmtW(rep.lastWeightG) : '—'} hint={`Ideal hoy: ${fmtW(rep.idealWeightG)}`} />
         <KpiTile
-          label="Conversión alimenticia"
+          label="Alimento por kg"
           value={rep.feedConversion !== null ? num(rep.feedConversion, 2) : '—'}
-          hint={rep.feedConversion !== null ? `${num(rep.feedKg, 1)} kg alimento` : 'Registra alimento en Gastos y peso en Pesos'}
+          hint={rep.feedConversion !== null ? `kg de alimento por cada kg de pollo (${num(rep.feedKg, 1)} kg en total)` : 'Registra alimento en Gastos y peso en Pesos'}
         />
         <KpiTile label="Días en producción" value={`${Math.max(0, rep.day)} / ${lot.productionDays}`} />
-        <KpiTile label="Cumplimiento sanitario" value={due.length ? `${compliance}%` : '—'} hint={due.length ? `${done} de ${due.length} actividades` : undefined} status={due.length ? (compliance >= 90 ? 'good' : compliance >= 70 ? 'warn' : 'bad') : undefined} />
+        <KpiTile label="Cuidados al día" value={due.length ? `${compliance}%` : '—'} hint={due.length ? `${done} de ${due.length} actividades` : undefined} status={due.length ? (compliance >= 90 ? 'good' : compliance >= 70 ? 'warn' : 'bad') : undefined} />
       </div>
       <div className={`${CARD} overflow-hidden`}>
         <table className="w-full text-xs">
           <tbody>
             {rows.map(([k, v]) => (
               <tr key={k} className="border-b border-slate-100 last:border-b-0">
-                <td className="py-2 px-3 text-slate-500">{k}</td>
+                <td className="py-2 px-3 text-slate-600">{k}</td>
                 <td className="py-2 px-3 text-right font-semibold text-slate-900 tabular-nums">{v}</td>
               </tr>
             ))}
@@ -376,23 +376,23 @@ const BodegaPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
         <h4 className="text-base font-bold text-slate-900">Insumos del galpón</h4>
         <div className="flex gap-2">
           {openWarehouse && (
-            <button onClick={openWarehouse} className={`h-10 px-3 rounded-xl bg-amber-50 text-amber-800 font-bold text-sm ${FOCUS}`}>
+            <button onClick={openWarehouse} className={`h-11 px-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 font-bold text-sm ${FOCUS}`}>
               Abrir almacén
             </button>
           )}
-          <button onClick={() => setAdding(true)} aria-label="Agregar insumo" className={`h-10 w-10 rounded-xl bg-slate-900 text-white flex items-center justify-center ${FOCUS}`}>
-            <Plus className="w-5 h-5" />
+          <button onClick={() => setAdding(true)} className={`h-11 px-3 rounded-xl bg-slate-900 text-white font-bold text-sm flex items-center gap-1 ${FOCUS}`}>
+            <Plus className="w-5 h-5" aria-hidden="true" /> Insumo
           </button>
         </div>
       </div>
-      <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1">
+      <div className="flex flex-wrap gap-2">
         {([
           ['', 'Todos'],
           ['alimentos', 'Alimento'],
           ['medicinas', 'Medicinas y vacunas'],
           ['otros', 'Otros'],
         ] as const).map(([k, l]) => (
-          <button key={k || 'all'} onClick={() => setCat(k)} className={`h-10 px-4 rounded-full border text-sm font-semibold shrink-0 ${cat === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700'} ${FOCUS}`}>
+          <button key={k || 'all'} onClick={() => setCat(k)} aria-pressed={cat === k} className={`h-11 px-4 rounded-full border text-sm font-semibold shrink-0 ${cat === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-300 text-slate-800'} ${FOCUS}`}>
             {l}
           </button>
         ))}
@@ -412,7 +412,7 @@ const BodegaPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
           title="No hay insumos avícolas en el almacén"
           hint="Agrega alimento, vacunas o vitaminas para descontarlos al usarlos en el lote."
           action={
-            <button onClick={() => setAdding(true)} className={`h-10 px-4 rounded-xl bg-slate-900 text-white text-sm font-bold ${FOCUS}`}>
+            <button onClick={() => setAdding(true)} className={`h-11 px-4 rounded-xl bg-slate-900 text-white text-sm font-bold ${FOCUS}`}>
               Agregar insumo
             </button>
           }
@@ -426,18 +426,18 @@ const BodegaPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
               <span className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">{CAT_ICON[i.category]}</span>
               <div className="min-w-0 flex-1">
                 <p className="font-bold text-sm text-slate-900 truncate">
-                  {i.name} {i.loteId === lot.id && <span className="text-[10px] font-bold text-amber-700">· de este lote</span>}
+                  {i.name} {i.loteId === lot.id && <span className="text-xs font-bold text-amber-700">· de este lote</span>}
                 </p>
                 <p className="text-xs text-slate-600">
                   Quedan {num(i.quantity, 2)} {i.unit}
-                  {critical && <span className="ml-1 text-[10px] font-bold px-1.5 rounded-full bg-rose-100 text-rose-800">Crítico</span>}
+                  {critical && <span className="ml-1 text-xs font-bold px-1.5 rounded-full bg-rose-100 text-rose-800">Crítico</span>}
                 </p>
                 <div className="h-1 bg-slate-100 rounded-full mt-1">
                   <div className={`h-full rounded-full ${critical ? 'bg-rose-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
                 </div>
               </div>
               {active && (
-                <button onClick={() => setUsing(i)} disabled={i.quantity <= 0} className={`h-10 px-3 rounded-xl bg-slate-100 text-slate-800 font-bold text-sm disabled:opacity-40 ${FOCUS}`}>
+                <button onClick={() => setUsing(i)} disabled={i.quantity <= 0} className={`h-11 px-4 rounded-xl bg-slate-100 border border-slate-300 text-slate-900 font-bold text-sm disabled:opacity-40 ${FOCUS}`}>
                   Usar
                 </button>
               )}
@@ -447,7 +447,7 @@ const BodegaPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
       )}
       {consumptions.length > 0 && (
         <div className={`${CARD} p-3`}>
-          <p className="text-xs font-bold text-slate-700 mb-1">Consumos imputados a {lot.name}</p>
+          <p className="text-xs font-bold text-slate-700 mb-1">Insumos usados en {lot.name}</p>
           {consumptions.map((e) => (
             <p key={e.id} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-b-0">
               <span className="truncate">
@@ -464,34 +464,100 @@ const BodegaPanel: React.FC<{ lot: AvicolaLot }> = ({ lot }) => {
   );
 };
 
-const ConsumoSheet: React.FC<{ lot: AvicolaLot; item: WarehouseItem; onClose: () => void }> = ({ lot, item, onClose }) => {
+/**
+ * Descontar un insumo del almacén para el lote (Bodega › Usar y Control › "Alimento dado").
+ * `hint`: recordatorio opcional (p. ej. cuánto les toca hoy); no cambia lo que se guarda.
+ */
+export const ConsumoSheet: React.FC<{ lot: AvicolaLot; item: WarehouseItem; onClose: () => void; title?: string; hint?: React.ReactNode }> = ({ lot, item, onClose, title, hint }) => {
   const { actions, today } = useAvicola();
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(today);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const a = parseNum(amount);
+  const over = a > item.quantity;
   const save = () => {
-    if (!(a > 0) || a > item.quantity) return setError(`La cantidad debe estar entre 0 y ${item.quantity} ${item.unit}.`);
+    setAttempt((n) => n + 1);
+    if (!(a > 0) || over) return setError(`La cantidad debe estar entre 0 y ${item.quantity} ${item.unit}.`);
     const r = actions.consumeWarehouseForLot({ loteId: lot.id, itemId: item.id, amount: a, date, notes: notes.trim() || undefined });
     if (!r.ok) return setError(r.error);
     onClose();
   };
   return (
-    <BottomSheet title={`Usar ${item.name}`} subtitle={`Destino: ${lot.name} · quedan ${item.quantity} ${item.unit}`} icon={CAT_ICON[item.category]} onClose={onClose} footer={
-      <PrimaryButton tone="slate" onClick={save} className="w-full">
-        Registrar consumo
-      </PrimaryButton>
-    }>
-      <ErrorBox error={error} />
-      <FieldRow label={`Cantidad (${item.unit})`} hint={a > 0 ? `Costo ${usd(a * item.unitCostUsd)}` : undefined}>
-        <NumberInput value={amount} onChange={setAmount} decimal invalid={a > item.quantity} />
+    <BottomSheet
+      title={title || `Usar ${item.name}`}
+      subtitle={`${title ? `${item.name} · ` : ''}${lot.name} · quedan ${num(item.quantity, 2)} ${item.unit}`}
+      icon={CAT_ICON[item.category]}
+      onClose={onClose}
+      dirty={!!(amount || notes.trim())}
+      error={error}
+      errorKey={attempt}
+      footer={
+        <PrimaryButton tone="slate" onClick={save} className="w-full">
+          Registrar consumo
+        </PrimaryButton>
+      }
+    >
+      {hint && <div className="text-sm bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-3">{hint}</div>}
+      <FieldRow label={`Cantidad (${item.unit})`} hint={a > 0 ? `Costo ${usd(a * item.unitCostUsd)}` : undefined} error={error && (!(a > 0) || over) ? 'Revisa la cantidad' : null}>
+        <NumberInput id="consumo-cantidad" value={amount} onChange={setAmount} decimal invalid={over || (!!error && !(a > 0))} autoFocus />
       </FieldRow>
       <FieldRow label="Fecha">
         <DatePill value={date} onChange={setDate} max={today} />
       </FieldRow>
       <TextInput ariaLabel="Notas" value={notes} onChange={setNotes} placeholder="Notas (opcional)" />
-      <p className="text-[10px] text-slate-500">Se descuenta del almacén y se suma a Gastos del lote.</p>
+      <p className="text-xs text-slate-600">Se descuenta del almacén y se suma a Gastos del lote.</p>
+    </BottomSheet>
+  );
+};
+
+/**
+ * "Alimento dado" (Control del lote): elige el alimento del almacén y reutiliza ConsumoSheet,
+ * el mismo camino de datos que Gestión › Bodega › Usar.
+ */
+export const AlimentoDadoSheet: React.FC<{ lot: AvicolaLot; onClose: () => void; onGoToBodega?: () => void; hint?: React.ReactNode }> = ({ lot, onClose, onGoToBodega, hint }) => {
+  const { warehouseItems } = useAvicola();
+  const feeds = useMemo(
+    () => avicolaWarehouseItems(warehouseItems, lot.id).filter((i) => i.category === 'alimentos' && i.quantity > 0),
+    [warehouseItems, lot.id]
+  );
+  const [picked, setPicked] = useState<WarehouseItem | null>(null);
+  const item = picked || (feeds.length === 1 ? feeds[0] : null);
+  if (item) return <ConsumoSheet lot={lot} item={item} title="Alimento dado" hint={hint} onClose={onClose} />;
+  return (
+    <BottomSheet title="Alimento dado" subtitle={`${lot.name} · ¿qué alimento les diste?`} icon={<Wheat className="w-5 h-5" />} iconClass="bg-emerald-50 text-emerald-800" onClose={onClose}>
+      {hint && <div className="text-sm bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-3">{hint}</div>}
+      {feeds.length === 0 ? (
+        <EmptyState
+          icon={<Wheat className="w-7 h-7" />}
+          title="No hay alimento en el almacén"
+          hint="Agrega el alimento en Gestión › Bodega para poder descontarlo al dárselo a los pollos."
+          action={
+            onGoToBodega ? (
+              <button onClick={onGoToBodega} className={`h-12 px-5 rounded-xl bg-slate-900 text-white text-sm font-bold ${FOCUS}`}>
+                Ir a Bodega
+              </button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <ul className="space-y-2">
+          {feeds.map((i) => (
+            <li key={i.id}>
+              <button onClick={() => setPicked(i)} className={`w-full min-h-14 p-3 rounded-2xl border border-slate-300 bg-white text-left flex items-center gap-3 hover:bg-slate-50 ${FOCUS}`}>
+                <span className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">{CAT_ICON.alimentos}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base font-bold text-slate-900 truncate">{i.name}</span>
+                  <span className="block text-sm text-slate-700">
+                    Quedan {num(i.quantity, 2)} {i.unit}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </BottomSheet>
   );
 };
@@ -510,10 +576,20 @@ const InsumoSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ lot, 
   const [error, setError] = useState<string | null>(null);
   const q = parseNum(qty);
   const c = parseNum(cost) || 0;
+  const [attempt, setAttempt] = useState(0);
+  const [bad, setBad] = useState<'name' | 'qty' | null>(null);
   const save = () => {
     setError(null);
-    if (!name.trim()) return setError('Escribe el nombre del insumo.');
-    if (!(q > 0)) return setError('La cantidad debe ser mayor a 0.');
+    setBad(null);
+    setAttempt((n) => n + 1);
+    if (!name.trim()) {
+      setBad('name');
+      return setError('Escribe el nombre del insumo.');
+    }
+    if (!(q > 0)) {
+      setBad('qty');
+      return setError('La cantidad debe ser mayor a 0.');
+    }
     const r = actions.addWarehouseItem({
       item: {
         name: name.trim(),
@@ -533,14 +609,29 @@ const InsumoSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ lot, 
     onClose();
   };
   return (
-    <BottomSheet title="Agregar insumo avícola" subtitle="Bodega del galpón" icon={<Archive className="w-5 h-5" />} onClose={onClose} footer={
-      <PrimaryButton tone="amber" onClick={save} className="w-full">
-        Guardar insumo
-      </PrimaryButton>
-    }>
-      <ErrorBox error={error} />
-      <TextInput ariaLabel="Nombre del insumo" value={name} onChange={setName} placeholder="Ej: Iniciador 40 kg / Vacuna Gumboro" maxLength={60} />
+    <BottomSheet
+      title="Agregar insumo avícola"
+      subtitle="Bodega del galpón"
+      icon={<Archive className="w-5 h-5" />}
+      onClose={onClose}
+      dirty={!!(name.trim() || qty || cost || min)}
+      error={error}
+      errorKey={attempt}
+      footer={
+        <PrimaryButton tone="amber" onClick={save} className="w-full">
+          Guardar insumo
+        </PrimaryButton>
+      }
+    >
+      <div className="space-y-1">
+        <label htmlFor="insumo-nombre" className="text-sm font-semibold text-slate-900">
+          Nombre del insumo
+        </label>
+        <TextInput id="insumo-nombre" value={name} onChange={setName} placeholder="Ej: Iniciador 40 kg / Vacuna Gumboro" maxLength={60} invalid={bad === 'name'} />
+      </div>
+      <SectionLabel label="Tipo de insumo" />
       <ChipGroup
+        ariaLabel="Tipo de insumo"
         value={category}
         onChange={(k) => {
           setCategory(k);
@@ -552,27 +643,29 @@ const InsumoSheet: React.FC<{ lot: AvicolaLot; onClose: () => void }> = ({ lot, 
           { key: 'otros', label: 'Otros' },
         ]}
       />
+      <SectionLabel label="Unidad" />
       <ChipGroup
+        ariaLabel="Unidad"
         value={unit}
         onChange={setUnit}
         options={(['bultos (40kg)', 'kg', 'g', 'unidades', 'litros', 'ml'] as WarehouseItem['unit'][]).map((u) => ({ key: u, label: WAREHOUSE_UNIT_LABEL[u] || u }))}
       />
       <div>
         <FieldRow label={`Cantidad (${unit})`}>
-          <NumberInput value={qty} onChange={setQty} decimal />
+          <NumberInput id="insumo-cantidad" value={qty} onChange={setQty} decimal invalid={bad === 'qty'} />
         </FieldRow>
         <FieldRow label="Costo por unidad" hint={q > 0 && c > 0 ? `Total ${usd(q * c)}` : undefined}>
-          <NumberInput value={cost} onChange={setCost} decimal />
+          <NumberInput id="insumo-costo" value={cost} onChange={setCost} decimal />
         </FieldRow>
-        <FieldRow label="Alerta si quedan menos de">
-          <NumberInput value={min} onChange={setMin} decimal />
+        <FieldRow label="Avisarme si quedan menos de">
+          <NumberInput id="insumo-minimo" value={min} onChange={setMin} decimal />
         </FieldRow>
         <FieldRow label="Fecha de compra">
           <DatePill value={date} onChange={setDate} max={today} />
         </FieldRow>
       </div>
       <Toggle checked={onlyLot} onChange={setOnlyLot} label={`Solo para ${lot.name}`} hint="Si lo desactivas, queda disponible para todos los lotes." />
-      <Toggle checked={purchase} onChange={setPurchase} label="Registrar la compra como egreso" hint="Se registra el egreso de la compra en el balance de la granja; al usarlo se imputa al lote." />
+      <Toggle checked={purchase} onChange={setPurchase} label="Anotar la compra como gasto" hint="La compra se suma a los gastos de la granja; al usarlo se carga a este lote." />
     </BottomSheet>
   );
 };

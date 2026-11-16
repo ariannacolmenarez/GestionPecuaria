@@ -268,7 +268,7 @@ export default function BalanceBovino({ screen }: StageBProps) {
                   {f.kind === 'liquidacion' ? '' : isIn ? '+' : '−'}
                   {showLocal && f.money.local !== undefined && f.money.currency ? `${num(f.money.local, 2)} ${f.money.currency}` : usd(f.money.usd)}
                 </span>
-                <button type="button" aria-label="Eliminar registro" onClick={() => setDel(f)} className={`w-11 h-11 rounded-xl flex items-center justify-center text-rose-700 ${FOCUS_B}`}>
+                <button type="button" aria-label="Eliminar registro" onClick={() => setDel(f)} className={`w-12 h-12 rounded-xl flex items-center justify-center text-rose-700 ${FOCUS_B}`}>
                   <Trash2 className="w-5 h-5" />
                 </button>
               </li>
@@ -281,15 +281,18 @@ export default function BalanceBovino({ screen }: StageBProps) {
       {sheet === 'gasto' && <GastoSheet onClose={() => setSheet(null)} />}
       {sheet && typeof sheet === 'object' && <VentaGanadoSheet animalIds={sheet.venta} onClose={() => setSheet(null)} />}
       {del && (
-        <BottomSheet title="Eliminar registro" subtitle={`${label(del)} · ${usd(del.money.usd)}`} icon={<Trash2 className="w-5 h-5" />} iconClass="bg-rose-100 text-rose-700" onClose={() => setDel(null)}>
-          <div className="space-y-3">
-            <p className="text-sm text-slate-900">
-              {del.kind === 'liquidacion' ? 'El lote vuelve a quedar abierto.' : del.kind === 'ingreso' && (del as BovinoIncome).animalIds?.length ? 'Los animales vendidos vuelven a quedar activos.' : 'También se elimina su movimiento del balance general.'} Queda en la bitácora.
-            </p>
-            <Field label="Motivo (obligatorio)">
-              <TextField value={reason} onChange={setReason} placeholder="Ej. registro duplicado" />
-            </Field>
-            <ErrorBox error={error} />
+        <BottomSheet
+          title="Eliminar registro"
+          subtitle={`${label(del)} · ${usd(del.money.usd)}`}
+          icon={<Trash2 className="w-5 h-5" />}
+          iconClass="bg-rose-100 text-rose-700"
+          onClose={() => {
+            setDel(null);
+            setReason('');
+          }}
+          dirty={!!reason.trim()}
+          error={error}
+          footer={
             <PrimaryBtn
               className="w-full"
               tone="rose"
@@ -304,6 +307,15 @@ export default function BalanceBovino({ screen }: StageBProps) {
             >
               Eliminar
             </PrimaryBtn>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-slate-900">
+              {del.kind === 'liquidacion' ? 'El lote vuelve a quedar abierto.' : del.kind === 'ingreso' && (del as BovinoIncome).animalIds?.length ? 'Los animales vendidos vuelven a quedar activos.' : 'También se elimina su movimiento del balance general.'} Queda en la bitácora.
+            </p>
+            <Field label="Motivo (obligatorio)">
+              <TextField value={reason} onChange={setReason} placeholder="Ej. registro duplicado" />
+            </Field>
           </div>
         </BottomSheet>
       )}

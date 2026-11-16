@@ -38,7 +38,7 @@ export type BovinoScreen =
   | { s: 'movimientosHato' }
   | { s: 'almacen'; sub?: AlmacenSub }
   | { s: 'insumo'; id: string }
-  // ---- Etapa B (placeholders "Próximamente" en archivos propios, ver stageB.tsx) ----
+  // ---- Etapa B (pantallas en archivos propios, ver stageB.tsx) ----
   | { s: 'ceba'; loteId?: string; pesar?: boolean; racion?: boolean; animalIds?: string[] }
   | { s: 'leche'; ordenar?: boolean }
   | { s: 'lactancia'; vacaId: string }
@@ -108,6 +108,11 @@ export function pushRoute(r: BovinoRoute, screen: BovinoScreen): BovinoRoute {
 /** Pantalla visible. */
 export function topScreen(r: BovinoRoute): BovinoScreen {
   return r.stack[r.stack.length - 1] || { s: 'root' };
+}
+
+/** Clave única de la pantalla visible (remonta la pantalla y guarda su estado y scroll). */
+export function screenKeyOf(r: BovinoRoute): string {
+  return `${r.section}:${r.stack.length}:${JSON.stringify(topScreen(r))}`;
 }
 
 /** ¿Está en la raíz de una sección? (muestra la sub-cabecera del módulo). */

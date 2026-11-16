@@ -27,8 +27,8 @@ export const SubHeader: React.FC = () => {
       {(perms.manejo || perms.verCostos) && config.localCurrency && config.exchangeRate > 0 && (
         <button
           type="button"
-          onClick={() => navigate({ s: 'config' }, 'mas')}
-          className={`text-xs font-bold px-2.5 h-8 rounded-full ${rateStale ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-800'} ${FOCUS_B}`}
+          onClick={() => navigate({ s: 'config' })}
+          className={`text-sm font-bold px-3 h-12 rounded-full ${rateStale ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-800'} ${FOCUS_B}`}
           title={rateStale ? 'La tasa no es de hoy' : 'Tasa del día'}
         >
           Tasa {num(config.exchangeRate, 2)}
@@ -52,9 +52,9 @@ const AlertasSheet: React.FC<{ items: BovinoAgendaItem[]; pending: BovinoPending
   const count = items.length + pending.length;
   const go = (a: BovinoAgendaItem) => {
     onClose();
-    if (a.itemId) navigate({ s: 'insumo', id: a.itemId }, 'mas');
+    if (a.itemId) navigate({ s: 'insumo', id: a.itemId });
     else if (a.animalId) navigate({ s: 'animal', id: a.animalId });
-    else if (a.lotId) navigate({ s: 'lote', id: a.lotId }, 'campo');
+    else if (a.lotId) navigate({ s: 'lote', id: a.lotId });
   };
   return (
     <BottomSheet title="Alertas del hato" subtitle={`${count} pendiente(s)`} icon={<AlertTriangle className="w-5 h-5" />} iconClass="bg-amber-100 text-amber-800" onClose={onClose}>

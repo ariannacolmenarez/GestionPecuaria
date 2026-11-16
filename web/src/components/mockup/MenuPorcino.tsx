@@ -35,6 +35,7 @@ import {
   calculatePorcinoCounters,
   calculateVerracosMetrics,
   countCriticalWarehouseItems,
+  isActiveAnimal,
   isActiveLitter,
 } from '../../models/PorcinoCalculations';
 import { todayISO } from '../../utils/dates';
@@ -45,6 +46,7 @@ import { TabSanitario } from './porcino/TabSanitario';
 import { TabBalance } from './porcino/TabBalance';
 import { TabAlimentacion } from './porcino/TabAlimentacion';
 import * as Modals from './porcino/lazyModals';
+import { Bird, ChevronRight } from 'lucide-react';
 
 export type { PorcinoTab } from './porcino/shared';
 
@@ -140,7 +142,7 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
   // --------------------------------------------------------------------------
   // Pestaña y almacén: controlados (si el padre los pasa) o internos
   // --------------------------------------------------------------------------
-  const [internalTab, setInternalTab] = useState<PorcinoTab>('porcinos');
+  const [internalTab, setInternalTab] = useState<PorcinoTab>('atajos');
   const activeTab = activeTabProp ?? internalTab;
   const setActiveTab = useCallback(
     (t: PorcinoTab) => {
@@ -187,6 +189,7 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
   const ledger = useMemo(() => calculateAnimalMovementsLedger(animals, litters), [animals, litters]);
   const criticalWarehouseCount = useMemo(() => countCriticalWarehouseItems(warehouseItems), [warehouseItems]);
   const activeLitters = useMemo(() => litters.filter(isActiveLitter), [litters]);
+  const activeAnimalsCount = useMemo(() => animals.filter(isActiveAnimal).length, [animals]);
   const dueTasksCount = useMemo(
     () => tasks.filter((t) => (t.status === 'pendiente' || t.status === 'retrasada') && t.date <= today).length,
     [tasks, today]
@@ -225,10 +228,8 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
 
   const handleAddTask = useCallback(
     (newTask: SanitaryTask): DomainResult => {
-      const res = A.addSanitaryTask({ task: newTask });
-      // Este modal no tiene pantalla de éxito propia: se cierra solo si se guardó.
-      if (res.ok) setAddSanitaryDate(null);
-      return res;
+      // El modal muestra su pantalla de éxito ("Programar otra" / "Volver al calendario").
+      return A.addSanitaryTask({ task: newTask });
     },
     [A]
   );
@@ -355,29 +356,39 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
   // --------------------------------------------------------------------------
   return (
     <div id="menu-porcino-root" className="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden">
-      <div
-        id="porcino-tabs-navigation"
-        className="bg-white border-b border-slate-200 px-2 pt-2 flex items-center justify-between shrink-0 overflow-x-auto text-xs no-scrollbar"
-      >
-        <div className="flex gap-1 min-w-max pb-1.5" role="tablist">
-          {PORCINO_TABS.map((t) => (
-            <button
-              key={t.id}
-              id={`tab-${t.id}`}
-              role="tab"
-              aria-selected={activeTab === t.id}
-              onClick={() => setActiveTab(t.id)}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                activeTab === t.id ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+      {/* Pestañas: las 5 siempre visibles (sin desplazamiento), icono sobre texto, 56 px de alto */}
+      <div id="porcino-tabs-navigation" className="bg-white border-b border-slate-200 px-1.5 py-1.5 shrink-0">
+        <div className="grid grid-cols-5 gap-1" role="tablist" aria-label="Secciones del módulo porcino">
+          {PORCINO_TABS.map((t) => {
+            const selected = activeTab === t.id;
+            const badge = t.id === 'sanitario' && dueTasksCount > 0 ? dueTasksCount : 0;
+            return (
+              <button
+                type="button"
+                key={t.id}
+                id={`tab-${t.id}`}
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setActiveTab(t.id)}
+                className={`relative min-h-14 rounded-xl flex flex-col items-center justify-center gap-0.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 ${
+                  selected ? 'bg-rose-600 text-white' : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <t.Icon aria-hidden="true" className="w-5 h-5" />
+                <span className="leading-tight">{t.label}</span>
+                {badge > 0 && (
+                  <span className="absolute top-0.5 right-1 min-w-5 h-5 px-1 rounded-full bg-amber-400 text-slate-900 text-xs font-bold flex items-center justify-center">
+                    {badge}
+                    <span className="sr-only"> actividades por hacer</span>
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 pb-8">
+      <div className="flex-1 overflow-y-auto px-3 pt-3 space-y-3 pb-10">
         {activeTab === 'porcinos' && (
           <TabRebano
             animals={animals}
@@ -402,28 +413,31 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
             criticalWarehouseCount={criticalWarehouseCount}
             pendingTasksCount={dueTasksCount}
             activeLittersCount={activeLitters.length}
-            onOpenWarehouse={() => setShowWarehouseModal(true)}
-            onOpenSale={() => openSale()}
-            onGoToBalance={() => setActiveTab('balance')}
-            onGoToSanitary={() => setActiveTab('sanitario')}
-            onOpenCensus={() => setShowCensusModal(true)}
+            gestatingCount={counters.maternidadGestantes}
+            activeAnimalsCount={activeAnimalsCount}
+            onOpenMating={() => setBoarModalTab('monta')}
+            onOpenFarrowing={() => setFarrowing({})}
             onOpenWeaning={() => setShowWeaningModal(true)}
+            onOpenMortality={() => setMortality({})}
+            onOpenSale={() => openSale()}
+            onGoToSanitary={() => setActiveTab('sanitario')}
+            onOpenWarehouse={() => setShowWarehouseModal(true)}
+            onOpenCensus={() => setShowCensusModal(true)}
             onOpenBatchConfig={() => setShowBatchConfigModal(true)}
             onOpenAddSanitary={() => setAddSanitaryDate(today)}
           />
         )}
 
         {activeTab === 'sanitario' && onOpenAvicola && avicolaDueCount > 0 && (
-          <div className="px-4 pt-3">
-            <button
-              type="button"
-              onClick={onOpenAvicola}
-              className="w-full min-h-10 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800"
-            >
-              <span>🐔 Ver también tareas avícolas por hacer ({avicolaDueCount})</span>
-              <span aria-hidden>›</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onOpenAvicola}
+            className="w-full min-h-11 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
+          >
+            <Bird aria-hidden="true" className="w-5 h-5 shrink-0" />
+            <span className="flex-1">Hay {avicolaDueCount} tareas avícolas por hacer</span>
+            <ChevronRight aria-hidden="true" className="w-5 h-5 shrink-0" />
+          </button>
         )}
 
         {activeTab === 'sanitario' && (
@@ -513,6 +527,10 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
             animals={animals}
             onClose={() => setShowWeaningModal(false)}
             onConfirmWeaning={handleConfirmWeaning}
+            onViewHerd={() => {
+              setShowWeaningModal(false);
+              setActiveTab('porcinos');
+            }}
           />
           </LazyBoundary>
         )}
@@ -578,6 +596,10 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
             preselectedSowCode={farrowing.sowCode}
             onClose={() => setFarrowing(null)}
             onRegisterFarrowing={handleRegisterFarrowing}
+            onViewLitters={() => {
+              setFarrowing(null);
+              setHerdCategory('lechones');
+            }}
           />
           </LazyBoundary>
         )}
@@ -589,6 +611,10 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
             animals={animals}
             onClose={() => setBoarModalTab(null)}
             onRegisterMating={handleRegisterMating}
+            onViewSows={() => {
+              setBoarModalTab(null);
+              setHerdCategory('maternidad');
+            }}
             onAddNewBoar={handleAddNewBoar}
           />
           </LazyBoundary>
@@ -601,6 +627,10 @@ export const MenuPorcino: React.FC<MenuPorcinoProps> = ({
             preselectedLitterId={mortality.litterId}
             onClose={() => setMortality(null)}
             onRegisterMortality={handleRegisterMortality}
+            onViewLitters={() => {
+              setMortality(null);
+              setHerdCategory('lechones');
+            }}
           />
           </LazyBoundary>
         )}

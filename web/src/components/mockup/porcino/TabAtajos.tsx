@@ -1,42 +1,94 @@
 import React from 'react';
-import { Binary, CheckSquare, FileBarChart, Package, Receipt, Users } from 'lucide-react';
+import {
+  Baby,
+  Binary,
+  CalendarPlus,
+  ChevronRight,
+  ClipboardCheck,
+  HeartPulse,
+  Package,
+  Settings2,
+  Skull,
+  Truck,
+} from 'lucide-react';
 
 export interface TabAtajosProps {
   criticalWarehouseCount: number;
   pendingTasksCount: number;
   activeLittersCount: number;
-  onOpenWarehouse: () => void;
-  onOpenSale: () => void;
-  onGoToBalance: () => void;
-  onGoToSanitary: () => void;
-  onOpenCensus: () => void;
+  /** Cerdas preñadas (sin ellas no se puede registrar un parto). */
+  gestatingCount: number;
+  /** Animales activos (sin ellos no hay nada que vender). */
+  activeAnimalsCount: number;
+  onOpenMating: () => void;
+  onOpenFarrowing: () => void;
   onOpenWeaning: () => void;
+  onOpenMortality: () => void;
+  onOpenSale: () => void;
+  onGoToSanitary: () => void;
+  onOpenWarehouse: () => void;
+  onOpenCensus: () => void;
   onOpenBatchConfig: () => void;
   onOpenAddSanitary: () => void;
 }
 
-const Shortcut: React.FC<{
+const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2';
+
+/** Tarjeta grande de tarea diaria. Si está desactivada dice por qué con texto visible. */
+const TaskCard: React.FC<{
   icon: React.ReactNode;
   iconClass: string;
   title: string;
-  subtitle: string;
-  badge?: string;
+  status: string;
+  badge?: number;
+  disabled?: boolean;
   onClick: () => void;
-}> = ({ icon, iconClass, title, subtitle, badge, onClick }) => (
+}> = ({ icon, iconClass, title, status, badge, disabled, onClick }) => (
   <button
+    type="button"
     onClick={onClick}
-    className="relative bg-white hover:bg-slate-50 border border-slate-200/90 hover:border-slate-300 p-3.5 rounded-2xl flex flex-col items-center text-center shadow-xs transition-all cursor-pointer group"
+    disabled={disabled}
+    className={`relative min-h-28 bg-white border-2 border-slate-200 hover:border-slate-300 active:bg-slate-50 p-3 rounded-2xl flex flex-col items-start gap-2 text-left transition-colors disabled:bg-slate-50 disabled:cursor-not-allowed ${FOCUS}`}
   >
-    {badge && (
-      <span className="absolute top-2 right-2 text-[9px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded-full">
+    {!!badge && badge > 0 && (
+      <span className="absolute top-2.5 right-2.5 min-w-7 h-7 px-2 rounded-full bg-rose-600 text-white text-sm font-bold flex items-center justify-center">
         {badge}
+        <span className="sr-only"> pendientes</span>
       </span>
     )}
-    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-2 group-hover:scale-110 transition-transform ${iconClass}`}>
+    <span
+      aria-hidden="true"
+      className={`w-11 h-11 rounded-xl flex items-center justify-center [&>svg]:w-6 [&>svg]:h-6 ${disabled ? 'bg-slate-200 text-slate-600' : iconClass}`}
+    >
       {icon}
-    </div>
-    <h4 className="font-bold text-slate-900 text-xs">{title}</h4>
-    <p className="text-[10px] text-slate-400 mt-0.5">{subtitle}</p>
+    </span>
+    <span className={`text-base font-bold leading-tight ${disabled ? 'text-slate-600' : 'text-slate-900'}`}>{title}</span>
+    <span className="text-xs text-slate-600 leading-snug">{status}</span>
+  </button>
+);
+
+/** Fila de opción secundaria (lista simple, ancho completo). */
+const RowLink: React.FC<{ icon: React.ReactNode; title: string; hint?: string; badge?: string; onClick: () => void }> = ({
+  icon,
+  title,
+  hint,
+  badge,
+  onClick,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`w-full min-h-14 px-3 py-2 flex items-center gap-3 text-left hover:bg-slate-50 active:bg-slate-100 ${FOCUS}`}
+  >
+    <span aria-hidden="true" className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0 [&>svg]:w-5 [&>svg]:h-5">
+      {icon}
+    </span>
+    <span className="flex-1 min-w-0">
+      <span className="block text-sm font-bold text-slate-900">{title}</span>
+      {hint && <span className="block text-xs text-slate-600">{hint}</span>}
+    </span>
+    {badge && <span className="text-xs font-bold text-amber-900 bg-amber-100 px-2 py-1 rounded-lg shrink-0">{badge}</span>}
+    <ChevronRight aria-hidden="true" className="w-5 h-5 text-slate-600 shrink-0" />
   </button>
 );
 
@@ -44,112 +96,91 @@ export const TabAtajos: React.FC<TabAtajosProps> = ({
   criticalWarehouseCount,
   pendingTasksCount,
   activeLittersCount,
-  onOpenWarehouse,
-  onOpenSale,
-  onGoToBalance,
-  onGoToSanitary,
-  onOpenCensus,
+  gestatingCount,
+  activeAnimalsCount,
+  onOpenMating,
+  onOpenFarrowing,
   onOpenWeaning,
+  onOpenMortality,
+  onOpenSale,
+  onGoToSanitary,
+  onOpenWarehouse,
+  onOpenCensus,
   onOpenBatchConfig,
   onOpenAddSanitary,
 }) => (
-  <div className="space-y-4 animate-in fade-in duration-150">
-    <div>
-      <h3 className="text-sm font-black text-slate-800">Atajos de Gestión Operativa</h3>
-      <p className="text-[11px] text-slate-500">Accesos rápidos a las operaciones más usadas</p>
-    </div>
-
-    <div className="grid grid-cols-2 gap-3">
-      <Shortcut
-        icon={<Package className="w-6 h-6" />}
-        iconClass="bg-emerald-50 text-emerald-600"
-        title="Almacén"
-        subtitle="Alimentos, medicinas y alerta 2 meses"
-        badge={criticalWarehouseCount > 0 ? `${criticalWarehouseCount} críticos` : undefined}
-        onClick={onOpenWarehouse}
-      />
-      <Shortcut
-        icon={<Receipt className="w-6 h-6" />}
-        iconClass="bg-blue-50 text-blue-600"
-        title="Compras"
-        subtitle="Alta de insumos con egreso de compra"
-        onClick={onOpenWarehouse}
-      />
-      <Shortcut
-        icon={<Users className="w-6 h-6" />}
-        iconClass="bg-purple-50 text-purple-600"
-        title="Clientes / Ventas"
-        subtitle="Venta en pie, en canal y liquidación"
-        onClick={onOpenSale}
-      />
-      <Shortcut
-        icon={<FileBarChart className="w-6 h-6" />}
-        iconClass="bg-amber-50 text-amber-600"
-        title="Reporte General"
-        subtitle="Ingresos, egresos y rentabilidad"
-        onClick={onGoToBalance}
-      />
-      <Shortcut
-        icon={<CheckSquare className="w-6 h-6" />}
-        iconClass="bg-teal-50 text-teal-600"
-        title="Tareas"
-        subtitle="Asignaciones operativas diarias"
-        badge={pendingTasksCount > 0 ? `${pendingTasksCount}` : undefined}
-        onClick={onGoToSanitary}
-      />
-      <Shortcut
-        icon={<Binary className="w-6 h-6" />}
-        iconClass="bg-rose-50 text-rose-600"
-        title="Conteo"
-        subtitle="Auditoría física vs inventario digital"
-        onClick={onOpenCensus}
-      />
-    </div>
-
-    <div className="bg-rose-50 rounded-2xl p-4 border border-rose-200 flex items-center justify-between gap-2">
-      <div>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700">Herramienta Clave de Producción</span>
-        <h4 className="font-bold text-slate-900 text-xs mt-0.5">Destete y Prorrateo de Costo de Lechones</h4>
-        <p className="text-[11px] text-slate-600">
-          {activeLittersCount > 0
-            ? `Transfiere el costo de la cerda y la camada a los lechones destetados (${activeLittersCount} camadas activas).`
-            : 'No hay camadas en lactancia. Registra un parto para habilitar el destete.'}
-        </p>
+  <div className="space-y-5 animate-in fade-in duration-150">
+    <section aria-labelledby="atajos-hoy" className="space-y-2.5">
+      <h3 id="atajos-hoy" className="text-base font-bold text-slate-900">
+        ¿Qué vas a registrar?
+      </h3>
+      <div className="grid grid-cols-2 gap-3">
+        <TaskCard
+          icon={<ClipboardCheck />}
+          iconClass="bg-teal-100 text-teal-800"
+          title="Tareas de hoy"
+          status={pendingTasksCount > 0 ? `${pendingTasksCount} por hacer (hoy y atrasadas)` : 'Todo al día'}
+          badge={pendingTasksCount}
+          onClick={onGoToSanitary}
+        />
+        <TaskCard
+          icon={<HeartPulse />}
+          iconClass="bg-blue-100 text-blue-800"
+          title="Monta"
+          status="Cerda servida por un verraco"
+          onClick={onOpenMating}
+        />
+        <TaskCard
+          icon={<Baby />}
+          iconClass="bg-rose-100 text-rose-800"
+          title="Parto"
+          status={gestatingCount > 0 ? `${gestatingCount} cerdas preñadas` : 'No hay cerdas preñadas: registra primero una monta'}
+          disabled={gestatingCount === 0}
+          onClick={onOpenFarrowing}
+        />
+        <TaskCard
+          icon={<Baby />}
+          iconClass="bg-amber-100 text-amber-900"
+          title="Destete"
+          status={activeLittersCount > 0 ? `${activeLittersCount} camadas criando` : 'No hay camadas criando: registra primero un parto'}
+          disabled={activeLittersCount === 0}
+          onClick={onOpenWeaning}
+        />
+        <TaskCard
+          icon={<Skull />}
+          iconClass="bg-slate-200 text-slate-800"
+          title="Muerte de lechones"
+          status={activeLittersCount > 0 ? 'Lechones muertos en una camada' : 'No hay camadas criando'}
+          disabled={activeLittersCount === 0}
+          onClick={onOpenMortality}
+        />
+        <TaskCard
+          icon={<Truck />}
+          iconClass="bg-emerald-100 text-emerald-800"
+          title="Venta"
+          status={activeAnimalsCount > 0 ? 'En pie o a matadero' : 'No hay animales para vender'}
+          disabled={activeAnimalsCount === 0}
+          onClick={onOpenSale}
+        />
       </div>
-      <button
-        onClick={onOpenWeaning}
-        disabled={activeLittersCount === 0}
-        className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Abrir Prorrateo
-      </button>
-    </div>
+    </section>
 
-    <div className="grid grid-cols-2 gap-2.5">
-      <button
-        onClick={onOpenBatchConfig}
-        className="bg-indigo-50/80 hover:bg-indigo-100/70 border border-indigo-200/80 p-3 rounded-2xl text-left transition-colors cursor-pointer"
-      >
-        <div className="flex items-center gap-2 mb-1">
-          <span className="p-1.5 rounded-lg bg-indigo-600 text-white text-xs">⚙️</span>
-          <strong className="text-xs font-bold text-indigo-950">Lotes & Protocolos</strong>
-        </div>
-        <p className="text-[10px] text-indigo-700 leading-tight">
-          Configura tipos de producción y genera tareas automáticas al abrir lote.
-        </p>
-      </button>
-      <button
-        onClick={onOpenAddSanitary}
-        className="bg-blue-50/80 hover:bg-blue-100/70 border border-blue-200/80 p-3 rounded-2xl text-left transition-colors cursor-pointer"
-      >
-        <div className="flex items-center gap-2 mb-1">
-          <span className="p-1.5 rounded-lg bg-blue-600 text-white text-xs">📅</span>
-          <strong className="text-xs font-bold text-blue-950">+ Nueva Actividad</strong>
-        </div>
-        <p className="text-[10px] text-blue-700 leading-tight">
-          Programa vacunas o tratamientos indicando lote, animal y fecha.
-        </p>
-      </button>
-    </div>
+    <section aria-labelledby="atajos-mas" className="space-y-2">
+      <h3 id="atajos-mas" className="text-sm font-bold text-slate-700">
+        Más opciones
+      </h3>
+      <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-200 overflow-hidden">
+        <RowLink
+          icon={<Package />}
+          title="Almacén y compras"
+          hint="Alimento y medicinas"
+          badge={criticalWarehouseCount > 0 ? `${criticalWarehouseCount} por acabarse` : undefined}
+          onClick={onOpenWarehouse}
+        />
+        <RowLink icon={<CalendarPlus />} title="Programar vacuna o tratamiento" onClick={onOpenAddSanitary} />
+        <RowLink icon={<Binary />} title="Conteo de animales" hint="Cuántos hay por grupo y por corral" onClick={onOpenCensus} />
+        <RowLink icon={<Settings2 />} title="Lotes y planes sanitarios" hint="Se configura una vez por lote" onClick={onOpenBatchConfig} />
+      </div>
+    </section>
   </div>
 );

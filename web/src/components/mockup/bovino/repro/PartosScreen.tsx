@@ -73,7 +73,7 @@ export default function PartosScreen({ screen }: StageBProps) {
             <li key={v.id}>
               <button type="button" onClick={() => perms.cargaDiaria && setSheet({ k: 'parto', animalId: v.id })} className={`w-full bg-white rounded-2xl border-2 border-slate-200 p-3 flex items-center gap-3 text-left ${FOCUS_B}`}>
                 <span className="text-lg font-black tabular-nums text-slate-900 min-w-[3.5rem]">#{v.tag}</span>
-                <span className="flex-1 text-sm text-slate-900">FPP {fd(v.repro?.fpp)}</span>
+                <span className="flex-1 text-sm text-slate-900">Parto probable {fd(v.repro?.fpp)}</span>
                 <StatusChip tone={d < 0 ? 'bad' : d <= 7 ? 'warn' : 'info'}>{d < 0 ? `Pasada ${-d} d` : d === 0 ? 'Hoy' : `En ${d} d`}</StatusChip>
               </button>
             </li>
@@ -115,7 +115,7 @@ export default function PartosScreen({ screen }: StageBProps) {
             return (
               <li key={e.id} className="bg-white rounded-2xl border border-slate-200 p-3 space-y-1">
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => mother && navigate({ s: 'animal', id: mother.id }, 'hato')} className={`text-lg font-black tabular-nums text-slate-900 ${FOCUS_B}`}>
+                  <button type="button" onClick={() => mother && navigate({ s: 'animal', id: mother.id })} className={`text-lg font-black tabular-nums text-slate-900 ${FOCUS_B}`}>
                     #{mother?.tag || '?'}
                   </button>
                   <span className="flex-1 text-sm text-slate-900">{fd(e.date)}</span>
@@ -126,7 +126,7 @@ export default function PartosScreen({ screen }: StageBProps) {
                     key={i}
                     type="button"
                     disabled={!c.animalId}
-                    onClick={() => c.animalId && navigate({ s: 'animal', id: c.animalId }, 'hato')}
+                    onClick={() => c.animalId && navigate({ s: 'animal', id: c.animalId })}
                     className={`w-full text-left text-sm text-slate-900 bg-slate-50 rounded-xl px-3 py-2 ${FOCUS_B}`}
                   >
                     {c.sex === 'hembra' ? 'Hembra ♀' : 'Macho ♂'}

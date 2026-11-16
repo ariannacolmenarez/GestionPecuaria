@@ -76,7 +76,7 @@ export default function ReportesKpi(_p: StageBProps) {
                 <ul className="space-y-2">
                   {ceba.nextToSale.slice(0, 30).map((n) => (
                     <li key={n.view.id}>
-                      <AnimalRow v={n.view} subtitle={`${n.view.weightKg !== null ? `${num(n.view.weightKg, 0)} kg` : ''} · ${n.daysToTarget === 0 ? 'ya en peso' : `en ${n.daysToTarget} d (${fd(n.date)})`}`} onClick={() => navigate({ s: 'animal', id: n.view.id }, 'hato')} />
+                      <AnimalRow v={n.view} subtitle={`${n.view.weightKg !== null ? `${num(n.view.weightKg, 0)} kg` : ''} · ${n.daysToTarget === 0 ? 'ya en peso' : `en ${n.daysToTarget} d (${fd(n.date)})`}`} onClick={() => navigate({ s: 'animal', id: n.view.id })} />
                     </li>
                   ))}
                 </ul>
@@ -92,7 +92,7 @@ export default function ReportesKpi(_p: StageBProps) {
           <KpiCard label="Tasa de preñez" value={dairy.pregnancyRatePct !== null ? `${num(dairy.pregnancyRatePct, 0)} %` : '—'} hint={`${dairy.cowsPregnant} preñadas de vacas y novillas`} tone={dairy.pregnancyRatePct !== null && dairy.pregnancyRatePct < 50 ? 'warn' : 'ok'} />
           <KpiCard label="Tasa de concepción" value={dairy.conceptionRatePct !== null ? `${num(dairy.conceptionRatePct, 0)} %` : '—'} hint="Diagnósticos positivos del periodo" />
           <KpiCard label="Días abiertos prom." value={dairy.avgDaysOpen !== null ? num(dairy.avgDaysOpen) : '—'} hint="Parto → concepción" />
-          <KpiCard label="IEP prom." value={dairy.avgIepDays !== null ? `${num(dairy.avgIepDays)} d` : '—'} hint="Intervalo entre partos" />
+          <KpiCard label="Días entre partos" value={dairy.avgIepDays !== null ? `${num(dairy.avgIepDays)} d` : '—'} hint="Intervalo entre partos" />
           <KpiCard label="Servicios por concepción" value={conceptions ? num(services / conceptions, 1) : '—'} hint={`${services} servicios · ${conceptions} preñeces`} />
           <KpiCard label="Partos del periodo" value={num(births)} />
           <KpiCard label="En ordeño / secas" value={`${dairy.cowsLactating} / ${dairy.cowsDry}`} />

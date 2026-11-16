@@ -1,11 +1,12 @@
 /** A4 · Ficha del animal: datos, acciones según rol y estado, y pestañas Resumen | Historial | Producción | Sanidad. */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { ArrowRightLeft, Baby, Ban, DollarSign, Heart, LogOut, Milk, Scale, Search, Stethoscope, Syringe } from 'lucide-react';
 import type { BovinoStockOutEvent, BovinoTreatmentEvent } from '../../../../models/bovinoModel';
 import { BOVINO_PURPOSE_LABEL } from '../../../../models/bovinoModel';
 import { gmdColorOf, BOVINO_REPRO_LABEL, pendingDeathReport } from '../../../../models/bovinoCalc';
 import { daysBetween } from '../../../../utils/dates';
 import { useBovino } from '../context';
+import { useScreenKey, useViewState } from '../viewState';
 import { B, EmptyBlock, FOCUS_B, GmdChip, KV, Money, ReproChip, RetiroChip, Screen, StatusChip, ageText, fd, fdy, num } from '../ui';
 import { SegmentedTabs } from '../../avicola/shared';
 import { AnimalTimeline } from './AnimalTimeline';
@@ -16,7 +17,7 @@ type Tab = 'resumen' | 'historial' | 'produccion' | 'sanidad';
 export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
   const { index, perms, navigate, openSheet, today, data } = useBovino();
   const v = index.views.get(id);
-  const [tab, setTab] = useState<Tab>('resumen');
+  const [tab, setTab] = useViewState<Tab>(`${useScreenKey()}tab`, 'resumen');
   const events = useMemo(() => index.eventsByAnimal.get(id) || [], [index, id]);
   const deathReport = useMemo(() => (v ? pendingDeathReport(v, events) : null), [v, events]);
 
@@ -44,7 +45,7 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
   const padDays = v.paddockSince ? daysBetween(v.paddockSince, today) : null;
   const ro = !v.active;
   const isFemaleRepro = female && (v.category === 'vaca' || v.category === 'novilla');
-  const blockedService = r && (r.pregnant || r.state === 'seca') ? (r.pregnant ? `Preñada${r.fpp ? ` (FPP ${fd(r.fpp)})` : ''}` : 'Seca') : null;
+  const blockedService = r && (r.pregnant || r.state === 'seca') ? (r.pregnant ? `Preñada${r.fpp ? ` (parto ${fd(r.fpp)})` : ''}` : 'Seca') : null;
   const mother = a.motherId ? index.views.get(a.motherId) : undefined;
   const calves = index.list.filter((x) => x.animal.motherId === id);
 
@@ -53,13 +54,15 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
     { key: 'pesar', label: 'Pesar', icon: <Scale className="w-6 h-6" />, onClick: () => openSheet({ kind: 'pesaje', animalId: id }), allowed: perms.cargaDiaria, show: true },
     { key: 'tratar', label: 'Tratar', icon: <Syringe className="w-6 h-6" />, onClick: () => openSheet({ kind: 'tratamiento', animalIds: [id] }), allowed: perms.sanidad, show: true },
     { key: 'mover', label: 'Mover', icon: <ArrowRightLeft className="w-6 h-6" />, onClick: () => openSheet({ kind: 'mover', animalIds: [id] }), allowed: perms.moverLotes, show: true },
-    { key: 'ordeno', label: 'Ordeño', icon: <Milk className="w-6 h-6" />, onClick: () => navigate({ s: 'leche', ordenar: true }, 'campo'), allowed: perms.cargaDiaria, show: !!r?.lactating },
-    { key: 'servicio', label: 'Servicio', icon: <Heart className="w-6 h-6" />, onClick: () => navigate({ s: 'servicios', animalId: id }, 'repro'), allowed: perms.reproduccion, reason: blockedService, show: isFemaleRepro },
-    { key: 'diag', label: 'Diagnóstico', icon: <Stethoscope className="w-6 h-6" />, onClick: () => navigate({ s: 'diagnosticos', animalId: id }, 'repro'), allowed: perms.reproduccion, show: isFemaleRepro },
-    { key: 'parto', label: 'Parto', icon: <Baby className="w-6 h-6" />, onClick: () => navigate({ s: 'partos', animalId: id }, 'repro'), allowed: perms.cargaDiaria, show: isFemaleRepro },
+    { key: 'ordeno', label: 'Ordeño', icon: <Milk className="w-6 h-6" />, onClick: () => navigate({ s: 'leche', ordenar: true }), allowed: perms.cargaDiaria, show: !!r?.lactating },
+    { key: 'servicio', label: 'Servicio', icon: <Heart className="w-6 h-6" />, onClick: () => navigate({ s: 'servicios', animalId: id }), allowed: perms.reproduccion, reason: blockedService, show: isFemaleRepro },
+    { key: 'diag', label: 'Diagnóstico', icon: <Stethoscope className="w-6 h-6" />, onClick: () => navigate({ s: 'diagnosticos', animalId: id }), allowed: perms.reproduccion, show: isFemaleRepro },
+    { key: 'parto', label: 'Parto', icon: <Baby className="w-6 h-6" />, onClick: () => navigate({ s: 'partos', animalId: id }), allowed: perms.cargaDiaria, show: isFemaleRepro },
     { key: 'baja', label: perms.bajas ? 'Baja' : 'Reportar muerte', icon: <LogOut className="w-6 h-6" />, onClick: () => openSheet({ kind: 'baja', animalId: id }), allowed: true, show: true },
-    { key: 'venta', label: 'Venta', icon: <DollarSign className="w-6 h-6" />, onClick: () => navigate({ s: 'balance', venta: [id] }, 'mas'), allowed: perms.ventas, reason: v.withdrawal.meatActive ? `Retiro carne hasta ${fd(v.withdrawal.meatUntil)}` : null, show: perms.ventas },
+    { key: 'venta', label: 'Venta', icon: <DollarSign className="w-6 h-6" />, onClick: () => navigate({ s: 'balance', venta: [id] }), allowed: perms.ventas, reason: v.withdrawal.meatActive ? `Retiro carne hasta ${fd(v.withdrawal.meatUntil)}` : null, show: perms.ventas },
   ];
+  // Solo lo que este rol puede hacer; deshabilitado solo por el estado del animal (retiro, preñada...).
+  const visibleActs = acts.filter((x) => x.show && x.allowed);
 
   return (
     <div>
@@ -91,7 +94,7 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
             <KV k="Potrero" v={padName ? `${padName}${padDays !== null ? ` (${padDays} d)` : ''}` : '—'} />
             <KV k="Último peso" v={v.weightKg !== null ? `${num(v.weightKg, 1)} kg · hace ${v.daysSinceWeigh ?? 0} d` : 'Sin pesar'} />
             <div className="min-w-0">
-              <p className="text-xs text-slate-700">GMD</p>
+              <p className="text-xs text-slate-700">Ganancia diaria</p>
               <GmdChip gmd={v.gmdKg} color={v.gmdColor} />
             </div>
             {female && r && r.parity > 0 && <KV k="Partos" v={num(r.parity)} />}
@@ -106,12 +109,10 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
           )}
         </section>
 
-        {!ro && (
+        {!ro && visibleActs.length > 0 && (
           <section className="grid grid-cols-3 gap-2">
-            {acts
-              .filter((x) => x.show)
-              .map((x) => {
-                const disabled = !x.allowed || !!x.reason;
+            {visibleActs.map((x) => {
+                const disabled = !!x.reason;
                 return (
                   <button
                     key={x.key}
@@ -122,7 +123,7 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
                   >
                     {x.reason ? <Ban className="w-6 h-6 text-rose-700" /> : <span className="text-sky-700">{x.icon}</span>}
                     {x.label}
-                    {!x.allowed ? <span className="text-[12px] font-semibold leading-tight text-center">Lo registra el encargado</span> : x.reason ? <span className="text-[12px] font-semibold leading-tight text-center text-rose-800">{x.reason}</span> : null}
+                    {x.reason ? <span className="text-xs font-semibold leading-tight text-center text-rose-800">{x.reason}</span> : null}
                   </button>
                 );
               })}
@@ -151,7 +152,7 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
                     r.dryOffDate && !r.dried ? `Secar el ${fd(r.dryOffDate)}` : '',
                     r.fpp ? `Parto el ${fd(r.fpp)}` : '',
                     r.state === 'servida' && r.lastServiceDate ? `Servida el ${fd(r.lastServiceDate)}${r.diagnosisDueDate ? ` · palpar el ${fd(r.diagnosisDueDate)}` : ''}` : '',
-                    r.lastCalvingDate && !r.pregnant ? `Último parto ${fd(r.lastCalvingDate)}${r.pevReached ? ' · PEV cumplido' : r.pevDate ? ` · PEV el ${fd(r.pevDate)}` : ''}` : '',
+                    r.lastCalvingDate && !r.pregnant ? `Último parto ${fd(r.lastCalvingDate)}${r.pevReached ? ' · ya se puede servir' : r.pevDate ? ` · se puede servir desde el ${fd(r.pevDate)}` : ''}` : '',
                   ]
                     .filter(Boolean)
                     .join(' · ') || 'Sin eventos reproductivos.'}
@@ -168,7 +169,7 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
             {(mother || calves.length > 0) && (
               <div className={`${B.card} p-4 space-y-2`}>
                 {mother && (
-                  <button type="button" onClick={() => navigate({ s: 'animal', id: mother.id })} className={`text-sm font-bold text-sky-700 underline ${FOCUS_B}`}>
+                  <button type="button" onClick={() => navigate({ s: 'animal', id: mother.id })} className={`min-h-12 text-sm font-bold text-sky-700 underline ${FOCUS_B}`}>
                     Madre: #{mother.tag}
                   </button>
                 )}
@@ -176,7 +177,7 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
                   <div className="flex flex-wrap gap-2 items-center">
                     <span className="text-sm font-bold text-slate-900">Crías:</span>
                     {calves.map((c) => (
-                      <button key={c.id} type="button" onClick={() => navigate({ s: 'animal', id: c.id })} className={`h-10 px-3 rounded-full bg-sky-50 border-2 border-sky-200 text-sm font-bold text-sky-900 ${FOCUS_B}`}>
+                      <button key={c.id} type="button" onClick={() => navigate({ s: 'animal', id: c.id })} className={`h-12 px-4 rounded-full bg-sky-50 border-2 border-sky-200 text-sm font-bold text-sky-900 ${FOCUS_B}`}>
                         #{c.tag}
                       </button>
                     ))}
@@ -208,7 +209,7 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
         {tab === 'produccion' && (
           <section className="space-y-3">
             {r?.lactating || (female && r && r.parity > 0) ? (
-              <button type="button" onClick={() => navigate({ s: 'lactancia', vacaId: id }, 'campo')} className={`w-full h-12 rounded-2xl bg-sky-600 text-white font-bold ${FOCUS_B}`}>
+              <button type="button" onClick={() => navigate({ s: 'lactancia', vacaId: id })} className={`w-full h-12 rounded-2xl bg-sky-700 text-white font-bold ${FOCUS_B}`}>
                 Ver curva de lactancia
               </button>
             ) : null}
@@ -219,7 +220,7 @@ export const AnimalFicha: React.FC<{ id: string }> = ({ id }) => {
                   <tr className="text-xs text-slate-700 text-left">
                     <th className="px-3 py-2 font-bold">Fecha</th>
                     <th className="px-3 py-2 font-bold text-right">Peso</th>
-                    <th className="px-3 py-2 font-bold text-right">GMD</th>
+                    <th className="px-3 py-2 font-bold text-right">Ganancia/día</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -276,7 +277,7 @@ export const TreatmentsList: React.FC<{ animalId?: string; events?: BovinoTreatm
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-black text-slate-900">
                   {!animalId && view && (
-                    <button type="button" onClick={() => navigate({ s: 'animal', id: view.id }, 'hato')} className={`underline text-sky-800 mr-1 ${FOCUS_B}`}>
+                    <button type="button" onClick={() => navigate({ s: 'animal', id: view.id })} className={`min-h-12 underline text-sky-800 mr-1 ${FOCUS_B}`}>
                       #{view.tag}
                     </button>
                   )}
@@ -300,7 +301,7 @@ export const TreatmentsList: React.FC<{ animalId?: string; events?: BovinoTreatm
               {perms.verCostos && t.cost && <StatusChip tone="neutral">{`US$ ${t.cost.usd.toFixed(2)}`}</StatusChip>}
             </div>
             {t.effectiveness === 'pendiente' && perms.sanidad && (
-              <button type="button" onClick={() => openSheet({ kind: 'evaluar', eventId: t.id })} className={`h-11 px-4 rounded-2xl bg-amber-100 border-2 border-amber-300 text-amber-950 text-sm font-bold ${FOCUS_B}`}>
+              <button type="button" onClick={() => openSheet({ kind: 'evaluar', eventId: t.id })} className={`h-12 px-4 rounded-2xl bg-amber-100 border-2 border-amber-300 text-amber-950 text-sm font-bold ${FOCUS_B}`}>
                 Evaluar tratamiento
               </button>
             )}

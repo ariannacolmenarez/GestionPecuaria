@@ -24,6 +24,7 @@ import {
 } from '../avicola/shared';
 import { BovinoContext, useBovino } from './context';
 import type { BovinoPermKey } from './perms';
+import { useViewState } from './viewState';
 
 export { ErrorBox, Overlay, useEscape, parseNum } from '../avicola/shared';
 
@@ -39,12 +40,12 @@ export const ConfirmDialog: React.FC<Omit<React.ComponentProps<typeof ConfirmDia
 // Tokens
 // ---------------------------------------------------------------------------
 export const B = {
-  accent: 'bg-sky-600 text-white',
-  accentHover: 'hover:bg-sky-700 active:bg-sky-800',
+  accent: 'bg-sky-700 text-white',
+  accentHover: 'hover:bg-sky-800 active:bg-sky-800',
   soft: 'bg-sky-50 text-sky-800 border-sky-200',
   chip: 'bg-sky-100 text-sky-800',
   text: 'text-sky-700',
-  ring: 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1',
+  ring: 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700 focus-visible:ring-offset-1',
   card: 'bg-white rounded-2xl border border-slate-200 shadow-xs',
   screen: 'bg-slate-50',
   label: 'text-sm font-bold text-slate-900',
@@ -194,7 +195,7 @@ export const LimitConfirm: React.FC<{ warnings: string[]; onConfirm: () => void;
           <button onClick={onCancel} className={`h-12 rounded-2xl bg-slate-100 text-slate-900 font-bold text-sm border-2 border-slate-300 ${FOCUS_B}`}>
             Corregir
           </button>
-          <button onClick={onConfirm} className={`h-12 rounded-2xl bg-sky-600 text-white font-bold text-sm ${FOCUS_B}`}>
+          <button onClick={onConfirm} className={`h-12 rounded-2xl bg-sky-700 text-white font-bold text-sm ${FOCUS_B}`}>
             Sí, es correcto
           </button>
         </div>
@@ -275,12 +276,14 @@ export const BigNumberInput: React.FC<{
   ariaLabel?: string;
   onEnter?: () => void;
   size?: 'md' | 'lg';
-}> = ({ id, value, onChange, decimal, unit, invalid, placeholder = '0', ariaLabel, onEnter, size = 'lg' }) => (
+  autoFocus?: boolean;
+}> = ({ id, value, onChange, decimal, unit, invalid, placeholder = '0', ariaLabel, onEnter, size = 'lg', autoFocus }) => (
   <div className="relative">
     <input
       id={id}
       aria-label={ariaLabel}
       value={value}
+      autoFocus={autoFocus}
       inputMode={decimal ? 'decimal' : 'numeric'}
       enterKeyHint={onEnter ? 'next' : 'done'}
       placeholder={placeholder}
@@ -444,7 +447,7 @@ export const DateField: React.FC<{ value: string; onChange: (v: string) => void;
   ariaLabel = 'Fecha',
   compact,
 }) => (
-  <label className={`relative ${compact ? 'h-11' : 'h-12'} px-4 bg-white border-2 border-slate-300 rounded-2xl font-bold text-base text-slate-900 flex items-center gap-2 cursor-pointer focus-within:ring-2 focus-within:ring-sky-600`}>
+  <label className={`relative ${compact ? 'h-11' : 'h-12'} px-4 bg-white border-2 border-slate-300 rounded-2xl font-bold text-base text-slate-900 flex items-center gap-2 cursor-pointer focus-within:ring-2 focus-within:ring-sky-700`}>
     <CalendarDays className="w-5 h-5 text-sky-700" />
     <span className="whitespace-nowrap">{value ? fdw(value) : 'Elegir fecha'}</span>
     <input
@@ -466,7 +469,7 @@ export const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void
       <span className="block text-sm font-bold text-slate-900">{label}</span>
       {hint && <span className="block text-xs text-slate-700">{hint}</span>}
     </span>
-    <span className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${checked ? 'bg-sky-600' : 'bg-slate-400'}`}>
+    <span className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${checked ? 'bg-sky-700' : 'bg-slate-500 ring-1 ring-inset ring-slate-600'}`}>
       <span className={`block w-6 h-6 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : ''}`} />
     </span>
   </button>
@@ -529,7 +532,7 @@ export function Chips<T extends string>({
             disabled={o.disabled}
             onClick={() => onChange(o.key)}
             className={`${size === 'lg' ? 'h-14 px-5 text-base' : 'h-12 px-4 text-sm'} rounded-2xl border-2 font-bold flex items-center gap-2 disabled:opacity-50 ${
-              on ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-900 hover:bg-slate-50'
+              on ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-900 hover:bg-slate-50'
             } ${FOCUS_B}`}
           >
             {o.icon}
@@ -563,8 +566,8 @@ export function ChipFilter<T extends string>({
             role="tab"
             aria-selected={on}
             onClick={() => onChange(o.key)}
-            className={`h-11 px-4 rounded-full border-2 text-sm font-bold shrink-0 flex items-center gap-1.5 ${
-              on ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-800'
+            className={`h-12 px-4 rounded-full border-2 text-sm font-bold shrink-0 flex items-center gap-1.5 ${
+              on ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-800'
             } ${FOCUS_B}`}
           >
             {o.label}
@@ -633,7 +636,7 @@ export const MoneyField: React.FC<{ id?: string; value: MoneyValue; onChange: (v
               role="radio"
               aria-checked={value.in === c}
               onClick={() => onChange({ ...value, in: c })}
-              className={`h-10 rounded-xl border-2 text-sm font-bold ${value.in === c ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-slate-300 text-slate-800'} ${FOCUS_B}`}
+              className={`h-12 rounded-xl border-2 text-sm font-bold ${value.in === c ? 'bg-sky-700 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-800'} ${FOCUS_B}`}
             >
               {c === 'USD' ? 'USD' : local}
             </button>
@@ -677,7 +680,7 @@ const CHIP_TONE: Record<ChipTone, string> = {
   retiro: 'bg-rose-600 text-white',
   info: 'bg-sky-100 text-sky-800',
   neutral: 'bg-slate-200 text-slate-800',
-  solid: 'bg-sky-600 text-white',
+  solid: 'bg-sky-700 text-white',
 };
 
 export const StatusChip: React.FC<{ tone: ChipTone; children: React.ReactNode; title?: string }> = ({ tone, children, title }) => (
@@ -710,7 +713,7 @@ const GMD_CLS: Record<GmdColor, string> = {
 };
 export const GmdChip: React.FC<{ gmd: number | null | undefined; color: GmdColor }> = ({ gmd, color }) => (
   <span className={`inline-flex items-center h-7 px-2.5 rounded-full text-xs font-bold whitespace-nowrap ${GMD_CLS[color]}`}>
-    {gmd === null || gmd === undefined ? 'GMD sin dato' : `${num(gmd, 2)} kg/d · ${GMD_WORD[color]}`}
+    {gmd === null || gmd === undefined ? 'Ganancia sin dato' : `${num(gmd, 2)} kg/día · ${GMD_WORD[color]}`}
   </span>
 );
 
@@ -719,8 +722,8 @@ const REPRO_TONE: Record<BovinoReproState, string> = {
   servida: 'bg-sky-100 text-sky-800',
   preñada: 'bg-emerald-100 text-emerald-800',
   seca: 'bg-amber-100 text-amber-900',
-  parida: 'bg-sky-600 text-white',
-  lactando: 'bg-sky-600 text-white',
+  parida: 'bg-sky-700 text-white',
+  lactando: 'bg-sky-700 text-white',
   no_aplica: 'bg-slate-200 text-slate-800',
 };
 export const ReproChip: React.FC<{ state: BovinoReproState }> = ({ state }) =>
@@ -762,11 +765,11 @@ export const AnimalRow: React.FC<{
       disabled={disabled}
       aria-pressed={selectable ? !!selected : undefined}
       className={`w-full min-h-16 px-3 py-2 flex items-center gap-3 text-left bg-white rounded-2xl border-2 ${
-        selected ? 'border-sky-600 bg-sky-50' : 'border-slate-200'
+        selected ? 'border-sky-700 bg-sky-50' : 'border-slate-200'
       } ${disabled ? 'opacity-60' : 'active:border-sky-500'} ${FOCUS_B}`}
     >
       {selectable && (
-        <span className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center shrink-0 ${selected ? 'bg-sky-600 border-sky-600 text-white' : 'border-slate-400 bg-white'}`}>
+        <span className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center shrink-0 ${selected ? 'bg-sky-700 border-sky-700 text-white' : 'border-slate-400 bg-white'}`}>
           {selected && <span className="text-sm font-black">✓</span>}
         </span>
       )}
@@ -792,14 +795,13 @@ export const AnimalRow: React.FC<{
 };
 
 /** Mosaico de hub (Campo, accesos rápidos). */
-export const Tile: React.FC<{ icon: React.ReactNode; title: string; detail?: string; onClick: () => void; compact?: boolean; badge?: number; soon?: boolean }> = ({
+export const Tile: React.FC<{ icon: React.ReactNode; title: string; detail?: string; onClick: () => void; compact?: boolean; badge?: number }> = ({
   icon,
   title,
   detail,
   onClick,
   compact,
   badge,
-  soon,
 }) => (
   <button
     type="button"
@@ -808,7 +810,7 @@ export const Tile: React.FC<{ icon: React.ReactNode; title: string; detail?: str
   >
     <span className={`${compact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center`}>{icon}</span>
     <span className={`${compact ? 'text-sm' : 'text-base'} font-black text-slate-900 leading-tight`}>{title}</span>
-    {(detail || soon) && <span className="text-sm text-slate-800 leading-snug">{soon ? 'Próximamente' : detail}</span>}
+    {detail && <span className="text-sm text-slate-800 leading-snug">{detail}</span>}
     {!!badge && (
       <span className="absolute top-2 right-2 min-w-6 h-6 px-1.5 rounded-full bg-amber-500 text-slate-900 text-xs font-black flex items-center justify-center">{badge}</span>
     )}
@@ -838,18 +840,36 @@ export const StatStrip: React.FC<{ items: { label: string; value: React.ReactNod
   </div>
 );
 
-/** Botón flotante (solo en listas; el contenido deja pb-24). */
-export const Fab: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={`absolute bottom-4 right-4 z-20 h-14 pl-2 pr-5 rounded-full bg-sky-600 text-white font-bold text-sm shadow-lg flex items-center gap-2 active:scale-95 ${FOCUS_B}`}
-  >
-    <span className="w-10 h-10 rounded-full bg-white text-sky-700 flex items-center justify-center">
-      <Plus className="w-5 h-5" />
-    </span>
-    {label}
-  </button>
+/**
+ * Botón flotante (solo en listas; el contenido deja pb-24). Se monta en la capa fabRoot de
+ * BovinoModule, FUERA del scroll, así queda fijo encima de la barra inferior al desplazarse.
+ */
+export const Fab: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => {
+  const ctx = useContext(BovinoContext);
+  const root = ctx?.fabRoot || null;
+  const btn = (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${root ? '' : 'absolute bottom-4 right-4 z-20 '}h-14 pl-2 pr-5 rounded-full bg-sky-700 text-white font-bold text-sm shadow-lg flex items-center gap-2 active:scale-95 ${FOCUS_B}`}
+    >
+      <span className="w-10 h-10 rounded-full bg-white text-sky-700 flex items-center justify-center">
+        <Plus className="w-5 h-5" />
+      </span>
+      {label}
+    </button>
+  );
+  return root ? createPortal(btn, root) : btn;
+};
+
+/** Chip de un animal elegido ("#402") con su botón Quitar aparte (48 px), para no quitarlo sin querer. */
+export const RemovableChip: React.FC<{ label: string; onRemove: () => void; removeLabel?: string }> = ({ label, onRemove, removeLabel }) => (
+  <span className="inline-flex items-center h-12 rounded-full bg-sky-100 text-sky-900 border-2 border-sky-200 overflow-hidden">
+    <span className="pl-4 pr-1 text-sm font-black tabular-nums">{label}</span>
+    <button type="button" onClick={onRemove} aria-label={removeLabel || `Quitar ${label}`} className={`w-12 h-12 flex items-center justify-center text-sky-900 hover:bg-sky-200 ${FOCUS_B}`}>
+      <X className="w-5 h-5" />
+    </button>
+  </span>
 );
 
 export const EmptyBlock: React.FC<{ icon: React.ReactNode; title: string; text?: string; cta?: string; onCta?: () => void; children?: React.ReactNode }> = ({
@@ -865,7 +885,7 @@ export const EmptyBlock: React.FC<{ icon: React.ReactNode; title: string; text?:
     <p className="text-base font-black text-slate-900">{title}</p>
     {text && <p className="text-sm text-slate-700 max-w-xs mx-auto">{text}</p>}
     {cta && onCta && (
-      <button type="button" onClick={onCta} className={`h-12 px-6 rounded-2xl bg-sky-600 text-white font-bold ${FOCUS_B}`}>
+      <button type="button" onClick={onCta} className={`h-12 px-6 rounded-2xl bg-sky-700 text-white font-bold ${FOCUS_B}`}>
         {cta}
       </button>
     )}
@@ -892,7 +912,7 @@ export const PrimaryBtn: React.FC<{ onClick: () => void; children: React.ReactNo
     onClick={onClick}
     disabled={disabled}
     className={`h-14 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-50 ${
-      tone === 'dark' ? 'bg-slate-900 text-white' : tone === 'rose' ? 'bg-rose-600 text-white' : tone === 'emerald' ? 'bg-emerald-600 text-white' : 'bg-sky-600 text-white hover:bg-sky-700'
+      tone === 'dark' ? 'bg-slate-900 text-white' : tone === 'rose' ? 'bg-rose-600 text-white' : tone === 'emerald' ? 'bg-emerald-600 text-white' : 'bg-sky-700 text-white hover:bg-sky-800'
     } ${FOCUS_B} ${className}`}
   >
     {children}
@@ -928,7 +948,7 @@ export const MenuRow: React.FC<{ icon: React.ReactNode; title: string; subtitle?
   accent,
 }) => (
   <button type="button" onClick={onClick} className={`w-full min-h-16 px-4 py-2 flex items-center gap-3 text-left bg-white ${FOCUS_B}`}>
-    <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${accent ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-700'}`}>{icon}</span>
+    <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${accent ? 'bg-sky-700 text-white' : 'bg-sky-100 text-sky-700'}`}>{icon}</span>
     <span className="flex-1 min-w-0">
       <span className={`block text-base font-bold truncate ${accent ? 'text-sky-700' : 'text-slate-900'}`}>{title}</span>
       {subtitle && <span className="block text-xs text-slate-700 truncate">{subtitle}</span>}
@@ -957,9 +977,9 @@ export const Screen: React.FC<{ children: React.ReactNode; className?: string; p
   <div className={`p-4 space-y-4 ${padBottom ? 'pb-24' : 'pb-6'} ${className}`}>{children}</div>
 );
 
-/** Carga incremental de 50 en 50 ("Ver 50 más"). */
-export function usePaged<T>(list: T[], size = 50) {
-  const [n, setN] = useState(size);
+/** Carga incremental de 50 en 50 ("Ver 50 más"). Con `stateKey` recuerda cuántos se ven al volver. */
+export function usePaged<T>(list: T[], size = 50, stateKey?: string) {
+  const [n, setN] = useViewState<number>(stateKey ?? null, size);
   const shown = list.slice(0, n);
   const more = list.length > n ? <SecondaryBtn className="w-full" onClick={() => setN((x) => x + size)}>{`Ver ${Math.min(size, list.length - n)} más`}</SecondaryBtn> : null;
   return { shown, more, reset: () => setN(size) };

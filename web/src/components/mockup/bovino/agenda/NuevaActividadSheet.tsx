@@ -4,7 +4,7 @@ import { Pill, Users } from 'lucide-react';
 import { itemBovinoCategory } from '../../../../models/bovinoCalc';
 import { useBovino } from '../context';
 import { AnimalSearch, ItemPickerSheet, LotPickerSheet } from '../pickers';
-import { Chips, DateField, ErrorBox, Field, FOCUS_B, FormSheet, PickerButton, PrimaryBtn, TextField, useDomainRunner } from '../ui';
+import { Chips, DateField, ErrorBox, Field, FOCUS_B, FormSheet, PickerButton, PrimaryBtn, RemovableChip, TextField, useDomainRunner } from '../ui';
 
 const TITLES = ['Vacunación', 'Desparasitación', 'Vitaminas', 'Palpación', 'Baño garrapaticida', 'Otro'];
 
@@ -76,9 +76,7 @@ export const NuevaActividadSheet: React.FC<{ lotId?: string; animalIds?: string[
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
             {ids.map((x) => (
-              <button key={x} type="button" onClick={() => setIds((l) => l.filter((y) => y !== x))} className={`h-10 px-3 rounded-full bg-sky-600 text-white text-sm font-bold ${FOCUS_B}`}>
-                #{index.views.get(x)?.tag} ✕
-              </button>
+              <RemovableChip key={x} label={`#${index.views.get(x)?.tag}`} onRemove={() => setIds((l) => l.filter((y) => y !== x))} />
             ))}
           </div>
           <AnimalSearch excludeIds={ids} onPick={(v) => setIds((l) => [...l, v.id])} />

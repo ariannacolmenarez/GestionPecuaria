@@ -78,7 +78,7 @@ const EventDetailSheet: React.FC<{ event: BovinoEvent; onClose: () => void }> = 
   const canDelete = perms.administrar || (event.createdBy === me.uid && event.date === today && event.createdAt?.slice(0, 10) === today);
   const x = event as any;
   return (
-    <BottomSheet title={d.title} subtitle={fdy(event.date)} icon={<d.Icon className="w-5 h-5" />} iconClass="bg-sky-100 text-sky-700" onClose={onClose}>
+    <BottomSheet title={d.title} subtitle={fdy(event.date)} icon={<d.Icon className="w-5 h-5" />} iconClass="bg-sky-100 text-sky-700" onClose={onClose} dirty={asking && !!reason.trim()}>
       <div className="grid grid-cols-2 gap-3">
         <KV k="Registrado por" v={event.createdByName || 'Sistema'} />
         <KV k="Hora" v={event.createdAt ? hm(event.createdAt) : '—'} />

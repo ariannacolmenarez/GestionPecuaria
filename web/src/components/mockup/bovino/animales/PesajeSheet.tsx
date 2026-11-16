@@ -40,11 +40,11 @@ export const PesajeSheet: React.FC<{ animalId: string; onClose: () => void }> = 
         <DateField value={date} onChange={setDate} />
       </Field>
       <Field label="Peso" hint={v.weightKg !== null ? `Último peso: ${num(v.weightKg, 1)} kg · ${fd(v.weightDate)} (hace ${v.daysSinceWeigh ?? '?'} d)` : 'Primer pesaje del animal'}>
-        <BigNumberInput decimal value={kg} onChange={setKg} unit="kg" ariaLabel="Peso en kg" onEnter={save} />
+        <BigNumberInput decimal value={kg} onChange={setKg} unit="kg" ariaLabel="Peso en kg" onEnter={save} autoFocus />
       </Field>
       {gmd !== null && (
         <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-slate-900">GMD del tramo:</span>
+          <span className="text-sm font-bold text-slate-900">Ganancia diaria desde el último pesaje:</span>
           <GmdChip gmd={Math.round(gmd * 1000) / 1000} color={gmdColorOf(gmd, config)} />
         </div>
       )}

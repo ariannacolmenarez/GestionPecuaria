@@ -1,120 +1,122 @@
-import React, { useState } from 'react';
-import { Settings, X, Database, CheckCircle2, RefreshCw, LogOut, UserCircle2 } from 'lucide-react';
+import React, { useId, useState } from 'react';
+import { Settings, CheckCircle2, LogOut, UserCircle2, CloudOff, CloudUpload } from 'lucide-react';
+import { Btn, ConfirmDialog, ModalHeader, useBackClose } from '../../components/common/ui';
 
 interface SettingsModalViewProps {
   onClose: () => void;
   /** Nombre real de la granja (summary.name). */
   farmName?: string;
   location?: string;
-  /** Re-sincroniza el estado local con la base de datos. */
-  onResync?: () => void | Promise<void>;
   /** Sesión actual. */
   userEmail?: string;
   userName?: string;
   userRole?: string;
   onSignOut?: () => void | Promise<void>;
+  /** Conexión y cambios aún sin subir (para avisar antes de cerrar sesión). */
+  online?: boolean;
+  pendingSync?: boolean;
 }
 
-export const SettingsModalView: React.FC<SettingsModalViewProps> = ({
-  onClose,
-  farmName,
-  location,
-  onResync,
-  userEmail,
-  userName,
-  userRole,
-  onSignOut,
-}) => {
-  const [busy, setBusy] = useState(false);
+/** Texto del aviso al cerrar sesión según el estado de la conexión. */
+export function signOutWarning(online = true, pendingSync = false): string {
+  if (!online) return 'No hay señal: lo que registraste sin conexión podría no haber subido a la nube todavía. Si cierras sesión ahora, podrías perderlo.';
+  if (pendingSync) return 'Todavía se están subiendo cambios a la nube. Espera a ver "Todo guardado" antes de salir.';
+  return 'Tendrás que volver a escribir tu correo y contraseña para entrar.';
+}
 
-  const run = async (fn?: () => void | Promise<void>) => {
-    if (!fn) return;
+const Label: React.FC<{ children: React.ReactNode }> = ({ children }) => <span className="block text-xs font-bold text-slate-600 mb-0.5">{children}</span>;
+
+export const SettingsModalView: React.FC<SettingsModalViewProps> = ({ onClose, farmName, location, userEmail, userName, userRole, onSignOut, online = true, pendingSync = false }) => {
+  const titleId = useId();
+  const [busy, setBusy] = useState(false);
+  const [askSignOut, setAskSignOut] = useState(false);
+  const { requestClose } = useBackClose(true, onClose);
+
+  const signOut = async () => {
+    if (!onSignOut) return;
     setBusy(true);
     try {
-      await fn();
+      await onSignOut();
     } finally {
       setBusy(false);
+      setAskSignOut(false);
     }
   };
 
+  const risky = !online || pendingSync;
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white text-slate-900 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3.5 text-xs max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-          <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-            <Settings className="w-4 h-4 text-slate-700" /> Configuración de la Granja
-          </h4>
-          <button onClick={onClose} aria-label="Cerrar" className="text-slate-400 hover:text-slate-600 w-10 h-10 flex items-center justify-center cursor-pointer">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3" onClick={(e) => e.target === e.currentTarget && requestClose()}>
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="bg-white text-slate-900 rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <ModalHeader title="Configuración de la granja" titleId={titleId} icon={<Settings />} onClose={requestClose} />
 
-        <div className="space-y-2">
-          <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-            <span className="text-[10px] text-slate-400 block font-bold">NOMBRE DE LA EXPLOTACIÓN</span>
-            <span className="font-bold text-slate-800 text-sm">{farmName || 'Sin nombre'}</span>
-            {location && <span className="block text-[11px] text-slate-500">{location}</span>}
+        <div className="p-4 space-y-3 overflow-y-auto text-sm">
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <Label>Nombre de la granja</Label>
+            <span className="font-bold text-slate-900 text-base">{farmName || 'Sin nombre'}</span>
+            {location && <span className="block text-xs text-slate-600">{location}</span>}
           </div>
-          <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-            <span className="text-[10px] text-slate-400 block font-bold">RUBROS HABILITADOS</span>
-            <span className="font-semibold text-slate-700">Porcino, Avícola y Bovino</span>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <Label>Rubros</Label>
+            <span className="font-semibold text-slate-800">Porcino, Avícola y Bovino</span>
           </div>
-          <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200">
-            <span className="text-[10px] text-emerald-600 block font-bold">BASE DE DATOS & SINCRONIZACIÓN</span>
-            <span className="font-semibold text-emerald-800 flex items-center gap-1.5">
-              <Database className="w-3.5 h-3.5 text-emerald-600" /> Conectado a Firebase Cloud Firestore
-            </span>
-            <span className="text-[11px] text-emerald-700 flex items-center gap-1.5 mt-0.5">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Datos compartidos entre los miembros de la granja
-            </span>
-          </div>
-        </div>
-
-        {userEmail && (
-          <div className="space-y-2 border-t border-slate-100 pt-3">
-            <span className="text-[10px] text-slate-400 block font-bold">SESIÓN</span>
-            <div className="flex items-center gap-2.5 p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-              <UserCircle2 className="w-8 h-8 text-slate-400 shrink-0" />
-              <div className="min-w-0">
-                <p className="font-bold text-slate-800 truncate">{userName || userEmail}</p>
-                <p className="text-[11px] text-slate-500 truncate">
-                  {userEmail}
-                  {userRole ? ` · ${userRole}` : ''}
-                </p>
-              </div>
-            </div>
-            {onSignOut && (
-              <button
-                disabled={busy}
-                onClick={() => run(onSignOut)}
-                className="w-full min-h-10 py-2 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-              >
-                <LogOut className="w-3.5 h-3.5" /> Cerrar sesión
-              </button>
+          <div className={`p-3 rounded-xl border ${!online ? 'bg-amber-50 border-amber-300' : 'bg-emerald-50 border-emerald-200'}`}>
+            <Label>Guardado de datos</Label>
+            {!online ? (
+              <span className="font-semibold text-amber-900 flex items-start gap-1.5">
+                <CloudOff className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" /> Sin señal: lo que registres se guarda en el teléfono y se sube solo al volver la conexión.
+              </span>
+            ) : pendingSync ? (
+              <span className="font-semibold text-sky-900 flex items-start gap-1.5">
+                <CloudUpload className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" /> Subiendo cambios a la nube…
+              </span>
+            ) : (
+              <span className="font-semibold text-emerald-900 flex items-start gap-1.5">
+                <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" /> Todo guardado en la nube. Se comparte solo con los miembros de la granja.
+              </span>
             )}
           </div>
-        )}
 
-        {onResync && (
-          <div className="space-y-2 border-t border-slate-100 pt-3">
-            <span className="text-[10px] text-slate-400 block font-bold">GESTIÓN DE DATOS</span>
-            <button
-              disabled={busy}
-              onClick={() => run(onResync)}
-              className="w-full min-h-10 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Sincronizar con la base de datos
-            </button>
-          </div>
-        )}
+          {userEmail && (
+            <div className="space-y-2 border-t border-slate-200 pt-3">
+              <Label>Sesión</Label>
+              <div className="flex items-center gap-2.5 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <UserCircle2 className="w-9 h-9 text-slate-500 shrink-0" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="font-bold text-slate-900 truncate">{userName || userEmail}</p>
+                  <p className="text-xs text-slate-600 truncate">
+                    {userEmail}
+                    {userRole ? ` · ${userRole}` : ''}
+                  </p>
+                </div>
+              </div>
+              {onSignOut && (
+                <Btn variant="secondary" block disabled={busy} onClick={() => setAskSignOut(true)} icon={<LogOut />} className="text-rose-700 border-rose-300">
+                  Cerrar sesión
+                </Btn>
+              )}
+            </div>
+          )}
+        </div>
 
-        <button
-          onClick={onClose}
-          className="w-full min-h-10 py-2.5 bg-slate-900 text-white rounded-xl font-bold mt-2 cursor-pointer hover:bg-slate-800 transition-colors shadow-xs"
-        >
-          Cerrar
-        </button>
+        <div className="p-3 border-t border-slate-200 shrink-0">
+          <Btn variant="primary" rubro="general" block size="lg" onClick={requestClose}>
+            Listo
+          </Btn>
+        </div>
       </div>
+
+      {askSignOut && (
+        <ConfirmDialog
+          title="¿Cerrar sesión?"
+          message={<p>{signOutWarning(online, pendingSync)}</p>}
+          confirmLabel={risky ? 'Salir de todos modos' : 'Cerrar sesión'}
+          danger={risky}
+          icon={<LogOut className="w-6 h-6" />}
+          onConfirm={() => void signOut()}
+          onCancel={() => setAskSignOut(false)}
+        />
+      )}
     </div>
   );
 };

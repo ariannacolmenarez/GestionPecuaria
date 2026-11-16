@@ -50,7 +50,7 @@ export const SanidadHub: React.FC = () => {
           <ul className="space-y-2">
             {retiros.map((v) => (
               <li key={v.id}>
-                <button type="button" onClick={() => navigate({ s: 'animal', id: v.id }, 'hato')} className={`w-full min-h-14 p-3 rounded-xl bg-white border border-rose-200 flex items-center gap-3 text-left ${FOCUS_B}`}>
+                <button type="button" onClick={() => navigate({ s: 'animal', id: v.id })} className={`w-full min-h-14 p-3 rounded-xl bg-white border border-rose-200 flex items-center gap-3 text-left ${FOCUS_B}`}>
                   <span className="text-lg font-black tabular-nums text-slate-900">#{v.tag}</span>
                   <span className="flex-1 min-w-0 text-xs text-slate-800 truncate">{v.withdrawal.products.join(', ') || 'Tratamiento'}</span>
                   <span className="flex flex-col items-end gap-1">
@@ -146,13 +146,12 @@ export const EvaluarSheet: React.FC<{ eventId: string; onClose: () => void }> = 
       icon={<Stethoscope className="w-5 h-5" />}
       iconClass="bg-sky-100 text-sky-700"
       onClose={onClose}
+      dirty={!!res || !!note.trim()}
+      error={error}
       footer={
-        <div className="space-y-2">
-          <ErrorBox error={error} />
-          <PrimaryBtn className="w-full" disabled={!res} onClick={save}>
-            Guardar evaluación
-          </PrimaryBtn>
-        </div>
+        <PrimaryBtn className="w-full" disabled={!res} onClick={save}>
+          Guardar evaluación
+        </PrimaryBtn>
       }
     >
       <Chips

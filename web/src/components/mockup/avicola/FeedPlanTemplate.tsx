@@ -17,11 +17,11 @@ import {
 } from '../../../models/avicolaReference';
 import type { AvicolaStage } from '../../../models/FarmModel';
 import { useAvicola } from './context';
-import { ConfirmDialog, ErrorBox, FOCUS, FormSheet, PrimaryButton } from './shared';
+import { ConfirmDialog, FOCUS, FormSheet, PrimaryButton } from './shared';
 
 type PointRow = { uid: string; day: string; grams: string };
 
-const field = `w-full h-10 rounded-xl bg-slate-50 border border-slate-200 px-3 text-sm text-slate-900 ${FOCUS}`;
+const field = `w-full h-11 rounded-xl bg-slate-50 border border-slate-300 px-3 text-base text-slate-900 ${FOCUS}`;
 const numField = `${field} text-center font-bold`;
 const digits = (v: string) => v.replace(/[^0-9]/g, '');
 
@@ -40,6 +40,7 @@ export const FeedPlanTemplateSheet: React.FC<{ onClose: () => void }> = ({ onClo
   const [error, setError] = useState<string | null>(null);
   const [askReset, setAskReset] = useState(false);
   const [seq, setSeq] = useState(0);
+  const [attempt, setAttempt] = useState(0);
 
   const draft = (): Omit<AvicolaFeedTemplateDoc, 'id'> => ({
     points: points.map((p) => ({ day: Number(p.day), grams: Number(p.grams) })),
@@ -76,6 +77,7 @@ export const FeedPlanTemplateSheet: React.FC<{ onClose: () => void }> = ({ onClo
 
   const save = () => {
     setError(null);
+    setAttempt((a) => a + 1);
     const res = saveFeedTemplate(draft());
     if ('error' in res) return setError(res.error);
     onClose();
@@ -98,12 +100,14 @@ export const FeedPlanTemplateSheet: React.FC<{ onClose: () => void }> = ({ onClo
       question="¿Cuánto y qué comen tus pollos?"
       onClose={onClose}
       dirty={dirty}
+      error={error}
+      errorKey={attempt}
       footer={
         <div className="space-y-2">
           <PrimaryButton tone="emerald" onClick={save} className="w-full h-12">
             Guardar plan
           </PrimaryButton>
-          <p className="text-[10px] text-slate-500 text-center">Se aplica a todos los lotes: consumo diario, alimento restante y etapas.</p>
+          <p className="text-xs text-slate-700 text-center">Se aplica a todos los lotes: consumo diario, alimento restante y etapas.</p>
         </div>
       }
     >
@@ -117,32 +121,31 @@ export const FeedPlanTemplateSheet: React.FC<{ onClose: () => void }> = ({ onClo
           onCancel={() => setAskReset(false)}
         />
       )}
-      <ErrorBox error={error} />
 
       {/* Etapas y alimento por etapa */}
       <section className="rounded-2xl border border-emerald-200 bg-white p-3 space-y-3">
         <h4 className="text-sm font-bold text-slate-900">Etapas y alimento</h4>
         {AVICOLA_STAGES.map((stage) => (
           <div key={stage} className="space-y-1.5">
-            <div className="flex items-center gap-2 text-xs text-slate-700">
+            <div className="flex items-center gap-2 text-sm text-slate-800">
               <span className="font-bold text-slate-900 w-24 shrink-0">{stage}</span>
               {stage === 'Preinicio' && (
                 <>
                   <span>del día 1 al</span>
-                  <input aria-label="Último día de Preinicio" inputMode="numeric" value={pe} onChange={(e) => setPe(digits(e.target.value))} className={`${numField} w-16`} />
+                  <input aria-label="Último día de Preinicio" inputMode="numeric" value={pe} onChange={(e) => setPe(digits(e.target.value))} className={`${numField} !w-16`} />
                 </>
               )}
               {stage === 'Inicio' && (
                 <>
                   <span>hasta el día</span>
-                  <input aria-label="Último día de Inicio" inputMode="numeric" value={ie} onChange={(e) => setIe(digits(e.target.value))} className={`${numField} w-16`} />
+                  <input aria-label="Último día de Inicio" inputMode="numeric" value={ie} onChange={(e) => setIe(digits(e.target.value))} className={`${numField} !w-16`} />
                 </>
               )}
               {stage === 'Engorde' && <span>hasta que empieza la Finalización</span>}
               {stage === 'Finalización' && (
                 <>
                   <span>últimos</span>
-                  <input aria-label="Días de Finalización" inputMode="numeric" value={fd} onChange={(e) => setFd(digits(e.target.value))} className={`${numField} w-16`} />
+                  <input aria-label="Días de Finalización" inputMode="numeric" value={fd} onChange={(e) => setFd(digits(e.target.value))} className={`${numField} !w-16`} />
                   <span>días</span>
                 </>
               )}
@@ -158,7 +161,7 @@ export const FeedPlanTemplateSheet: React.FC<{ onClose: () => void }> = ({ onClo
           </div>
         ))}
         {preview && (
-          <p className="text-[11px] text-slate-600 bg-emerald-50 rounded-xl p-2">
+          <p className="text-sm text-slate-800 bg-emerald-50 rounded-xl p-2">
             Con un ciclo de {preview.P} días:{' '}
             {preview.ranges.map((r) => `${r.stage} ${r.fromDay}-${r.toDay}`).join(' · ')}
           </p>
@@ -169,42 +172,42 @@ export const FeedPlanTemplateSheet: React.FC<{ onClose: () => void }> = ({ onClo
       <section className="rounded-2xl border border-slate-200 bg-white p-3 space-y-3">
         <div>
           <h4 className="text-sm font-bold text-slate-900">Consumo por pollo (gramos al día)</h4>
-          <p className="text-[11px] text-slate-500">Indica el consumo en algunos días clave; entre ellos se calcula automáticamente.</p>
+          <p className="text-xs text-slate-600">Indica el consumo en algunos días clave; entre ellos se calcula automáticamente.</p>
         </div>
-        <div className="grid grid-cols-[1fr_1fr_2.5rem] gap-2 text-[11px] font-bold text-slate-500 px-1">
+        <div className="grid grid-cols-[1fr_1fr_2.75rem] gap-2 text-xs font-bold text-slate-700 px-1">
           <span>Día de vida</span>
           <span>g por pollo</span>
           <span />
         </div>
         <ul className="space-y-2">
           {sorted.map((p) => (
-            <li key={p.uid} className="grid grid-cols-[1fr_1fr_2.5rem] gap-2 items-center">
+            <li key={p.uid} className="grid grid-cols-[1fr_1fr_2.75rem] gap-2 items-center">
               <input aria-label="Día de vida" inputMode="numeric" value={p.day} onChange={(e) => patchPoint(p.uid, { day: digits(e.target.value) })} className={numField} />
               <input aria-label={`Gramos el día ${p.day}`} inputMode="numeric" value={p.grams} onChange={(e) => patchPoint(p.uid, { grams: digits(e.target.value) })} className={numField} />
               <button
                 type="button"
                 aria-label={`Quitar día ${p.day}`}
                 onClick={() => setPoints((ps) => ps.filter((x) => x.uid !== p.uid))}
-                className={`w-10 h-10 rounded-xl text-rose-600 hover:bg-rose-50 flex items-center justify-center ${FOCUS}`}
+                className={`w-11 h-11 rounded-xl text-rose-700 hover:bg-rose-50 flex items-center justify-center ${FOCUS}`}
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-5 h-5" />
               </button>
             </li>
           ))}
         </ul>
         {preview && (
-          <p className="text-[11px] text-slate-600 bg-slate-50 rounded-xl p-2 flex items-center gap-1.5">
-            <Wheat className="w-4 h-4 text-amber-600 shrink-0" />
+          <p className="text-sm text-slate-800 bg-slate-50 rounded-xl p-2 flex items-center gap-1.5">
+            <Wheat className="w-4 h-4 text-amber-700 shrink-0" aria-hidden="true" />
             Consumo total por pollo en {preview.P} días: <strong>{preview.totalKg.toFixed(2)} kg</strong>
           </p>
         )}
       </section>
 
       <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={addPoint} className={`h-11 rounded-xl bg-emerald-50 text-emerald-800 font-bold text-sm flex items-center justify-center gap-1.5 ${FOCUS}`}>
+        <button type="button" onClick={addPoint} className={`h-11 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-sm flex items-center justify-center gap-1.5 ${FOCUS}`}>
           <Plus className="w-4 h-4" /> Agregar día
         </button>
-        <button type="button" onClick={() => setAskReset(true)} className={`h-11 rounded-xl bg-slate-100 text-slate-700 font-bold text-sm flex items-center justify-center gap-1.5 ${FOCUS}`}>
+        <button type="button" onClick={() => setAskReset(true)} className={`h-11 rounded-xl bg-slate-100 border border-slate-300 text-slate-800 font-bold text-sm flex items-center justify-center gap-1.5 ${FOCUS}`}>
           <RotateCcw className="w-4 h-4" /> Restaurar
         </button>
       </div>

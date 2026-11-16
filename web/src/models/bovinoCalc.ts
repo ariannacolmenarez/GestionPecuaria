@@ -1592,7 +1592,7 @@ export function bovinoAgenda(data: BovinoData, idx: BovinoIndex, tasks: Sanitary
       if (r.pregnant && r.lactating && r.dryOffDate && r.dryOffDate <= today)
         push({ id: `secar:${v.id}`, kind: 'secar', priority: 'alta', date: r.dryOffDate, title: `Vaca ${v.label}: secar${r.dryOffDate < today ? '' : ' hoy'}`, detail: `Parto probable el ${formatShortDate(r.fpp || '')}.`, animalId: v.id, lotId: v.lotId, manga: true });
       if (!r.pregnant && r.state !== 'servida' && r.lastCalvingDate && r.pevDate && r.pevDate <= today && r.servicesSinceCalving === 0)
-        push({ id: `pev:${v.id}`, kind: 'pev', priority: 'media', date: r.pevDate, title: `Vaca ${v.label}: cumple PEV`, detail: `Lista para servicio / IATF (${r.daysSinceCalving} días posparto).`, animalId: v.id, lotId: v.lotId, manga: true });
+        push({ id: `pev:${v.id}`, kind: 'pev', priority: 'media', date: r.pevDate, title: `Vaca ${v.label}: lista para servir`, detail: `Ya puede recibir monta o inseminación (${r.daysSinceCalving} días posparto).`, animalId: v.id, lotId: v.lotId, manga: true });
       if (r.fpp && daysBetween(today, r.fpp) <= cfg.calvingAlertDays)
         push({ id: `parto:${v.id}`, kind: 'parto', priority: daysBetween(today, r.fpp) <= 3 ? 'alta' : 'media', date: r.fpp, title: `Vaca ${v.label}: parto próximo`, detail: r.fpp < today ? `Fecha probable de parto: ${formatShortDate(r.fpp)} (hace ${daysBetween(r.fpp, today)} días).` : `Fecha probable de parto: ${formatShortDate(r.fpp)} (en ${daysBetween(today, r.fpp)} días).`, animalId: v.id, lotId: v.lotId, manga: false, overdue: r.fpp < today });
     }

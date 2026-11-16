@@ -59,7 +59,10 @@ export interface BovinoCtx {
   members: BovinoMember[];
   // ---- Navegación ----
   route: BovinoRoute;
-  /** Abre una pantalla encima de la actual (en la sección actual o en otra). */
+  /**
+   * Abre una pantalla ENCIMA de la actual (Atrás vuelve a donde estaba el usuario).
+   * `section` solo se usa con { s: 'root' } (ir a la raíz de otra sección).
+   */
   navigate: (screen: BovinoScreen, section?: BovinoSection) => void;
   /** Cambia de sección (reinicia en su raíz). */
   goSection: (section: BovinoSection) => void;
@@ -70,6 +73,8 @@ export interface BovinoCtx {
   /** Abre un formulario del módulo. */
   openSheet: (sheet: BovinoSheet) => void;
   closeSheet: () => void;
+  /** Capa fuera del scroll donde flota el botón "+" (Fab) de la pantalla. */
+  fabRoot: HTMLElement | null;
 }
 
 export const BovinoContext = createContext<BovinoCtx | null>(null);

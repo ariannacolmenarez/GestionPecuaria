@@ -13,9 +13,9 @@ export const MasMenu: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
         <MenuRow icon={<Package className="w-5 h-5" />} title="Almacén bovino" subtitle="Alimentos, minerales, farmacia y otros" badge={home.criticalItems + expired} onClick={() => navigate({ s: 'almacen' })} />
         {perms.verBalance && <MenuRow icon={<Calculator className="w-5 h-5" />} title="Balance" subtitle="Ceba vs leche y cría · liquidaciones" onClick={() => navigate({ s: 'balance' })} />}
-        {perms.manejo && <MenuRow icon={<ChartBar className="w-5 h-5" />} title="Reportes y KPIs" subtitle="GMD, conversión, preñez, IEP" onClick={() => navigate({ s: 'reportes' })} />}
+        {perms.manejo && <MenuRow icon={<ChartBar className="w-5 h-5" />} title="Reportes y KPIs" subtitle="Engorde, preñez, partos y leche" onClick={() => navigate({ s: 'reportes' })} />}
         <MenuRow icon={<FileDown className="w-5 h-5" />} title="Exportar y respaldo" subtitle={perms.exportarMontos ? 'PDF, Excel y copia completa' : 'Lista de ganado y ordeño'} onClick={() => navigate({ s: 'exportar' })} />
-        {perms.manejo && <MenuRow icon={<Settings className="w-5 h-5" />} title="Configuración bovina" subtitle={perms.config ? 'Moneda, tasa, topes, prorrateo' : 'Parámetros reproductivos y plan sanitario'} onClick={() => navigate({ s: 'config' })} />}
+        {perms.manejo && <MenuRow icon={<Settings className="w-5 h-5" />} title="Configuración bovina" subtitle={perms.config ? 'Moneda, tasa del día, límites y reparto de gastos' : 'Datos de reproducción y plan sanitario'} onClick={() => navigate({ s: 'config' })} />}
         {perms.bitacora && <MenuRow icon={<ScrollText className="w-5 h-5" />} title="Bitácora" subtitle="Quién registró o eliminó cada dato" onClick={() => navigate({ s: 'bitacora' })} />}
         <MenuRow icon={<HomeIcon className="w-5 h-5" />} title="Volver a la granja" accent onClick={exitModule} />
       </div>

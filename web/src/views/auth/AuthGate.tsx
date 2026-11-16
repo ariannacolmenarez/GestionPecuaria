@@ -249,7 +249,7 @@ const LoginForm: React.FC = () => {
       </div>
 
       {mode === 'register' && (
-        <p className="text-[11px] text-slate-600 bg-emerald-50 border border-emerald-100 rounded-xl p-2.5">
+        <p className="text-xs text-slate-700 bg-emerald-50 border border-emerald-100 rounded-xl p-2.5">
           Usa el correo con el que te invitaron. El primer usuario de la granja queda como Administrador.
         </p>
       )}
@@ -278,9 +278,9 @@ const LoginForm: React.FC = () => {
             type="button"
             aria-label={show ? 'Ocultar contraseña' : 'Mostrar contraseña'}
             onClick={() => setShow((v) => !v)}
-            className="absolute right-1 top-1 w-10 h-10 flex items-center justify-center text-slate-500"
+            className="absolute right-0.5 top-1/2 -translate-y-1/2 w-11 h-11 rounded-lg flex items-center justify-center text-slate-700 hover:bg-slate-100"
           >
-            {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {show ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
           </button>
         </div>
       </label>

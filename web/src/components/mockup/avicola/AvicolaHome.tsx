@@ -59,11 +59,11 @@ const LoteCard: React.FC<{ card: AvicolaLotCard; onOpen: () => void; onAction: (
       >
         <div className={`h-24 relative flex items-center justify-center ${finished ? 'bg-slate-100' : 'bg-amber-50'}`}>
           <Bird className={`w-14 h-14 ${finished ? 'text-slate-300' : 'text-amber-300'}`} />
-          <span className={`absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${finished ? 'bg-slate-200 text-slate-700' : st.chip}`}>
+          <span className={`absolute top-2 left-2 text-xs font-bold px-2 py-0.5 rounded-full ${finished ? 'bg-slate-200 text-slate-700' : st.chip}`}>
             {finished ? 'Finalizado' : stage.notStarted ? 'Por iniciar' : stage.stage}
           </span>
           {showReady && (
-            <span className="absolute bottom-2 left-2 bg-amber-400 text-slate-900 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+            <span className="absolute bottom-2 left-2 bg-amber-400 text-slate-900 text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-slate-900" /> Para vender
             </span>
           )}
@@ -75,16 +75,16 @@ const LoteCard: React.FC<{ card: AvicolaLotCard; onOpen: () => void; onAction: (
               <div className="flex flex-wrap items-baseline justify-between gap-x-1">
                 <p className="tabular-nums whitespace-nowrap">
                   <span className="text-xl font-black text-slate-900">{stage.notStarted ? 'Día —' : `Día ${stage.day}`}</span>
-                  <span className="text-sm text-slate-400"> / {stage.productionDays}</span>
+                  <span className="text-sm text-slate-600"> / {stage.productionDays}</span>
                 </p>
-                <span className={`text-[11px] font-bold whitespace-nowrap ${stage.readyToSell ? 'text-amber-700' : 'text-slate-500'}`}>
+                <span className={`text-xs font-bold whitespace-nowrap ${stage.readyToSell ? 'text-amber-700' : 'text-slate-600'}`}>
                   {stage.notStarted ? `en ${1 - stage.day} d` : stage.readyToSell ? 'listo' : `faltan ${stage.daysToSlaughter} d`}
                 </span>
               </div>
               <StageProgressBar day={stage.day} totalDays={stage.productionDays} ranges={stage.ranges} />
             </>
           )}
-          <ul className="text-[11px] space-y-0.5">
+          <ul className="text-xs space-y-0.5">
             {finished ? (
               <>
                 <Bullet cls="text-slate-600" dot="bg-slate-400">Vendidos {num0(birds.sold)}</Bullet>
@@ -92,20 +92,20 @@ const LoteCard: React.FC<{ card: AvicolaLotCard; onOpen: () => void; onAction: (
                   Balance {financials.balance >= 0 ? '+' : ''}
                   {usd(financials.balance)}
                 </Bullet>
-                {lot.finalizedAt && <Bullet cls="text-slate-500" dot="bg-slate-400">Finalizado el {shortDate(lot.finalizedAt)}</Bullet>}
+                {lot.finalizedAt && <Bullet cls="text-slate-600" dot="bg-slate-400">Finalizado el {shortDate(lot.finalizedAt)}</Bullet>}
               </>
             ) : (
               <>
                 <Bullet cls="text-amber-700" dot="bg-amber-500">{card.toSellLabel}</Bullet>
-                <Bullet cls={birds.deaths ? 'text-rose-700' : 'text-slate-500'} dot={birds.deaths ? 'bg-rose-500' : 'bg-slate-400'}>
+                <Bullet cls={birds.deaths ? 'text-rose-700' : 'text-slate-600'} dot={birds.deaths ? 'bg-rose-500' : 'bg-slate-400'}>
                   {card.deathsLabel}
                 </Bullet>
-                <Bullet cls={stage.slaughterPassed || stage.daysToSlaughter === 0 ? 'text-amber-700' : 'text-slate-500'} dot={stage.slaughterPassed ? 'bg-amber-500' : 'bg-slate-400'}>
+                <Bullet cls={stage.slaughterPassed || stage.daysToSlaughter === 0 ? 'text-amber-700' : 'text-slate-600'} dot={stage.slaughterPassed ? 'bg-amber-500' : 'bg-slate-400'}>
                   {card.slaughterLabel}
                 </Bullet>
                 {overdue > 0 && (
                   <li className="flex items-center gap-1 text-rose-700 font-semibold">
-                    <AlertTriangle className="w-3 h-3" /> {plural(overdue, 'tarea por hacer', 'tareas por hacer')}
+                    <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" /> {plural(overdue, 'tarea por hacer', 'tareas por hacer')}
                   </li>
                 )}
               </>
@@ -120,17 +120,17 @@ const LoteCard: React.FC<{ card: AvicolaLotCard; onOpen: () => void; onAction: (
           e.stopPropagation();
           setMenu((m) => !m);
         }}
-        className={`absolute top-1 right-1 w-10 h-10 rounded-full bg-white/90 text-slate-700 flex items-center justify-center ${FOCUS}`}
+        className={`absolute top-1 right-1 w-11 h-11 rounded-full bg-white/90 text-slate-700 flex items-center justify-center ${FOCUS}`}
       >
         <MoreVertical className="w-5 h-5" />
       </button>
       {menu && (
-        <div role="menu" className="absolute right-0 top-11 z-20 w-40 max-w-full bg-white rounded-xl shadow-lg border border-slate-200 py-1">
+        <div role="menu" className="absolute right-0 top-12 z-20 w-44 max-w-full bg-white rounded-xl shadow-lg border border-slate-200 py-1">
           {(
             [
               ['edit', 'Editar', <Pencil key="i" className="w-4 h-4" />, 'text-slate-800'],
               finished ? ['reactivate', 'Reactivar', <Undo2 key="i" className="w-4 h-4" />, 'text-slate-800'] : ['finalize', 'Finalizar lote', <Flag key="i" className="w-4 h-4" />, 'text-slate-800'],
-              ['delete', 'Eliminar', <Trash2 key="i" className="w-4 h-4" />, 'text-rose-600'],
+              ['delete', 'Eliminar', <Trash2 key="i" className="w-4 h-4" />, 'text-rose-700 font-semibold border-t border-slate-200 mt-1'],
             ] as [MenuAction, string, React.ReactNode, string][]
           ).map(([a, label, icon, cls]) => (
             <button
@@ -209,65 +209,29 @@ export const AvicolaHome: React.FC<{ onNewLot: () => void; openCalendarRequest?:
                 ? 'Sin lotes activos'
                 : `${num0(home.birdsInShed)} ${home.birdsInShed === 1 ? 'pollo' : 'pollos'} en galpón · ${home.todayTasks.length} ${home.todayTasks.length === 1 ? 'tarea' : 'tareas'} hoy`}
             </p>
-            <button aria-label="Calendario sanitario" onClick={() => setSheet('calendar')} className={`w-10 h-10 rounded-xl bg-white/80 border border-amber-200 text-slate-700 flex items-center justify-center ${FOCUS}`}>
+            <button aria-label="Calendario sanitario" onClick={() => setSheet('calendar')} className={`w-11 h-11 rounded-xl bg-white/80 border border-amber-200 text-slate-700 flex items-center justify-center ${FOCUS}`}>
               <CalendarDays className="w-5 h-5" />
             </button>
             <button
               aria-label={`Alertas avícolas${home.alertsCount ? `: ${home.alertsCount}` : ''}`}
               onClick={() => setSheet('alerts')}
-              className={`relative w-10 h-10 rounded-xl bg-white/80 border border-amber-200 text-slate-700 flex items-center justify-center ${FOCUS}`}
+              className={`relative w-11 h-11 rounded-xl bg-white/80 border border-amber-200 text-slate-700 flex items-center justify-center ${FOCUS}`}
             >
               <Bell className="w-5 h-5" />
               {home.alertsCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-rose-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-rose-700 text-white text-xs font-bold rounded-full flex items-center justify-center">
                   {home.alertsCount > 99 ? '99+' : home.alertsCount}
                 </span>
               )}
             </button>
           </div>
           <BalanceCard income={home.totalIncome} expenses={home.totalExpenses} scopeLabel="Todos los lotes" />
-          {/* Plantilla del plan sanitario: se aplica a cada lote nuevo (como los protocolos porcinos) */}
-          <button
-            onClick={() => setSheet('plan')}
-            className={`w-full flex items-center gap-3 bg-white rounded-2xl border border-indigo-200 p-3 text-left ${FOCUS}`}
-          >
-            <span className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-              <Syringe className="w-5 h-5" />
-            </span>
-            <span className="flex-1 min-w-0">
-              <span className="block text-sm font-bold text-slate-900">Plan de vacunas y cuidados</span>
-              <span className="block text-[11px] text-slate-500 truncate">
-                {planTemplate.length} actividades · {planTemplate.filter((p) => p.defaultEnabled).length} por defecto en cada lote nuevo
-              </span>
-            </span>
-            <span className="text-xs font-bold text-indigo-700 flex items-center gap-0.5 shrink-0">
-              Configurar <ChevronRight className="w-4 h-4" />
-            </span>
-          </button>
-          {/* Plan de alimentación: consumo diario, etapas y alimento por etapa de todos los lotes */}
-          <button
-            onClick={() => setSheet('feed')}
-            className={`w-full flex items-center gap-3 bg-white rounded-2xl border border-emerald-200 p-3 text-left ${FOCUS}`}
-          >
-            <span className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-              <Wheat className="w-5 h-5" />
-            </span>
-            <span className="flex-1 min-w-0">
-              <span className="block text-sm font-bold text-slate-900">Plan de alimentación</span>
-              <span className="block text-[11px] text-slate-500 truncate">
-                Preinicio 1-{feedTemplate.preinicioEnd} · Inicio hasta día {feedTemplate.inicioEnd} · Finalización {feedTemplate.finalizacionDays} días
-              </span>
-            </span>
-            <span className="text-xs font-bold text-emerald-700 flex items-center gap-0.5 shrink-0">
-              Configurar <ChevronRight className="w-4 h-4" />
-            </span>
-          </button>
         </div>
 
         <div className="px-4 space-y-3">
           <div className="flex items-baseline justify-between">
             <h3 className="text-lg font-black text-slate-900">Mis Lotes</h3>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-600">
               {home.activeCount} activos · {home.finishedCount} finalizados
             </span>
           </div>
@@ -286,7 +250,7 @@ export const AvicolaHome: React.FC<{ onNewLot: () => void; openCalendarRequest?:
               />
             </div>
           ) : home.activeCount === 0 ? (
-            <p className="text-xs text-slate-500 bg-white rounded-2xl border border-slate-200 p-4 text-center">No hay lotes activos. Toca «Nuevo lote» para empezar otro ciclo.</p>
+            <p className="text-xs text-slate-600 bg-white rounded-2xl border border-slate-200 p-4 text-center">No hay lotes activos. Toca «Nuevo lote» para empezar otro ciclo.</p>
           ) : (
             <div className="grid grid-cols-1 min-[340px]:grid-cols-2 gap-3">
               {home.activeLots.map((c) => (
@@ -297,7 +261,7 @@ export const AvicolaHome: React.FC<{ onNewLot: () => void; openCalendarRequest?:
 
           {home.finishedCount > 0 && (
             <div className="space-y-3 pt-1">
-              <button onClick={() => setShowFinished((s) => !s)} aria-expanded={showFinished} className={`h-10 text-sm font-bold text-slate-600 flex items-center gap-1 ${FOCUS}`}>
+              <button onClick={() => setShowFinished((s) => !s)} aria-expanded={showFinished} className={`h-11 text-sm font-bold text-slate-700 flex items-center gap-1 ${FOCUS}`}>
                 Finalizados ({home.finishedCount}) <ChevronDown className={`w-4 h-4 transition-transform ${showFinished ? 'rotate-180' : ''}`} />
               </button>
               {showFinished && (
@@ -309,6 +273,47 @@ export const AvicolaHome: React.FC<{ onNewLot: () => void; openCalendarRequest?:
               )}
             </div>
           )}
+
+          {/* Planes de la granja: se configuran una vez por ciclo, por eso van debajo de la lista */}
+          <div className="space-y-3 pt-3">
+            <h3 className="text-base font-black text-slate-900">Planes de la granja</h3>
+            {/* Plantilla del plan sanitario: se aplica a cada lote nuevo (como los protocolos porcinos) */}
+            <button
+              onClick={() => setSheet('plan')}
+              className={`w-full flex items-center gap-3 bg-white rounded-2xl border border-indigo-200 p-3 text-left ${FOCUS}`}
+            >
+              <span className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                <Syringe className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-bold text-slate-900">Plan de vacunas y cuidados</span>
+                <span className="block text-xs text-slate-700">
+                  {planTemplate.length} actividades · {planTemplate.filter((p) => p.defaultEnabled).length} por defecto en cada lote nuevo
+                </span>
+              </span>
+              <span className="text-xs font-bold text-indigo-700 flex items-center gap-0.5 shrink-0">
+                Configurar <ChevronRight className="w-4 h-4" />
+              </span>
+            </button>
+            {/* Plan de alimentación: consumo diario, etapas y alimento por etapa de todos los lotes */}
+            <button
+              onClick={() => setSheet('feed')}
+              className={`w-full flex items-center gap-3 bg-white rounded-2xl border border-emerald-200 p-3 text-left ${FOCUS}`}
+            >
+              <span className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <Wheat className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-bold text-slate-900">Plan de alimentación</span>
+                <span className="block text-xs text-slate-700">
+                  Preinicio 1-{feedTemplate.preinicioEnd} · Inicio hasta día {feedTemplate.inicioEnd} · Finalización {feedTemplate.finalizacionDays} días
+                </span>
+              </span>
+              <span className="text-xs font-bold text-emerald-700 flex items-center gap-0.5 shrink-0">
+                Configurar <ChevronRight className="w-4 h-4" />
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 
