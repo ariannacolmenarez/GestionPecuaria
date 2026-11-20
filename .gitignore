@@ -19,3 +19,5 @@ debug.keystore
 node_modules/
 .build-outputs/
 dist/
+
+backups/
