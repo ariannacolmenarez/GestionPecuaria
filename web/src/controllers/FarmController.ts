@@ -1192,6 +1192,21 @@ export function useFarmController() {
     [counts, finances]
   );
 
+  /** Cambia el nombre (y opcionalmente la ubicación) de la finca. Solo el Administrador lo ofrece en la UI. */
+  const renameFarm = useCallback(
+    (name: string, location?: string): string | null => {
+      const n = name.trim().replace(/\s+/g, ' ');
+      if (n.length < 2) return 'Escribe un nombre de al menos 2 letras.';
+      if (n.length > 60) return 'El nombre puede tener hasta 60 letras.';
+      const loc = location?.trim().replace(/\s+/g, ' ');
+      if (loc && loc.length > 100) return 'La ubicación puede tener hasta 100 letras.';
+      setSummaryMeta((prev) => ({ ...prev, name: n, location: loc ?? prev.location }));
+      triggerToast('Nombre de la finca actualizado', 'success');
+      return null;
+    },
+    [triggerToast]
+  );
+
   const handleInviteMember = useCallback((newMember: FarmMember) => {
     setSummaryMeta((prev) => ({
       ...prev,
@@ -1361,6 +1376,7 @@ Persistencia: Firebase Cloud Firestore (escrituras por lote) + caché offline.`;
 
     // Acciones
     triggerToast,
+    renameFarm,
     dismissToast,
     handleClearAllTestData,
     handleUpdateAnimals,

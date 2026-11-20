@@ -674,6 +674,7 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: App
           onSignOut={session.signOut}
           online={sync.online}
           pendingSync={sync.pendingSync}
+          onRenameFarm={ctrl.renameFarm}
         />
       )}
 

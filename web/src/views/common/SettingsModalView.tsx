@@ -1,6 +1,6 @@
 import React, { useId, useState } from 'react';
-import { Settings, CheckCircle2, LogOut, UserCircle2, CloudOff, CloudUpload } from 'lucide-react';
-import { Btn, ConfirmDialog, ModalHeader, useBackClose } from '../../components/common/ui';
+import { Settings, CheckCircle2, LogOut, UserCircle2, CloudOff, CloudUpload, Pencil } from 'lucide-react';
+import { Btn, ConfirmDialog, FieldError, FieldLabel, ModalHeader, fieldClass, inputClass, useBackClose } from '../../components/common/ui';
 
 interface SettingsModalViewProps {
   onClose: () => void;
@@ -15,6 +15,8 @@ interface SettingsModalViewProps {
   /** Conexión y cambios aún sin subir (para avisar antes de cerrar sesión). */
   online?: boolean;
   pendingSync?: boolean;
+  /** Cambia nombre/ubicación de la finca (solo Administrador). Devuelve un mensaje de error o null. */
+  onRenameFarm?: (name: string, location?: string) => string | null;
 }
 
 /** Texto del aviso al cerrar sesión según el estado de la conexión. */
@@ -26,11 +28,36 @@ export function signOutWarning(online = true, pendingSync = false): string {
 
 const Label: React.FC<{ children: React.ReactNode }> = ({ children }) => <span className="block text-xs font-bold text-slate-600 mb-0.5">{children}</span>;
 
-export const SettingsModalView: React.FC<SettingsModalViewProps> = ({ onClose, farmName, location, userEmail, userName, userRole, onSignOut, online = true, pendingSync = false }) => {
+export const SettingsModalView: React.FC<SettingsModalViewProps> = ({ onClose, farmName, location, userEmail, userName, userRole, onSignOut, online = true, pendingSync = false, onRenameFarm }) => {
   const titleId = useId();
+  const nameId = useId();
+  const locId = useId();
+  const errId = useId();
   const [busy, setBusy] = useState(false);
   const [askSignOut, setAskSignOut] = useState(false);
-  const { requestClose } = useBackClose(true, onClose);
+  const canEditFarm = !!onRenameFarm && userRole === 'Administrador';
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftLoc, setDraftLoc] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+  const dirty = editing && (draftName.trim() !== (farmName || '').trim() || draftLoc.trim() !== (location || '').trim());
+  const { requestClose, confirmDialog } = useBackClose(true, onClose, dirty);
+
+  const startEdit = () => {
+    setDraftName(farmName || '');
+    setDraftLoc(location || '');
+    setNameError(null);
+    setEditing(true);
+  };
+  const saveFarm = () => {
+    if (!onRenameFarm) return;
+    const err = onRenameFarm(draftName, draftLoc);
+    if (err) {
+      setNameError(err);
+      return;
+    }
+    setEditing(false);
+  };
 
   const signOut = async () => {
     if (!onSignOut) return;
@@ -51,11 +78,56 @@ export const SettingsModalView: React.FC<SettingsModalViewProps> = ({ onClose, f
         <ModalHeader title="Configuración de la granja" titleId={titleId} icon={<Settings />} onClose={requestClose} />
 
         <div className="p-4 space-y-3 overflow-y-auto text-sm">
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-            <Label>Nombre de la granja</Label>
-            <span className="font-bold text-slate-900 text-base">{farmName || 'Sin nombre'}</span>
-            {location && <span className="block text-xs text-slate-600">{location}</span>}
-          </div>
+          {editing ? (
+            <form
+              className="p-3 bg-slate-50 rounded-xl border border-slate-300 space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveFarm();
+              }}
+            >
+              <div>
+                <FieldLabel htmlFor={nameId}>Nombre de la finca</FieldLabel>
+                <input
+                  id={nameId}
+                  className={fieldClass(!!nameError, 'mt-1')}
+                  value={draftName}
+                  maxLength={60}
+                  autoFocus
+                  autoComplete="off"
+                  enterKeyHint="done"
+                  aria-invalid={!!nameError}
+                  aria-describedby={nameError ? errId : undefined}
+                  onChange={(e) => {
+                    setDraftName(e.target.value);
+                    if (nameError) setNameError(null);
+                  }}
+                />
+                <FieldError id={errId} error={nameError} />
+              </div>
+              <div>
+                <FieldLabel htmlFor={locId} hint="Opcional">Ubicación</FieldLabel>
+                <input id={locId} className={`${inputClass} mt-1`} value={draftLoc} maxLength={100} autoComplete="off" onChange={(e) => setDraftLoc(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Btn variant="secondary" onClick={() => setEditing(false)}>Cancelar</Btn>
+                <Btn type="submit">Guardar</Btn>
+              </div>
+            </form>
+          ) : (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <Label>Nombre de la finca</Label>
+                <span className="font-bold text-slate-900 text-base break-words">{farmName || 'Sin nombre'}</span>
+                {location && <span className="block text-xs text-slate-600">{location}</span>}
+              </div>
+              {canEditFarm && (
+                <Btn variant="secondary" icon={<Pencil className="w-4 h-4" aria-hidden="true" />} onClick={startEdit} aria-label="Cambiar el nombre de la finca">
+                  Editar
+                </Btn>
+              )}
+            </div>
+          )}
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
             <Label>Rubros</Label>
             <span className="font-semibold text-slate-800">Porcino, Avícola y Bovino</span>
@@ -117,6 +189,7 @@ export const SettingsModalView: React.FC<SettingsModalViewProps> = ({ onClose, f
           onCancel={() => setAskSignOut(false)}
         />
       )}
+      {confirmDialog}
     </div>
   );
 };
