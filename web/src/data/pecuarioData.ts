@@ -16,7 +16,7 @@ import { ageInDays, addDays, currentPeriodLabel, todayISO } from '../utils/dates
 import { newId } from '../utils/ids';
 
 export const granjaSummaryData: FarmSummary = {
-  name: 'Granja Arianna',
+  name: 'Mi finca',
   location: 'Sector El Recreo, Finca Ganadera & Porcina',
   totalMembers: 1,
   members: [

@@ -143,7 +143,7 @@ export const BovinoModule: React.FC<BovinoModuleProps> = (p) => {
       selectors: p.selectors,
       perms,
       me: p.member,
-      farmName: p.farmName || 'Mi Granja',
+      farmName: p.farmName || 'Mi finca',
       members: p.members,
       route,
       navigate,

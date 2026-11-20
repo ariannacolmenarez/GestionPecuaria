@@ -411,7 +411,7 @@ export interface SyncState {
 const PhoneShell: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: AppSession; sync: SyncState }> = ({ ctrl, nav, session, sync }) => {
   const { summary, mockupScreen, setMockupScreen, todayPendingTasks, overduePendingTasks, today } = ctrl;
   const bannerTasks = useMemo(() => [...overduePendingTasks, ...todayPendingTasks], [overduePendingTasks, todayPendingTasks]);
-  const farmName = summary.name || 'Mi Granja';
+  const farmName = summary.name || 'Mi finca';
   const inAvicola = mockupScreen === 'avicola';
   const inBovino = mockupScreen === 'bovino';
   // Usuario de la sesión para el módulo bovino (rol → permisos, createdBy en el dominio)
@@ -654,7 +654,7 @@ const GlobalModals: React.FC<{ ctrl: FarmController; nav: PhoneNav; session: App
         <MembersModalView
           me={session.member}
           members={session.members}
-          farmName={ctrl.summary.name || 'Mi Granja'}
+          farmName={ctrl.summary.name || 'Mi finca'}
           onClose={() => ctrl.setShowMembersModal(false)}
           onSignOut={session.signOut}
           notify={ctrl.triggerToast}

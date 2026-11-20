@@ -27,7 +27,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               Gestión Pecuaria • Arquitectura MVC & App
             </h1>
             <span className="hidden sm:inline-block text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold px-2 py-0.5 rounded-full">
-              Granja Arianna
+              Mi finca
             </span>
           </div>
           <p className="text-[11px] text-slate-400 hidden md:block">
